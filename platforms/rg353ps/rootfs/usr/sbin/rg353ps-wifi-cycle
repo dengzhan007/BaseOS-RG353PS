@@ -1,0 +1,214 @@
+#!/bin/sh
+# RG353PS: unbind / rebind the SDIO WiFi combo so the MMC core can cut vcc_wifi
+# in deep sleep and bring the card back afterwards.
+#
+# Why this exists
+# ---------------
+# drivers/net/wireless/realtek/rtw88/sdio.c
+#   rtw_sdio_suspend() -> sdio_set_host_pm_flags(func, MMC_PM_KEEP_POWER)
+#   rtw_sdio_resume()  -> return 0;        (no re-init at all)
+#
+# While that function driver stays bound, mmc_sdio_suspend() sees
+# mmc_card_keep_power()==true and never calls mmc_power_off(), so vcc_wifi keeps
+# feeding the chip for the entire sleep.  Worse, once the DTS
+# "keep-power-in-suspend" is removed, sdio_set_host_pm_flags() rejects the flag
+# (host->pm_caps no longer carries MMC_PM_KEEP_POWER) and returns -EINVAL, which
+# rtw_sdio_suspend() propagates to the PM core - a failing device suspend can
+# abort the whole system suspend.
+#
+# Unbinding the function driver before sleep sidesteps both problems:
+#   * no driver claims KEEP_POWER  -> mmc_power_off() really cuts vcc_wifi
+#   * resume -> mmc_sdio_reinit_card() re-enumerates the card
+#   * rebinding runs the full probe path, which re-downloads firmware and
+#     re-creates wlan0
+#
+# Modes
+#   status       show which SDIO function is bound and whether wlan0 exists
+#   unbind       detach the rtw88 SDIO function driver (call before sleep)
+#   bind         re-attach it and wait for wlan0 (call after wake)
+#   cycle-test   unbind then bind immediately - validates recovery WITHOUT
+#                suspending, so a bad kernel/DTB combination cannot leave the
+#                device without WiFi across a sleep
+set -u
+
+STATE=/run/rg353ps-wifi-cycle.state
+BIND_TIMEOUT=${BIND_TIMEOUT:-15}
+LOG_TO_KMSG=${LOG_TO_KMSG:-1}
+
+log() {
+  printf 'rg353ps-wifi-cycle: %s\n' "$*"
+  [ "$LOG_TO_KMSG" = 1 ] && printf 'rg353ps-wifi-cycle: %s\n' "$*" > /dev/kmsg 2>/dev/null
+  return 0
+}
+
+fail() {
+  printf 'rg353ps-wifi-cycle: ERROR: %s\n' "$*" >&2
+  [ "$LOG_TO_KMSG" = 1 ] && printf 'rg353ps-wifi-cycle: ERROR: %s\n' "$*" > /dev/kmsg 2>/dev/null
+  exit 1
+}
+
+# --- discovery --------------------------------------------------------------
+# A bound SDIO function looks like:
+#   /sys/bus/sdio/devices/mmc2:0001:1/driver -> .../drivers/rtw88_8821cs
+# We match on the driver name rather than vendor/device IDs so this keeps
+# working if the combo is ever driven by a different Realtek module.
+
+sdio_funcs() {
+  for d in /sys/bus/sdio/devices/*; do
+    [ -e "$d" ] || continue
+    printf '%s\n' "$(basename "$d")"
+  done
+}
+
+driver_of() {
+  # $1 = sdio function name
+  [ -e "/sys/bus/sdio/devices/$1/driver" ] || return 1
+  basename "$(readlink -f "/sys/bus/sdio/devices/$1/driver" 2>/dev/null)" 2>/dev/null
+}
+
+rtw_funcs() {
+  for f in $(sdio_funcs); do
+    drv=$(driver_of "$f") || continue
+    case "$drv" in
+      rtw88*|rtl88*) printf '%s %s\n' "$f" "$drv" ;;
+    esac
+  done
+}
+
+wlan_present() {
+  [ -e /sys/class/net/wlan0 ]
+}
+
+# --- actions ----------------------------------------------------------------
+
+do_status() {
+  log "=== SDIO functions ==="
+  for f in $(sdio_funcs); do
+    drv=$(driver_of "$f" || true)
+    log "  $f -> ${drv:-<unbound>}"
+  done
+  if wlan_present; then
+    log "wlan0: present"
+    [ -r /sys/class/net/wlan0/operstate ] && log "  operstate=$(cat /sys/class/net/wlan0/operstate)"
+  else
+    log "wlan0: absent"
+  fi
+  if [ -r /sys/class/net/wlan0/device/vendor ]; then
+    log "  vendor=$(cat /sys/class/net/wlan0/device/vendor) device=$(cat /sys/class/net/wlan0/device/device)"
+  fi
+  [ -e "$STATE" ] && log "state file: $(cat "$STATE" 2>/dev/null)"
+  return 0
+}
+
+do_unbind() {
+  if [ -e "$STATE" ]; then
+    log "already unbound ($(cat "$STATE" 2>/dev/null)); nothing to do"
+    return 0
+  fi
+
+  set -- $(rtw_funcs)
+  if [ -z "${1:-}" ]; then
+    log "no rtw88 SDIO function is bound; nothing to unbind"
+    return 0
+  fi
+
+  func=$1
+  drv=$2
+
+  # A live mac80211 interface can hold the function open. Down it first; if the
+  # user later brings up a supplicant this is what keeps rmmod/unbind reliable.
+  if wlan_present; then
+    ip link set wlan0 down 2>/dev/null || :
+  fi
+
+  log "unbinding $func from $drv"
+  if ! printf '%s\n' "$func" > "/sys/bus/sdio/drivers/$drv/unbind" 2>/dev/null; then
+    fail "unbind of $func from $drv failed"
+  fi
+
+  printf '%s %s\n' "$func" "$drv" > "$STATE" 2>/dev/null || :
+  log "unbound; vcc_wifi can now be cut by the MMC core (keep-power no longer requested)"
+  return 0
+}
+
+do_bind() {
+  want_func=
+  want_drv=
+  if [ -e "$STATE" ]; then
+    read -r want_func want_drv < "$STATE" 2>/dev/null || :
+  fi
+  if [ -z "${want_drv:-}" ]; then
+    # No state: fall back to whatever rtw88 driver is currently registered.
+    for d in /sys/bus/sdio/drivers/rtw88* /sys/bus/sdio/drivers/rtl88*; do
+      [ -d "$d" ] || continue
+      want_drv=$(basename "$d")
+      break
+    done
+  fi
+  [ -n "${want_drv:-}" ] || fail "no rtw88 SDIO driver directory present to bind to"
+
+  # After a real sleep the card was power-cycled, so the function device is
+  # re-created by mmc_sdio_reinit_card(). Re-read the name instead of trusting
+  # the cached one.
+  func=
+  for f in $(sdio_funcs); do
+    [ "$(driver_of "$f" 2>/dev/null || true)" = "" ] || continue
+    func=$f
+    break
+  done
+  [ -n "$func" ] || {
+    # Everything still bound already?
+    if rtw_funcs | grep -q .; then
+      log "function already bound; nothing to do"
+      rm -f "$STATE" 2>/dev/null || :
+      return 0
+    fi
+    fail "no unbound SDIO function found; card may not have re-enumerated"
+  }
+
+  log "binding $func to $want_drv"
+  if ! printf '%s\n' "$func" > "/sys/bus/sdio/drivers/$want_drv/bind" 2>/dev/null; then
+    # Retry via modprobe: some kernels only re-add the function after a
+    # driver reload.
+    log "direct bind failed, trying modprobe reload"
+    modprobe -r rtw88_8821cs 2>/dev/null || :
+    modprobe rtw88_8821cs 2>/dev/null || :
+  fi
+
+  i=0
+  while [ "$i" -lt "$((BIND_TIMEOUT * 10))" ]; do
+    wlan_present && break
+    sleep 0.1
+    i=$((i + 1))
+  done
+
+  if ! wlan_present; then
+    fail "wlan0 did not reappear within ${BIND_TIMEOUT}s"
+  fi
+
+  rm -f "$STATE" 2>/dev/null || :
+  log "wlan0 is back"
+  do_status
+  return 0
+}
+
+do_cycle_test() {
+  log "cycle-test: unbind -> bind without suspending"
+  do_unbind || return 1
+  sleep 1
+  do_bind || return 1
+  log "cycle-test PASSED: the driver recovers without a suspend"
+  return 0
+}
+
+# --- main -------------------------------------------------------------------
+[ "$#" -ge 1 ] || fail "usage: $0 status|unbind|bind|cycle-test"
+[ -r /proc/mounts ] || fail "/proc is not mounted"
+
+case "$1" in
+  status)     do_status ;;
+  unbind)     do_unbind ;;
+  bind)       do_bind ;;
+  cycle-test) do_cycle_test ;;
+  *)          fail "unknown mode '$1' (status|unbind|bind|cycle-test)" ;;
+esac

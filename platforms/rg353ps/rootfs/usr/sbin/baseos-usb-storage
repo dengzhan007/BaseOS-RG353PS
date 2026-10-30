@@ -33,13 +33,32 @@ CREATED_GADGET=0
 BOOT_MODE=0
 RESET_NOT_CONFIGURED_SECONDS=0
 RESET_RECOVERY_ATTEMPTED=0
+ENUM_SOFT_PULSES=0
+ENUM_REBINDS=0
+ENUM_REPROBES=0
 PROMPT_PID=
+FLUSH_PID=
 i=unset
 ORIGINAL_PRINTK=
 CONSOLE_LOWERED=0
+# Keep the previous session's card copy instead of overwriting it. Every entry
+# truncated /mnt/boot/rg353ps-usb-storage.log, so the only trace that ever
+# existed on the card was the last run: a session that failed, followed by one
+# that worked, left no evidence of the failure at all. Name snapshots by the
+# timestamp of the run being saved so the newest sorts last.
+rotate_diag_logs() {
+  [ -s "$BOOT_LOG" ] || return 0
+  rotate_stamp="$(date '+%Y%m%d-%H%M%S' 2>/dev/null || echo unknown)"
+  mv "$BOOT_LOG" "/mnt/boot/rg353ps-usb-storage-$rotate_stamp.log" 2>/dev/null || :
+  # Evict anything past the five most recent snapshots.
+  for rotate_old in $(ls -1 /mnt/boot/rg353ps-usb-storage-*.log 2>/dev/null | sort | head -n -5); do
+    rm -f "$rotate_old" 2>/dev/null || :
+  done
+}
 : > "$DIAG_LOG"
 # BASEOS_BOOT_LIVE_LOG_V1: mirror logs to BOOT so forced power-off preserves progress.
 if [ -d /mnt/boot ] && grep -q ' /mnt/boot ' /proc/mounts 2>/dev/null; then
+  rotate_diag_logs
   : > "$BOOT_LOG" 2>/dev/null || :
   printf '%s baseos-usb-storage: session started; live BOOT logging enabled\n' "$(date '+%F %T' 2>/dev/null || echo uptime)" >> "$BOOT_LOG" 2>/dev/null || :
   sync
@@ -125,9 +144,165 @@ log_cable_probe_inputs() {
     log "cable detector input reason=$probe_reason path=$probe_extcon name=$probe_name state=$probe_state"
   done
 }
+# "Is a PC on the other end?" — deliberately wider than the extcon query above.
+#
+# On this RK3566 port, plugging the cable in during the same instant the UDC is
+# bound can leave the USB2PHY's SDP bit unasserted even though the controller
+# did attach: the PHY's VBUS interrupt and the UDC's attach race, and the state
+# machine that would have set SDP=1 never runs. The old wait loop keyed only on
+# extcon, so that case waited the full hour with the cable connected — the
+# device looked frozen on "WAITING FOR DATA CABLE" and unplugging changed
+# nothing, so a second signal is still worth having.
+#
+# Only "powered" and up count. "attached" does NOT: the UDC core reports it as
+# soon as a gadget is bound to the controller, with or without a cable. Keying
+# on anything above "not attached" made this function true the instant the
+# gadget was bound, which skipped the wait entirely -- storage mode jumped
+# straight to "CONNECTING USB STORAGE" with no cable attached, then died when
+# enumeration never started. That is the bug this list exists to prevent.
+cable_present() {
+  is_data_cable_connected && return 0
+  case "$(cat "/sys/class/udc/$UDC/state" 2>/dev/null)" in
+    powered|configured|suspended) return 0 ;;
+  esac
+  return 1
+}
 ep0_control_ready() {
   [ -r "/sys/kernel/debug/usb/$UDC/ep0out/transfer_type" ] &&
     grep -q 'control' "/sys/kernel/debug/usb/$UDC/ep0out/transfer_type" 2>/dev/null
+}
+# Hold the controller and its PHYs out of runtime power management for the
+# whole session. See the call site for why.
+disable_usb_runtime_pm() {
+  for pm_path in /sys/bus/platform/devices/"$UDC" /sys/bus/platform/devices/*usb2phy*; do
+    [ -w "$pm_path/power/control" ] || continue
+    pm_before="$(cat "$pm_path/power/control" 2>/dev/null)"
+    printf 'on' > "$pm_path/power/control" 2>/dev/null || continue
+    log "runtime PM forced on: $pm_path (was ${pm_before:-unreadable})"
+  done
+}
+# Recovery ladder for a first enumeration that never completes.
+#
+# The old code only ever recovered a *re*-enumeration: it required $seen=1, so
+# when the very first attempt failed the helper sat idle for 45 seconds and then
+# gave up, leaving "CONNECTING USB STORAGE" on screen with an unresponsive PC.
+# Overnight that was reported as "plug in the cable, nothing happens, reboot two
+# or three times until it takes".
+#
+# Two escalating actions exist on this DWC3/PHY combination:
+#   soft pulse   disconnect + connect on soft_connect: makes the host see a new
+#                attach, and is cheap enough to try first.
+#   rebind       unbind the gadget from the UDC and bind it again: drops and
+#                rebuilds the whole gadget state, including an EP0 that failed to
+#                enable. Heavier, so it is used second and twice at most.
+pulse_soft_connect() {
+  enum_soft="/sys/class/udc/$UDC/soft_connect"
+  [ -w "$enum_soft" ] || { log "enumeration recovery: soft_connect not writable; skipping pulse"; return 1; }
+  log "enumeration recovery: soft_connect pulse (disconnect/connect) to restart host enumeration"
+  printf 'disconnect' > "$enum_soft" 2>/dev/null || {
+    log "enumeration recovery: soft_connect=disconnect failed"
+    return 1
+  }
+  sleep 1
+  printf 'connect' > "$enum_soft" 2>/dev/null || {
+    log "enumeration recovery: soft_connect=connect failed"
+    return 1
+  }
+  sleep 1
+  log "enumeration recovery: pulse done state=$(cat "/sys/class/udc/$UDC/state" 2>/dev/null || echo unknown)"
+  return 0
+}
+rebind_gadget() {
+  log "enumeration recovery: unbinding UDC $UDC from the gadget"
+  enum_err=
+  if [ -e "$G/UDC" ] && enum_err="$(printf '\n' 2>&1 > "$G/UDC")"; then
+    BOUND=0
+    sleep 1
+    if enum_err="$(printf '%s' "$UDC" 2>&1 > "$G/UDC")"; then
+      BOUND=1
+      sleep 2
+      log "enumeration recovery: rebind done state=$(cat "/sys/class/udc/$UDC/state" 2>/dev/null || echo unknown)"
+      return 0
+    fi
+    log "enumeration recovery: rebind failed error=${enum_err:-no stderr}"
+    return 1
+  fi
+  log "enumeration recovery: unbind failed error=${enum_err:-no stderr}"
+  return 1
+}
+edited_udc_state() {
+  cat "/sys/class/udc/$UDC/state" 2>/dev/null || echo unknown
+}
+# Re-probe the platform driver that owns the UDC: unbind the controller from its
+# driver, let it probe again, then re-bind the gadget. This rebuilds the
+# controller and its PHY from scratch, which is the closest thing to the clean
+# state the unit has immediately after boot -- the only time storage mode has
+# never failed. Forcing a power cycle to get that state back is exactly what the
+# two lighter tools could not avoid.
+reprobe_udc_driver() {
+  rp_drv="$(readlink "/sys/bus/platform/devices/$UDC/driver" 2>/dev/null)"
+  [ -n "$rp_drv" ] || {
+    log "enumeration recovery: no platform driver bound to $UDC; cannot re-probe"
+    return 1
+  }
+  rp_drv="${rp_drv##*/}"
+  log "enumeration recovery: re-probing $UDC on driver $rp_drv"
+  # The gadget must be off the UDC first: removing the platform device takes the
+  # UDC device with it, and a UDC device that disappears while the gadget is
+  # bound to it leaves the gadget unbound for the rest of the session.
+  if [ -e "$G/UDC" ]; then printf '\n' > "$G/UDC" 2>/dev/null || :; fi
+  BOUND=0
+  sleep 1
+  if ! printf '%s' "$UDC" > "/sys/bus/platform/drivers/$rp_drv/unbind" 2>/dev/null; then
+    log "enumeration recovery: unbind of $UDC from $rp_drv failed"
+    return 1
+  fi
+  sleep 1
+  if ! printf '%s' "$UDC" > "/sys/bus/platform/drivers/$rp_drv/bind" 2>/dev/null; then
+    log "enumeration recovery: bind of $UDC to $rp_drv failed"
+    return 1
+  fi
+  sleep 2
+  if ! printf '%s' "$UDC" > "$G/UDC" 2>/dev/null; then
+    log "enumeration recovery: gadget could not be re-bound after the re-probe"
+    return 1
+  fi
+  BOUND=1
+  log "enumeration recovery: re-probe done state=$(edited_udc_state)"
+  return 0
+}
+# Called once per second while the first enumeration has not succeeded. Takes a
+# no-op action outside its scheduled slots, so it costs one test per iteration.
+enum_recovery_step() {
+  enum_t="$1"
+  case "$enum_t" in
+    8)
+      [ "$ENUM_SOFT_PULSES" -ge 1 ] && return 0
+      ENUM_SOFT_PULSES=1
+      pulse_soft_connect || :
+      ;;
+    16)
+      # The strong action goes in early. The log that proved the lighter ones
+      # ineffective showed the UDC sitting at "not attached" for 30 seconds with
+      # extcon still reporting SDP=1: a pulse and a gadget rebind both changed
+      # nothing, so waiting 58s to try the only thing that might work just makes
+      # the wait longer.
+      [ "$ENUM_REPROBES" -ge 1 ] && return 0
+      ENUM_REPROBES=1
+      reprobe_udc_driver || :
+      ;;
+    30)
+      [ "$ENUM_REBINDS" -ge 1 ] && return 0
+      ENUM_REBINDS=1
+      rebind_gadget || :
+      ;;
+    48)
+      [ "$ENUM_REPROBES" -ge 2 ] && return 0
+      ENUM_REPROBES=2
+      reprobe_udc_driver || :
+      ;;
+  esac
+  return 0
 }
 rk3566_usb_trigger() {
   soft="/sys/class/udc/$UDC/soft_connect"
@@ -291,10 +466,54 @@ diagnose_usb_state_change() {
     dmesg 2>/dev/null | grep -Ei 'baseos-msdiag|RG353PS EP0 SETUP|RG353PS ignoring stale|dwc3|usb2phy|VBUS|extcon|BULK OUT mismatch|mass.storage' | tail -n 100 >> "$DIAG_LOG" || :
   fi
 }
+
+# Make pulling the cable safe without an eject.
+#
+# The LUN runs nofua=1, so the host's per-write FUA is ignored and its writes
+# land in the page cache; only a flush puts them on the card. The heartbeat sync
+# fires on a 10 s timer, which is a long window to leave a finished copy sitting
+# in RAM: unplug 3 s after Explorer says "done" and the file is gone.
+#
+# Flush on write-idle instead of on a clock. The partition's write counter is
+# sampled once a second; after it has been constant for two samples, everything
+# the host has written is synced. When the host writes again the counter moves
+# and the next quiet window triggers the next flush, so a transfer in progress
+# keeps flushing as it finishes rather than at an arbitrary tick.
+#
+# This gives a USB stick's guarantee, not a stronger one: unplug once the copy
+# has settled is safe, unplug mid-write is not, because the host still holds
+# data that never reached us.
+flush_on_idle() {
+  flush_last=
+  flush_idle=0
+  flush_dirty=0
+  while :; do
+    flush_now="$(awk -v p="$PART_NAME" '$3 == p {print $10; exit}' /proc/diskstats 2>/dev/null)"
+    if [ -n "$flush_now" ] && [ "$flush_now" = "$flush_last" ]; then
+      flush_idle=$((flush_idle + 1))
+    else
+      flush_idle=0
+      [ -z "$flush_now" ] || flush_dirty=1
+    fi
+    if [ "$flush_dirty" -eq 1 ] && [ "$flush_idle" -ge 2 ]; then
+      sync
+      flush_dirty=0
+    fi
+    flush_last="$flush_now"
+    sleep 1
+  done
+}
 cleanup() {
   cleanup_status=$?
   trap - EXIT INT TERM HUP
   log "cleanup entry trigger=$CLEANUP_TRIGGER status=$cleanup_status elapsed_i=$i bound=$BOUND"
+
+  # Stop the write-idle flusher first: it holds no lock, but leaving it running
+  # would have it sync during teardown for no reason.
+  if [ -n "$FLUSH_PID" ]; then
+    kill "$FLUSH_PID" 2>/dev/null || :
+    FLUSH_PID=
+  fi
 
   # Preserve the v31 transfer pipeline. Keep teardown simple: the v32 log
   # stopped after UDC unbind, apparently during configfs function unlink.
@@ -409,8 +628,20 @@ DEVICE=$(awk -v m="$MOUNTPOINT" '$2 == m { print $1; exit }' /proc/mounts)
 FSTYPE=$(awk -v m="$MOUNTPOINT" '$2 == m { print $3; exit }' /proc/mounts)
 case "$DEVICE" in /dev/mmcblk*p[0-9]*) ;; *) log "unsupported block source '$DEVICE'; refusing"; exit 1 ;; esac
 case "$FSTYPE" in vfat|exfat) ;; *) log "filesystem '$FSTYPE' is not supported for PC storage mode"; exit 1 ;; esac
+# Which partition number carries BASEOS_DATA is a property of the layout, not
+# a constant: it was p3 before BASEOS_UBOOT took slot 1 and became p4 with the
+# A/B layout. Match the GPT name so a future layout move cannot silently turn
+# storage mode into an "USB STORAGE FAILED" pill again.
+PART_NAME=${DEVICE#/dev/}
+DEV_PARTNAME=$(sed -n 's/^PARTNAME=//p' "/sys/class/block/$PART_NAME/uevent" 2>/dev/null | head -1)
 case "$MOUNTPOINT:$DEVICE" in
-  /mnt/SDCARD:/dev/mmcblk*p3) ;;
+  /mnt/SDCARD:/dev/mmcblk*p[0-9]*)
+    case "$DEV_PARTNAME" in
+      BASEOS_DATA) ;;
+      "") log "WARNING: $DEVICE has no PARTNAME; assuming BASEOS_DATA by mount point" ;;
+      *) log "refusing to export $DEVICE (PARTNAME=$DEV_PARTNAME); only BASEOS_DATA may be shared"; exit 1 ;;
+    esac
+    ;;
   /mnt/TF2:/dev/mmcblk*p[0-9]*) ;;
   *) log "refusing unexpected mount source $DEVICE at $MOUNTPOINT"; exit 1 ;;
 esac
@@ -433,9 +664,46 @@ done
 # The status pill preserves the underlying U-Boot/NextUI logo.
  /usr/bin/baseos-splash --important -1 "STARTING USB STORAGE" 2>/dev/null || :
 sync
-if ! umount "$MOUNTPOINT"; then log "could not unmount $MOUNTPOINT; refusing to export"; exit 1; fi
+# Leaving the shell's cwd on the volume being exported guarantees EBUSY. That
+# is not hypothetical: when storage mode is requested from the diagnostic UI,
+# this helper is forked from rg353ps-control-center, which the frontend
+# supervisor starts after "cd $FRONTEND_ROOT" -- an adapter directory that can
+# itself live on BASEOS_DATA. The fork inherits that cwd, umount fails
+# instantly, and the whole screen flashes "USB STORAGE FAILED" before anything
+# else happens. Change directory first, then retry once to let any transient
+# reference (a just-signalled UI, an open directory handle) drain.
+cd / 2>/dev/null || :
+report_mount_users() {
+  for ru_proc in /proc/[0-9]*; do
+    ru_pid=${ru_proc#/proc/}
+    [ "$ru_pid" = "$$" ] && continue
+    for ru_link in cwd root exe; do
+      ru_target="$(readlink "$ru_proc/$ru_link" 2>/dev/null)" || continue
+      case "$ru_target" in
+        "$1"|"$1"/*) log "volume still referenced: pid=$ru_pid $ru_link=$ru_target" ;;
+      esac
+    done
+  done
+}
+umount_msg=
+if ! umount_msg="$(umount "$MOUNTPOINT" 2>&1)"; then
+  log "first unmount of $MOUNTPOINT failed (${umount_msg:-no message}); retrying after a grace period"
+  report_mount_users "$MOUNTPOINT"
+  sleep 1
+  if ! umount_msg="$(umount "$MOUNTPOINT" 2>&1)"; then
+    log "could not unmount $MOUNTPOINT (${umount_msg:-no message}); refusing to export"
+    /usr/bin/baseos-splash --important -1 "USB STORAGE: PARTITION BUSY" 2>/dev/null || :
+    sleep 2
+    exit 1
+  fi
+fi
 log "unmounted $MOUNTPOINT; preparing USB mass storage"
-/usr/bin/baseos-splash --important 45 "CONNECTING USB STORAGE" 2>/dev/null || :
+# Nothing is connected yet: the gadget is still being assembled and the UDC is
+# not bound for another second or two. Saying "CONNECTING" here made the screen
+# read CONNECTING then WAITING, which looks like the device tried to connect and
+# gave up. Reserve that word for the post-detection phase at the enumeration
+# step and keep this one strictly about local preparation.
+/usr/bin/baseos-splash --important 45 "PREPARING USB STORAGE" 2>/dev/null || :
 
 grep -q " $CONFIGFS " /proc/mounts 2>/dev/null || mount -t configfs none "$CONFIGFS" 2>/dev/null || {
   log "configfs mount failed"; exit 1;
@@ -443,6 +711,16 @@ grep -q " $CONFIGFS " /proc/mounts 2>/dev/null || mount -t configfs none "$CONFI
 log "available UDCs: $(ls /sys/class/udc 2>/dev/null | tr '\n' ' ')"
 UDC=$(ls /sys/class/udc 2>/dev/null | head -1)
 [ -n "$UDC" ] || { log "no USB device controller found"; exit 1; }
+# Hold the controller and its PHY out of runtime power management.
+#
+# Storage mode entered right after boot has never failed; the same request made
+# minutes later from the diagnostic UI sometimes leaves the host silent. The
+# difference that is visible in the logs is which devices the kernel was free to
+# autosuspend by then: a USB2PHY parked in runtime suspend can miss the VBUS
+# edge entirely, so the controller never gets a session to enumerate from.
+# Where autosuspend is not actually in use this changes nothing; where it is,
+# it removes the one power state we cannot recover from in user space.
+disable_usb_runtime_pm
 if [ ! -d "$G" ]; then
   mkdir -p "$G" || { log "cannot create gadget"; exit 1; }
   CREATED_GADGET=1
@@ -482,9 +760,13 @@ printf '0' > "$LUN/ro" 2>/dev/null || :
 # making each write synchronous and preventing block-layer request merging.
 # The Linux MSG documentation explicitly warns that this can dramatically
 # reduce performance. Ignore per-write FUA for this SD-card-backed LUN; normal
-# SYNCHRONIZE CACHE requests are still handled by the gadget. The trade-off is
-# that an unexpected unplug/power loss before the host flushes/ejects can lose
-# recently written data, so the host must safely eject before disconnecting.
+# SYNCHRONIZE CACHE requests are still handled by the gadget.
+#
+# The cost of that choice is that the host's writes can sit in the page cache,
+# which used to mean "eject first or lose them". flush_on_idle covers it: the
+# partition is flushed two seconds after its write counter stops moving, so a
+# copy is on the card by the time the progress dialog closes. Pulling the cable
+# mid-write is still losing data, and no device can do better.
 if [ -w "$LUN/nofua" ] && printf '1' > "$LUN/nofua" 2>/dev/null; then
   log "mass-storage nofua=1; per-write FUA disabled to avoid synchronous SD-card writes"
 else
@@ -513,23 +795,39 @@ fi
 # path has failed EP0 initialization when the UDC is bound immediately after a
 # new SDP/VBUS notification. Keep the enumeration timeout disarmed until cable
 # detection below, so plugging in after entering storage mode still works.
-/usr/bin/baseos-splash --important -1 "WAITING FOR DATA CABLE" 2>/dev/null || :
 log "storage mode ready; binding gadget before waiting for DC data cable"
 snapshot "immediately-before-bind"
 if ! printf '%s' "$UDC" > "$G/UDC"; then log "could not bind USB controller $UDC"; exit 1; fi
 BOUND=1
+# Start flushing on write-idle as soon as the host can write anything.
+flush_on_idle &
+FLUSH_PID=$!
+log "write-idle flusher started pid=$FLUSH_PID; direct unplug needs no eject once a copy settles"
 grep -q " /sys/kernel/debug " /proc/mounts 2>/dev/null ||
   mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null || :
-sleep 1
-snapshot "one-second-after-bind"
-SESSION_WRITE_SECTORS="$(awk '$3 == "mmcblk0p3" {print $10; exit}' /proc/diskstats 2>/dev/null)"
+# Tell the operator to plug in only after the controller has settled.
+#
+# The prompt used to be painted *before* the UDC bind, so a cable inserted the
+# moment it appeared landed in the same instant as the attach: that is precisely
+# the race the comment above describes, and it left EP0 disabled with the PHY
+# reporting no cable — storage mode then hung on this prompt until the 1-hour
+# timeout, and unplugging did nothing. Binding first and pausing three seconds
+# before inviting the cable makes "plug in when the prompt appears" the safe
+# case instead of the broken one.
+sleep 3
+snapshot "three-seconds-after-bind"
+SESSION_WRITE_SECTORS="$(awk -v p="$PART_NAME" '$3 == p {print $10; exit}' /proc/diskstats 2>/dev/null)"
 log "USB gadget bound for $DEVICE; waiting for PC data cable"
+/usr/bin/baseos-splash --important -1 "WAITING FOR DATA CABLE" 2>/dev/null || :
 
 # Wait for the data cable without starting the 45-second enumeration timer.
 # With the UDC already bound, a new PHY VBUS/extcon event can start native
-# DWC3 attachment and EP0 setup instead of racing a late UDC bind.
+# DWC3 attachment and EP0 setup instead of racing a late UDC bind. The cap is
+# three minutes rather than an hour: an hour of a frozen prompt is
+# indistinguishable from a hung device, and nothing is exported yet, so
+# returning to the frontend early costs nothing.
 i=0
-while ! is_data_cable_connected && [ "$i" -lt 3600 ]; do
+while ! cable_present && [ "$i" -lt 180 ]; do
   if [ "$i" -eq 0 ]; then
     log "waiting for data cable; initial post-bind USB/PHY snapshot follows"
     dump_usb_status
@@ -539,9 +837,15 @@ while ! is_data_cable_connected && [ "$i" -lt 3600 ]; do
   sleep 1
   i=$((i+1))
 done
-if ! is_data_cable_connected; then
-  log "data cable was not detected within 3600 seconds; restoring local mount"
+if ! cable_present; then
+  log "data cable was not detected within 180 seconds; restoring local mount"
+  /usr/bin/baseos-splash --important -1 "NO DATA CABLE - RETURNING" 2>/dev/null || :
+  sleep 2
   exit 1
+fi
+if ! is_data_cable_connected; then
+  log "extcon reports no cable but UDC state=$(cat "/sys/class/udc/$UDC/state" 2>/dev/null || echo unknown); treating the controller attach as a connected host"
+  log_cable_probe_inputs "udc-attached-extcon-silent"
 fi
 log "data cable detected after ${i}s; checking UDC before enumeration timeout"
 /usr/bin/baseos-splash --important 45 "CONNECTING USB STORAGE" 2>/dev/null || :
@@ -574,7 +878,7 @@ while [ "$i" -lt 3600 ]; do
     fi
     log "transfer heartbeat elapsed=$i seconds udc_state=$hb_state speed=$hb_speed data_cable=$hb_cable"
     hb_disk="$(grep -E ' mmcblk0(p[0-9]+)? ' /proc/diskstats 2>/dev/null | tr '\n' ';')"
-    hb_write_sectors="$(awk '$3 == "mmcblk0p3" {print $10; exit}' /proc/diskstats 2>/dev/null)"
+    hb_write_sectors="$(awk -v p="$PART_NAME" '$3 == p {print $10; exit}' /proc/diskstats 2>/dev/null)"
     hb_write_delta=unknown
     case "$SESSION_WRITE_SECTORS:$hb_write_sectors" in
       *[!0-9:]*|:*|*:) ;;
@@ -642,7 +946,7 @@ while [ "$i" -lt 3600 ]; do
     esac
 
     # Detect a stuck host-to-device WRITE, not an idle storage session. A
-    # pending SCSI WRITE with no mmcblk0p3 sector progress is the useful trigger.
+    # pending SCSI WRITE with no backing-partition sector progress is the useful trigger.
     hb_pending_scsi="$(dmesg 2>/dev/null | awk -v now="$hb_uptime" -v session_start="$KERNEL_ERR_START_SEC" '
       # The helper mirrors these records into /dev/kmsg, creating nested
       # duplicate SCSI lines. Exclude wrappers so age/oldest use kernel timestamps.
@@ -810,7 +1114,7 @@ while [ "$i" -lt 3600 ]; do
     configured)
       if [ "$seen" -eq 0 ]; then
         log "UDC reached successful enumeration state=configured after ${i}s"
-        /usr/bin/baseos-splash --important -1 "USB STORAGE: EJECT BEFORE UNPLUG" 2>/dev/null || :
+        /usr/bin/baseos-splash --important -1 "USB STORAGE: SAFE TO UNPLUG" 2>/dev/null || :
       fi
       seen=1
       detached=0
@@ -833,11 +1137,13 @@ while [ "$i" -lt 3600 ]; do
           [ "$detached" -ne 0 ] || log_cable_probe_inputs "udc-state-$state"
           detached=$((detached+1))
         fi
-      elif [ "$i" -ge 45 ]; then
-        log "UDC is suspended but never reached configured within 45 seconds; aborting storage mode and restoring local mount"
-        break
       elif [ "$i" -eq 1 ]; then
         log "UDC suspended before configured; keeping enumeration-failure timeout armed"
+      elif [ "$i" -ge 70 ]; then
+        log "UDC stayed suspended and never reached configured within ${i}s despite a pulse, two re-probes and a rebind; aborting storage mode and restoring local mount"
+        break
+      else
+        enum_recovery_step "$i"
       fi
       ;;
     *)
@@ -890,15 +1196,19 @@ while [ "$i" -lt 3600 ]; do
           [ "$detached" -ne 0 ] || log_cable_probe_inputs "udc-state-$state"
           detached=$((detached+1))
         fi
-      elif [ "$i" -ge 45 ]; then
-        log "UDC did not reach configured within 45 seconds (last state=$state); aborting storage mode and restoring local mount"
+      elif [ "$i" -ge 70 ]; then
+        log "UDC never reached configured within ${i}s despite a pulse, two re-probes and a rebind (last state=$state); aborting storage mode and restoring local mount"
         break
+      else
+        enum_recovery_step "$i"
       fi
       ;;
   esac
   # After a successful enumeration, return only after three samples with no
   # PHY/extcon data-cable indication. A transient UDC reset alone is not unplug.
-  [ "$detached" -lt 3 ] || { log "USB cable no longer detected for three samples; restoring local mount"; break; }
+  # Flush before teardown: a cable pulled without an eject is the expected path
+  # now, and this is the last chance to commit anything the host wrote.
+  [ "$detached" -lt 3 ] || { log "USB cable no longer detected for three samples; restoring local mount"; sync; break; }
   sleep 1
   i=$((i+1))
 done

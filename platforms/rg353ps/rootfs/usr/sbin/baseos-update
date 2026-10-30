@@ -34,8 +34,25 @@ REGIONS="boot rootfs"
 DISK=
 BOOT_MNT=/mnt/boot
 CARD=/mnt/SDCARD
-STATE_DIR=/mnt/boot/update
+# Trial state must not live on a volume that an update moves.
+#
+# It used to sit in /mnt/boot/update. BASEOS_BOOT is one of the two regions the
+# flip swaps, so the flip relocated the very directory holding this file: the
+# next boot mounted the freshly written boot slot, found no state there, and
+# both halves of the update contract silently stopped working. `confirm` never
+# ran, so an applied payload was never deleted and every later boot kept
+# treating the card as freshly updated; `boot-check` never ran, so a slot set
+# that could not reach a session was never rolled back and the trial counter
+# never advanced.
+#
+# BASEOS_DATA is the one volume an update never touches, which is exactly what
+# this state has to outlive. Upstream keeps it on /data for the same reason.
+STATE_DIR="$CARD/.baseos/update"
 STATE="$STATE_DIR/state"
+# Cards updated by a build that still wrote the old path: read it once so an
+# update in flight across the change is still confirmed instead of being left
+# applied-but-unconfirmed forever.
+LEGACY_STATE="$BOOT_MNT/update/state"
 # Every payload this card has committed to: "<sha> <version> <build>", appended
 # at commit time rather than on success, so one that turns out broken and rolls
 # back is never retried — that would oscillate forever.
@@ -64,6 +81,18 @@ splash() {
 
 field() { sed -n "s/^$2=//p" "$1" 2>/dev/null | head -1; }
 cleanup() { return 0; }
+
+# One release of this port recorded the trial under /mnt/boot, where the flip
+# hid it. A card upgraded by that build still carries such a file — point
+# $STATE at it so `confirm` can retire it, and so the payload it names is
+# removed rather than left on the card forever.
+adopt_legacy_state() {
+	[ -f "$STATE" ] && return 0
+	[ -f "$LEGACY_STATE" ] || return 0
+	STATE="$LEGACY_STATE"
+	log "found trial state at the pre-fix path $LEGACY_STATE; retiring it"
+	return 0
+}
 
 # One geometry variable: slot uboot _INACTIVE -> $SLOT_UBOOT_INACTIVE.
 slot() { eval "printf '%s' \"\${SLOT_$(echo "$1" | tr a-z A-Z)$2}\""; }
@@ -114,6 +143,16 @@ version_newer() {
 	return 1
 }
 
+# Build ids of dirty trees end in the UTC timestamp they were stamped with
+# (16652d2-dirty-20261030143042). That suffix is the only ordering the id has.
+build_stamp() {
+	case "$1" in
+		*-dirty-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) \
+			printf '%s' "${1##*-dirty-}" ;;
+		*) printf '' ;;
+	esac
+}
+
 # Judge one payload: 0 = apply it, 1 = nothing to do, 2 = rejected outright.
 # Sets EV_VERSION / EV_BUILD / EV_SHA, EV_REASON for humans, and leaves the
 # payload's own manifest in $MANIFEST — which is what apply() reads afterwards.
@@ -149,12 +188,31 @@ evaluate() {
 	if version_newer "$EV_VERSION" "${BASEOS_VERSION:-0}"; then
 		:
 	elif [ "$EV_VERSION" = "${BASEOS_VERSION:-}" ] && [ "$EV_BUILD" != "${BASEOS_BUILD:-}" ]; then
-		:
+		# Same version, different build: a rebuild is allowed so iteration
+		# works, but an *older* build of it must not be. Without this, the
+		# payload left beside a newer install re-applies the previous slot set
+		# on the very next boot and the card ping-pongs between two builds that
+		# both claim to be the running version.
+		_ev_stamp="$(build_stamp "$EV_BUILD")"
+		_cur_stamp="$(build_stamp "${BASEOS_BUILD:-}")"
+		if [ -n "$_ev_stamp" ] && [ -n "$_cur_stamp" ] && [ "$_ev_stamp" -lt "$_cur_stamp" ]; then
+			EV_REASON="older build ($EV_BUILD) of the running $EV_VERSION"; return 1
+		fi
 	else
 		EV_REASON="not newer than the running ${BASEOS_VERSION:-?}"; return 1
 	fi
 	if grep -q "^$EV_SHA " "$HISTORY" 2>/dev/null; then
 		EV_REASON="already applied to this card"; return 1
+	fi
+	# A trial that has not been confirmed yet is the same evidence as history,
+	# and it survives the case history cannot: a card updated by a build that
+	# still wrote history under /mnt/boot loses that file to the flip, so the
+	# next boot re-applied the same payload it had just written and rebooted
+	# again. Ask the trial state first — it is written at the same commit point.
+	if [ -f "$STATE" ]; then
+		if [ "$(field "$STATE" sha)" = "$EV_SHA" ]; then
+			EV_REASON="already applied and awaiting confirmation"; return 1
+		fi
 	fi
 
 	EV_REASON="ready"
@@ -242,6 +300,24 @@ fail() {
 	return 1
 }
 
+# Retire a payload that has already been committed, by renaming it beside where
+# the operator put it. A rename is atomic on both FAT and ext4 and costs one
+# syscall, and unlike history it cannot be invalidated by a flip, a rollback or
+# a power cut between the flip and the next boot. confirm() removes the renamed
+# file once the slot set is proven to boot.
+claim_payload() {
+	case "$payload" in
+		""|*.applied) return 0 ;;
+	esac
+	if mv -f "$payload" "$payload.applied" 2>/dev/null; then
+		log "marked $payload.applied; it will not be applied again"
+		payload="$payload.applied"
+	else
+		log "WARNING: could not rename $payload; history is now the only record of this update"
+	fi
+	return 0
+}
+
 apply() {
 	scan_dirs
 	# Ordinary boot: no payload anywhere, and nothing else runs.
@@ -313,6 +389,13 @@ apply() {
 		printf "sha=%s\n" "$want_sha"
 		printf "payload=%s\n" "$payload"
 	} > "$STATE"
+	# history and state are both files this script can lose: history used to be
+	# written under /mnt/boot, which the flip relocates, and a card updated by
+	# that build booted, found no history, and re-applied the payload it had just
+	# written — an update loop that only the operator could stop. The payload's
+	# own name is the one key that survives everything, so retire it here, in the
+	# same commit window, before the reboot.
+	claim_payload
 	log "flipped to $version; rebooting"
 	sync
 	# Paint the last value only once every write is on the card: the flip, the
@@ -327,6 +410,7 @@ apply() {
 }
 
 boot_check() {
+	adopt_legacy_state
 	[ -f "$STATE" ] || return 0
 	attempts="$(field "$STATE" attempts)"
 	[ -n "$attempts" ] || attempts=0
@@ -353,17 +437,32 @@ boot_check() {
 }
 
 # Only once confirmed: a payload that rolled back stays for status to explain.
+# Both names are removed: claim_payload renames it at commit time, and the trial
+# state still records the original path, so a confirmed update must clean up
+# whichever of the two is on the card.
 remove_payload() {
 	case "$1" in
 		"") return 0 ;;
-		"$BOOT_MNT"/*|"$CARD"/*) rm -f "$1" && log "removed $1" ;;
+		"$BOOT_MNT"/*|"$CARD"/*) ;;
 		*) return 0 ;;
 	esac
+	for candidate in "$1" "$1.applied"; do
+		[ -e "$candidate" ] || continue
+		if rm -f "$candidate" 2>/dev/null; then
+			log "removed $candidate"
+		else
+			log "WARNING: could not remove $candidate; delete it from a PC"
+		fi
+	done
 	return 0
 }
 
 confirm() {
-	[ -f "$STATE" ] || return 0
+	adopt_legacy_state
+	if [ ! -f "$STATE" ]; then
+		log "no update trial pending; nothing to confirm"
+		return 0
+	fi
 	version="$(field "$STATE" trial)"
 	remove_payload "$(field "$STATE" payload)"
 	rm -f "$STATE"

@@ -88,7 +88,16 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
       --new=2:${IMG_BOOT_START}:+${IMG_BOOT_SECTORS} --typecode=2:0700 --change-name=2:BASEOS_BOOT \
       --new=3:${IMG_ROOT_START}:+${IMG_ROOT_SECTORS} --typecode=3:8300 --change-name=3:BASEOS_ROOT \
       --new=4:${IMG_DATA_START}:0 --typecode=4:0700 --change-name=4:BASEOS_DATA \
-      --partition-guid=3:"$ROOT_PARTUUID" "$IMG"
+      --partition-guid=3:"$ROOT_PARTUUID" \
+      --attributes=2:set:2 "$IMG"
+
+    # This build boots through Standard Boot (CONFIG_BOOTCOMMAND="bootflow
+    # scan -lb"), which walks every partition looking for extlinux.conf and
+    # ignores GPT attributes. The legacy BIOS bootable bit is therefore not
+    # what makes BASEOS_BOOT findable today, but it is still the flag every
+    # partitioning tool, EFI loader and the older distro_bootcmd path treat as
+    # authoritative. Setting it costs nothing and keeps the boot volume correct
+    # if the scan method ever changes back.
 
     partition_value() {
       sgdisk --info="$1" "$IMG" | sed -n "s/^$2: *\\([0-9][0-9]*\\).*/\\1/p"

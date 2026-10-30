@@ -604,7 +604,18 @@ static void rotate_blit(uint8_t *fb, const struct fb_var_screeninfo *pv,
 // Shared Linux-side path. U-Boot support is configured separately; Linux can
 // display this file after BASEOS_DATA has been mounted. Accept only the simple
 // uncompressed 24-bit BMP3 format so malformed files cannot stall early boot.
-#define CUSTOM_SPLASH_PATH "/mnt/SDCARD/bootlogo/bootlogo.bmp"
+#define CUSTOM_SPLASH_PATH "/mnt/SDCARD/bootlogos/bootlogo.bmp"
+// Location used before the folder was pluralised. Read it back so a logo that
+// is already on a card keeps showing after the move; the seeder only writes the
+// new one, so this costs one access() on cards that never had the old folder.
+#define LEGACY_SPLASH_PATH "/mnt/SDCARD/bootlogo/bootlogo.bmp"
+static const char *custom_splash_path(void) {
+	if (access(CUSTOM_SPLASH_PATH, R_OK) == 0)
+		return CUSTOM_SPLASH_PATH;
+	if (access(LEGACY_SPLASH_PATH, R_OK) == 0)
+		return LEGACY_SPLASH_PATH;
+	return NULL;
+}
 static uint32_t bmp_le32(const uint8_t *p) {
 	return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
 	       ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
@@ -612,7 +623,10 @@ static uint32_t bmp_le32(const uint8_t *p) {
 
 static int draw_custom_bmp(uint8_t *fb, struct fb_var_screeninfo *v,
                            struct fb_fix_screeninfo *f) {
-	FILE *fp = fopen(CUSTOM_SPLASH_PATH, "rb");
+	const char *path = custom_splash_path();
+	if (!path)
+		return 0;
+	FILE *fp = fopen(path, "rb");
 	if (!fp)
 		return 0;
 	uint8_t h[54];
@@ -821,7 +835,7 @@ int main(int argc, char **argv) {
 	// image is absent, leave the U-Boot logo untouched rather than repainting
 	// the built-in fallback over it.
 	if (!pill && getenv("BASEOS_CUSTOM_SPLASH_ONLY") &&
-	    access(CUSTOM_SPLASH_PATH, R_OK) != 0)
+	    !custom_splash_path())
 		return 0;
 
 	int fd = open("/dev/fb0", O_RDWR);

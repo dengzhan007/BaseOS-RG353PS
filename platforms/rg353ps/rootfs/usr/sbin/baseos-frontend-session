@@ -19,9 +19,13 @@ while [ -e "$BOOT_STORAGE_REQUEST" ]; do sleep 0.1; done
 # Reaching a frontend session is what ends an update's trial: the slots that
 # booted are proven to work, so the payload is removed and the trial state
 # cleared. Until this runs, three failed boots roll the previous slots back.
-if [ -x /usr/sbin/baseos-update ] && [ -e /mnt/boot/update/state ]; then
-  /usr/sbin/baseos-update confirm
-fi
+# Deferred past the user-data mount below: the trial state lives on BASEOS_DATA,
+# since that is the one volume the flip does not move.
+confirm_update() {
+  if [ -x /usr/sbin/baseos-update ] && [ -e /mnt/SDCARD/.baseos/update/state ]; then
+    /usr/sbin/baseos-update confirm
+  fi
+}
 
 # Keep frontend-discovery traces in tmpfs on normal boots. Copy them to BOOT
 # only when detection falls back to diagnostics, where a PC can read the report.
@@ -66,6 +70,12 @@ diagnostic() {
   # Keep this supervisor alive in diagnostic mode too, so the Function/Mode
   # USB-storage hotkey can safely stop the UI and unmount the data card.
   while :; do
+    # Start the UI from "/" so anything it forks inherits a cwd outside the
+    # adapter directory. The adapter can live on BASEOS_DATA, and a helper
+    # forked with a cwd on the volume it is about to export cannot unmount it:
+    # storage mode requested from this menu died instantly with a "PARTITION
+    # BUSY" until the export helper learned to chdir out on its own.
+    cd / 2>/dev/null || :
     /usr/sbin/rg353ps-control-center &
     DIAGNOSTIC_PID=$!
     while kill -0 "$DIAGNOSTIC_PID" 2>/dev/null; do
@@ -216,6 +226,12 @@ if ! is_mounted "$TF1"; then
   done
 fi
 
+# The trial can end now: BASEOS_DATA is mounted, so its state file is readable,
+# and userspace came up far enough to pick a frontend. Keyed on reaching this
+# point rather than on the frontend exec, because a card with no frontend is a
+# healthy system and keying it later made that state look like a failed update.
+confirm_update
+
 # Legacy `frontend=...` and `allow_external_frontend_adapters=...` keys are
 # intentionally not used: detection is automatic and user-installed frontends
 # are expected to ship their own adapter. force_diagnostic=yes is the explicit
@@ -224,14 +240,81 @@ if [ "$(setting force_diagnostic no)" = "yes" ]; then
   diagnostic
 fi
 
-FRONTENDS_ORDER=$(setting frontends_order nextui,slot,custom)
-[ -n "$FRONTENDS_ORDER" ] || FRONTENDS_ORDER=nextui,slot,custom
+FRONTENDS_ORDER=$(setting frontends_order nextui,slot,custom,baseos)
+[ -n "$FRONTENDS_ORDER" ] || FRONTENDS_ORDER=nextui,slot,custom,baseos
+
+# Upstream BaseOS frontend contract, as its own frontend-session implements it:
+# the card on /mnt/SDCARD and then .tmp_update/updater, which the package ships
+# itself. There is no per-frontend adapter to write, so a package built for
+# BaseOS runs here unmodified.
+#
+# The one piece of that contract that is not simply "the file is there" is
+# staging. A release zip carries .tmp_update inside miyoo355/app/, and the stock
+# chain copies it up to the card root and then deletes miyoo355/ so stock can
+# never reach it again; MinUI.zip carries the same tree. Doing that copy is part
+# of honouring the contract, not an extra.
+stage_baseos_updater() {
+  stage_root=$1
+  if [ -f "$stage_root/.tmp_update/updater" ]; then
+    printf '%s' "$stage_root/.tmp_update/updater"
+    return 0
+  fi
+  if [ -d "$stage_root/miyoo355/app/.tmp_update" ]; then
+    log "staging .tmp_update from miyoo355/app in $stage_root"
+    cp -rf "$stage_root/miyoo355/app/.tmp_update" "$stage_root/" 2>/dev/null || :
+  elif [ -f "$stage_root/MinUI.zip" ] && command -v unzip >/dev/null 2>&1; then
+    log "staging .tmp_update from MinUI.zip in $stage_root"
+    unzip -o "$stage_root/MinUI.zip" '.tmp_update/*' -d "$stage_root" >/dev/null 2>&1 || :
+  else
+    return 1
+  fi
+  # Only once the copy is known good, or a failed one could never be retried.
+  if [ -f "$stage_root/.tmp_update/updater" ]; then
+    rm -rf "$stage_root/miyoo355" 2>/dev/null || :
+    sync
+    printf '%s' "$stage_root/.tmp_update/updater"
+    return 0
+  fi
+  return 1
+}
+
+# A frontend built for BaseOS expects these two paths to be writable and to
+# persist. /userdata is the card's own directory, as stock has it. /data does
+# not exist on this port (upstream mounts mmcblk1p4 there); back it with the
+# data partition so anything a frontend keeps in /data survives an update
+# instead of living on the rootfs, which every update replaces.
+ensure_baseos_paths() {
+  paths_root=$1
+  mkdir -p "$paths_root/userdata" 2>/dev/null || :
+  if [ -d "$paths_root/userdata" ] && [ ! -d /userdata ]; then
+    mkdir -p /userdata 2>/dev/null || :
+  fi
+  if [ -d "$paths_root/userdata" ] && ! grep -q ' /userdata ' /proc/mounts 2>/dev/null; then
+    mount --bind "$paths_root/userdata" /userdata 2>/dev/null || :
+  fi
+  data_dir="$paths_root/.baseos/data"
+  if mkdir -p "$data_dir" 2>/dev/null && [ -d "$data_dir" ] &&
+     ! grep -q ' /data ' /proc/mounts 2>/dev/null; then
+    mount --bind "$data_dir" /data 2>/dev/null || :
+  fi
+  export BASEOS_USERDATA=/userdata
+}
 
 resolve_adapter() {
   adapter_root=$1
   profile_name=$2
   case "$profile_name" in
     nextui|slot|custom) ;;
+    baseos)
+      # Reported with an `exec:` prefix: an updater is a program, not a shell
+      # script to hand to /bin/sh the way the adapters are.
+      if updater_path=$(stage_baseos_updater "$adapter_root"); then
+        printf 'exec:%s' "$updater_path"
+        return 0
+      fi
+      log "no upstream BaseOS frontend at $adapter_root (no .tmp_update/updater)"
+      return 1
+      ;;
     *) return 1 ;;
   esac
 
@@ -276,15 +359,18 @@ scan_root() {
   old_ifs=$IFS
   IFS=,
   for profile in $FRONTENDS_ORDER; do
-    case "$profile" in nextui|slot|custom) ;; *) continue ;; esac
+    case "$profile" in nextui|slot|custom|baseos) ;; *) continue ;; esac
     candidate=$(resolve_adapter "$scan_root_dir" "$profile") || {
       # Support archives extracted into one wrapper directory by common GUI tools.
       for nested_root in "$scan_root_dir"/*; do
         [ -d "$nested_root" ] || continue
         candidate=$(resolve_adapter "$nested_root" "$profile") || continue
-        log "found $profile adapter in nested directory $nested_root"
+        log "found $profile frontend in nested directory $nested_root"
         SELECTED=$profile
-        LAUNCHER=$candidate
+        case "$candidate" in
+          exec:*) LAUNCH_MODE=exec; LAUNCHER=${candidate#exec:} ;;
+          *) LAUNCH_MODE=script; LAUNCHER=$candidate ;;
+        esac
         FRONTEND_ROOT=$nested_root
         IFS=$old_ifs
         return 0
@@ -292,7 +378,10 @@ scan_root() {
       continue
     }
     SELECTED=$profile
-    LAUNCHER=$candidate
+    case "$candidate" in
+      exec:*) LAUNCH_MODE=exec; LAUNCHER=${candidate#exec:} ;;
+      *) LAUNCH_MODE=script; LAUNCHER=$candidate ;;
+    esac
     FRONTEND_ROOT=$scan_root_dir
     IFS=$old_ifs
     return 0
@@ -305,6 +394,9 @@ scan_root() {
 SELECTED=
 LAUNCHER=
 FRONTEND_ROOT=
+# script = a *.baseos/frontends/<name>/launch.sh run under /bin/sh.
+# exec   = an upstream BaseOS .tmp_update/updater run directly.
+LAUNCH_MODE=script
 # Card priority is deliberate: use TF2 if it has a recognized adapter; only
 # fall back to TF1's BASEOS_DATA when TF2 is absent or has no usable frontend.
 if is_mounted "$TF2"; then
@@ -321,7 +413,7 @@ if [ -z "$LAUNCHER" ] && is_mounted "$TF1"; then
 fi
 if [ -z "$LAUNCHER" ]; then
   log "no usable frontend found on TF2 or TF1; falling back to diagnostics"
-  log "inspect $DETECTION_LOG; expected Slot files are System/slot and .baseos/frontends/slot/launch.sh"
+  log "inspect $DETECTION_LOG; a Slot package needs System/slot plus either .baseos/frontends/slot/launch.sh or .tmp_update/updater"
   diagnostic
 fi
 
@@ -338,8 +430,13 @@ BASEOS_LAUNCHER=$LAUNCHER
 export PLATFORM BASEOS_FRONTEND_ID BASEOS_SYSTEM_ROOT BASEOS_BOOT
 export BASEOS_FRONTEND_ROOT BASEOS_DATA_DIR BASEOS_USERDATA_DIR BASEOS_LAUNCHER
 mkdir -p "$BASEOS_DATA_DIR" "$BASEOS_USERDATA_DIR" 2>/dev/null || :
+# An upstream package brings its own layout and does not want BaseOS's dot-dirs
+# invented on its card; it does need the two paths upstream guarantees.
+if [ "$LAUNCH_MODE" = "exec" ]; then
+  ensure_baseos_paths "$FRONTEND_ROOT"
+fi
 cd "$FRONTEND_ROOT" || diagnostic
-log "launching $SELECTED adapter: $LAUNCHER"
+log "launching $SELECTED frontend ($LAUNCH_MODE): $LAUNCHER"
 # Pause the frontend before exposing its mounted card to the USB host.
 kill_tree() {
   signal=$1
@@ -349,7 +446,18 @@ kill_tree() {
   for child in $children; do kill_tree "$signal" "$child"; done
   kill -"$signal" "$pid" 2>/dev/null || :
 }
-/bin/sh "$LAUNCHER" &
+if [ "$LAUNCH_MODE" = "exec" ]; then
+  # Supervise the updater rather than exec'ing it, so the Function/Mode
+  # USB-storage hotkey can still stop the frontend and hand its card over.
+  # An upstream package may arrive from a FAT/exFAT card that carries no
+  # executable bit; make it runnable in place, because it references its
+  # siblings under .tmp_update/ and a lone copy would break.
+  [ -f "$LAUNCHER" ] || { log "updater vanished: $LAUNCHER"; diagnostic; }
+  [ -x "$LAUNCHER" ] || chmod 0755 "$LAUNCHER" 2>/dev/null || :
+  "$LAUNCHER" &
+else
+  /bin/sh "$LAUNCHER" &
+fi
 FRONTEND_PID=$!
 while kill -0 "$FRONTEND_PID" 2>/dev/null; do
   # One-shot, opt-in first-stage suspend test. This runs only after a frontend
@@ -388,4 +496,10 @@ rc=$?
 persist_detection_log
 log "frontend '$SELECTED' exited with status $rc; returning to diagnostics"
 printf '\033[0m\033[?25h\033[2J\033[H' > /dev/tty1 2>/dev/null || :
-exec /usr/sbin/rg353ps-control-center
+# Re-enter diagnostics through the supervisor, not by exec'ing the UI directly.
+# The old exec dropped this supervisor, so nothing was left to answer a
+# Function-key or menu request for USB storage: the helper wrote
+# /run/baseos-usb-storage.request, waited 15 s for /run/baseos-frontend-paused,
+# never got it, and gave up with "USB STORAGE FAILED" — which is exactly what
+# storage mode did whenever it was entered from the diagnostic UI.
+diagnostic

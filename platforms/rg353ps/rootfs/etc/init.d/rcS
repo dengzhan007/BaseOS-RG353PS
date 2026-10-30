@@ -17,6 +17,15 @@ echo /sbin/mdev > /proc/sys/kernel/hotplug 2>/dev/null || :
 # the kernel console cursor. The frontend supervisor restores it on exit.
 printf '\033[?25l' > /dev/tty1 2>/dev/null || :
 
+# U-Boot deliberately hands over a black screen: the bootlogo patch replaced
+# its splash callback with video_clear(). Nothing lights the panel again until
+# this script reaches the post-userdata step near the bottom, so every splash
+# drawn before that point was painted into a dark panel. On a first boot that
+# waits for storage initialization, the unit therefore looked completely dead
+# even though userspace was running normally. Raise the backlight before the
+# first splash so progress and errors are actually visible.
+echo 0 > /sys/class/backlight/backlight/bl_power 2>/dev/null || :
+
 log() { printf '%s\n' "$*" > /dev/kmsg 2>/dev/null || :; }
 BOOT_USB_REQUEST=/run/baseos-usb-storage.boot-request
 
@@ -37,14 +46,6 @@ i=0
 while [ ! -e /run/rg353ps-hotkeyd.ready ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i+1)); done
 
 /usr/sbin/baseos-mount-storage
-
-# A freshly updated slot set is on trial until a frontend session starts. This
-# must run before anything else touches the slots: if the trial never reaches a
-# session, boot-check puts the previous slots back. It only looks at
-# /mnt/boot/update/state, so an ordinary boot pays one test.
-if [ -e /mnt/boot/update/state ] && [ -x /usr/sbin/baseos-update ]; then
-  /usr/sbin/baseos-update boot-check
-fi
 
 # Successful userdata initialization is routine; keep its trace in tmpfs and
 # persist a copy on BASEOS_BOOT only if the initialization loop fails.
@@ -99,11 +100,27 @@ fi
 
 while :; do
   /usr/sbin/baseos-init-userdata
+  INIT_RC=$?
   if grep -q " /mnt/SDCARD " /proc/mounts && [ -e "$BOOT_STORAGE_MARKER" ]; then
     break
   fi
   if grep -q ' /mnt/boot ' /proc/mounts 2>/dev/null; then
     cp /tmp/baseos-userdata-init.txt /mnt/boot/baseos-userdata-init.txt 2>/dev/null || :
+  fi
+  # Exit 3 means the initializer changed the partition table but the kernel has
+  # not published the new block node yet. Looping cannot resolve that and used
+  # to leave a freshly flashed card on a black screen forever, which is
+  # indistinguishable from dead hardware. Reboot once and let the second boot
+  # find the partition already in place.
+  if [ "$INIT_RC" -eq 3 ]; then
+    log "User storage needs a reboot to pick up the new partition; rebooting"
+    if [ "$SHOW_STARTUP_STATUS" -eq 1 ]; then
+      /usr/bin/fbsplash 45 "STORAGE READY - REBOOTING" 2>/dev/null || :
+    fi
+    sync
+    sleep 3
+    reboot -f
+    exit 0
   fi
   if [ "$SHOW_STARTUP_STATUS" -eq 1 ]; then
     /usr/bin/fbsplash -1 "STORAGE INITIALIZATION FAILED" 2>/dev/null || :
@@ -114,6 +131,16 @@ while :; do
     /usr/bin/fbsplash 45 "EXPANDING STORAGE" 2>/dev/null || :
   fi
 done
+
+# A freshly updated slot set is on trial until a frontend session starts. If the
+# trial never reaches a session, boot-check puts the previous slots back. It runs
+# here, not earlier, because the trial state lives on BASEOS_DATA: that is the
+# only volume a flip does not move, and it is not mounted until the loop above
+# finishes. Nothing else touches the slots before this point, so the ordering
+# that matters — boot-check before apply — still holds.
+if [ -e /mnt/SDCARD/.baseos/update/state ] && [ -x /usr/sbin/baseos-update ]; then
+  /usr/sbin/baseos-update boot-check
+fi
 
 # A *.bosupd sitting on either volume means the owner asked for an update: it is
 # written into the reserved half of boot and rootfs, read back and verified, and

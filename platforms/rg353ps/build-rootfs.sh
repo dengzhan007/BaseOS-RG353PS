@@ -271,7 +271,13 @@ for file in "$ROOTFS/usr/bin/busybox" "$ROOTFS/usr/bin/baseos-splash" "$ROOTFS/u
   "$ROOTFS/usr/sbin/baseos-update" "$ROOTFS/usr/sbin/gptslot" \
   "$ROOTFS/usr/sbin/rg353ps-sleep" "$ROOTFS/usr/sbin/rg353ps-wifi-connect" \
   "$ROOTFS/usr/sbin/wpa_supplicant" "$ROOTFS/lib/modules/$KREL/modules.dep"; do
-  [ -e "$file" ] || { echo "rootfs missing required file: $file" >&2; exit 1; }
+  # A symlink is accepted even when it cannot be followed here: the rootfs uses
+  # absolute links (/bin/sh -> /usr/bin/busybox) that only resolve inside the
+  # image, so -e alone reports every one of them as missing on the host.
+  { [ -e "$file" ] || [ -L "$file" ]; } || {
+    echo "rootfs missing required file: $file" >&2
+    exit 1
+  }
 done
 
 echo "RG353PS rootfs ready: $ROOTFS"

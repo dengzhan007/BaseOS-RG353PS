@@ -90,6 +90,13 @@ mkdir -p "$USERDATA"
 ensure_bootlogo() {
   [ -d "$USERDATA" ] || return 0
   mkdir -p "$USERDATA/bootlogo" 2>/dev/null || return 0
+
+  # The format notes are restored even when a logo is already in place: whoever
+  # deleted them is the person who will need them next.
+  if [ ! -s "$USERDATA/bootlogo/README.txt" ] && [ -s /etc/baseos/bootlogo-README.txt ]; then
+    cp /etc/baseos/bootlogo-README.txt "$USERDATA/bootlogo/README.txt" 2>/dev/null || :
+  fi
+
   [ -s "$USERDATA/bootlogo/bootlogo.bmp" ] && return 0
   [ -s /etc/baseos/bootlogo.bmp ] || return 0
   if cp /etc/baseos/bootlogo.bmp "$USERDATA/bootlogo/bootlogo.bmp" 2>/dev/null; then

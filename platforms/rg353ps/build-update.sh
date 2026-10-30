@@ -29,7 +29,7 @@ BUILD="$(cat "$WORK/build-id" 2>/dev/null)" || { echo "missing $WORK/build-id (r
 OUT="$WORK/baseos-rg353ps-$VERSION.bosupd"
 
 python3 "$REPO_ROOT/tools/mkupdate.py" "$IMAGE" rg353ps "$VERSION" "$BUILD" "$OUT" \
-  --regions boot,rootfs \
+  --regions boot=BASEOS_BOOT,rootfs=BASEOS_ROOT \
   --data-partition BASEOS_DATA
 
 echo

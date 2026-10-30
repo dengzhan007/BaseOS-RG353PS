@@ -1,13 +1,13 @@
 #!/bin/sh
 # BaseOS system update — A/B slot updates that leave the card's files alone.
 #
-# `uboot`, `boot` and `rootfs` each have twice their size reserved on the card,
-# and only one half of each is a partition at a time; the other is unallocated
-# space reached by raw offset. An update writes all three inactive halves,
-# verifies them by reading them back, and only then flips the GPT — so the flip
-# is the single commit point, and power loss before it leaves the card
-# byte-identical. `data` and `primary` are never touched, which is the point:
-# ROMs, saves and settings survive what would otherwise be a reflash.
+# `boot` and `rootfs` each have twice their size reserved on the card, and only
+# one half of each is a partition at a time; the other is unallocated space
+# reached by raw offset. An update writes both inactive halves, verifies them by
+# reading them back, and only then flips the GPT — so the flip is the single
+# commit point, and power loss before it leaves the card byte-identical. The
+# data partition is never touched, which is the point: ROMs, saves and settings
+# survive what would otherwise be a reflash.
 #
 #   apply       find and apply a *.bosupd payload (rcS)
 #   boot-check  restore the previous slots if this one never reaches a session (rcS)
@@ -20,9 +20,8 @@
 # no signing key: it would be a single point of failure for every update, and
 # these images carry no secrets.
 #
-# All three regions are written every time, even when a release changes only the
-# rootfs. Comparing first would save about 48 MiB of writes; the rootfs is
-# mounted read-only, so its slot does still match its own image.
+# Both regions are written every time, even when a release changes only the
+# rootfs. The boot volume is live, so comparing first cannot be trusted.
 
 FORMAT=baseos-update/2
 # No `uboot` here on purpose. The RG353PS boot chain is Rockchip's SPL followed

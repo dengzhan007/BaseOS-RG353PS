@@ -115,8 +115,9 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     gcc -std=c11 -O2 -Wall -Wextra -Werror -static \
       -o "$R/usr/sbin/rg353ps-hotkeyd" /src/rg353ps-hotkeyd.c
     # gptslot is the only thing that may move boot/rootfs between their two
-    # halves; an update is not possible without it.
-    gcc -static -O2 -o "$R/usr/sbin/gptslot" /src/gptslot.c
+    # halves; an update is not possible without it. It lives in the shared
+    # src/ directory (mounted as /baseos-src), not this platform-owned one.
+    gcc -static -O2 -o "$R/usr/sbin/gptslot" /baseos-src/gptslot.c
     strip "$R/usr/sbin/gptslot"
     # Build upstream BaseOS framebuffer splash statically so the boot and
     # USB-storage UI needs no extra runtime libraries.
@@ -207,10 +208,6 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
         exit 1
       }
     done
-    grep -q '^BASEOS_VERSION=' "$R/etc/baseos-release" || {
-      echo "baseos-release carries no BASEOS_VERSION; .bosupd payloads could not be validated" >&2
-      exit 1
-    }
 
     chmod 0755 "$R/etc/init.d/rcS"
     chmod 0755 "$R/usr/bin/baseos-splash"
@@ -251,6 +248,10 @@ BASEOS_BUILD=$BASEOS_BUILD
 # fbsplash reads this; the RG353PS panel is mounted upright.
 BASEOS_PANEL_ROTATION_CCW=0
 EOF
+    grep -q "^BASEOS_VERSION=" "$R/etc/baseos-release" || {
+      echo "baseos-release carries no BASEOS_VERSION; .bosupd payloads could not be validated" >&2
+      exit 1
+    }
 
     cat > "$R/etc/baseos-build.json" <<EOF
 {
@@ -265,7 +266,11 @@ EOF
     echo "rootfs prepared at $R"
   '
 
-for file in "$ROOTFS/usr/bin/busybox" "$ROOTFS/usr/bin/baseos-splash" "$ROOTFS/usr/bin/fbsplash" "$ROOTFS/sbin/init" "$ROOTFS/etc/init.d/rcS" "$ROOTFS/usr/sbin/baseos-mount-storage" "$ROOTFS/usr/sbin/baseos-init-userdata" "$ROOTFS/usr/sbin/baseos-usb-storage" "$ROOTFS/usr/sbin/baseos-frontend-session" "$ROOTFS/usr/sbin/baseos-slot-launcher" "$ROOTFS/usr/sbin/rg353ps-hotkeyd" "$ROOTFS/usr/sbin/rg353ps-hardware-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-test" "$ROOTFS/usr/sbin/rg353ps-graphics-stack-test" "$ROOTFS/usr/sbin/rg353ps-sdl2-test" "$ROOTFS/usr/sbin/rg353ps-control-center" "$ROOTFS/etc/baseos.conf" "$ROOTFS/lib/modules/$KREL/modules.dep"; do
+for file in "$ROOTFS/usr/bin/busybox" "$ROOTFS/usr/bin/baseos-splash" "$ROOTFS/usr/bin/fbsplash" "$ROOTFS/sbin/init" "$ROOTFS/etc/init.d/rcS" "$ROOTFS/usr/sbin/baseos-mount-storage" "$ROOTFS/usr/sbin/baseos-init-userdata" "$ROOTFS/usr/sbin/baseos-usb-storage" "$ROOTFS/usr/sbin/baseos-frontend-session" "$ROOTFS/usr/sbin/baseos-slot-launcher" "$ROOTFS/usr/sbin/rg353ps-hotkeyd" "$ROOTFS/usr/sbin/rg353ps-hardware-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-test" "$ROOTFS/usr/sbin/rg353ps-graphics-stack-test" "$ROOTFS/usr/sbin/rg353ps-sdl2-test" "$ROOTFS/usr/sbin/rg353ps-control-center" "$ROOTFS/etc/baseos.conf" "$ROOTFS/etc/baseos-release" \
+  "$ROOTFS/etc/baseos/bootlogo.bmp" "$ROOTFS/etc/baseos/bootlogo-README.txt" \
+  "$ROOTFS/usr/sbin/baseos-update" "$ROOTFS/usr/sbin/gptslot" \
+  "$ROOTFS/usr/sbin/rg353ps-sleep" "$ROOTFS/usr/sbin/rg353ps-wifi-connect" \
+  "$ROOTFS/usr/sbin/wpa_supplicant" "$ROOTFS/lib/modules/$KREL/modules.dep"; do
   [ -e "$file" ] || { echo "rootfs missing required file: $file" >&2; exit 1; }
 done
 

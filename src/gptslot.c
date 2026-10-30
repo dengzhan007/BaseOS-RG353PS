@@ -46,6 +46,21 @@ static int fail(const char *msg) {
 	return 2;
 }
 
+// Callers name a region either by its GPT entry name (BASEOS_ROOT) or by the
+// logical name the updater uses (rootfs). Accept both, and accept either case,
+// so the on-card updater and a human at a shell cannot disagree.
+static int name_matches(const char *arg, int i) {
+	if (strcmp(arg, NAMES[i]) == 0) return 1;
+	for (int k = 0, m = 0; ; k++) {
+		int got = arg[k];
+		if (got >= 'a' && got <= 'z') got -= 32;
+		int want = UPPER[i][m];
+		if (got != want) return 0;
+		if (want == 0) return 1;
+		m++;
+	}
+}
+
 static int derive(struct gpt *g, struct slot *s) {
 	uint64_t base = UBOOT_START;
 	for (int i = 0; i < NSLOTS; i++) {
@@ -122,7 +137,7 @@ int main(int argc, char **argv) {
 
 	for (int a = 3; a < argc; a++) {
 		int i = 0;
-		while (i < NSLOTS && strcmp(argv[a], NAMES[i]) != 0) i++;
+		while (i < NSLOTS && !name_matches(argv[a], i)) i++;
 		if (i == NSLOTS) return fail("not an A/B partition");
 		if (s[i].letter == 'F')
 			return fail("BASEOS_UBOOT is read from a fixed offset by the SPL and has no A/B copy");

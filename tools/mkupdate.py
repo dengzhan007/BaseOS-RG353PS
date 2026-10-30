@@ -30,6 +30,24 @@ def die(msg):
     sys.exit(f"mkupdate: {msg}")
 
 
+def parse_regions(spec: str) -> tuple:
+    """Turn "boot=BASEOS_BOOT,rootfs=BASEOS_ROOT" into (logical, gpt) pairs.
+
+    The manifest keys and the payload member names use the logical region name
+    the device side asks for; the GPT lookup needs whatever the target calls its
+    partitions. Keeping the two apart is what lets one tool serve a port that
+    prefixes its partition names.
+    """
+    out = []
+    for item in spec.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        logical, _, gpt_name = item.partition("=")
+        out.append((logical, gpt_name or logical))
+    return tuple(out)
+
+
 def extents(image: Path) -> dict:
     """Return {name: (first_lba, sectors)} for every partition in the image."""
     with image.open("rb") as handle:
@@ -101,12 +119,12 @@ def main() -> int:
     image, target, version, build, output = (
         a.image, a.target, a.version, a.build, a.output
     )
-    regions = tuple(a.regions.split(",")) if a.regions else REGIONS
+    regions = parse_regions(a.regions) if a.regions else [(r, r) for r in REGIONS]
 
     parts = extents(image)
-    for name in (*regions, a.data_partition):
-        if name not in parts:
-            die(f"the image has no `{name}` partition")
+    for logical, gpt_name in (*regions, (a.data_partition, a.data_partition)):
+        if gpt_name not in parts:
+            die(f"the image has no `{gpt_name}` partition")
 
     # Both stamps matter: a manifest claiming a version the filesystem does not
     # carry would make the card apply it, boot, still disagree about its own
@@ -122,12 +140,12 @@ def main() -> int:
         ("version", version),
         ("build", build),
     ]
-    for name in regions:
-        start, sectors = parts[name]
+    for logical, gpt_name in regions:
+        start, sectors = parts[gpt_name]
         sha, blob = pack(image, start, sectors, stamps)
-        print(f"{name:7s} LBA {start}, {sectors} sectors -> {len(blob)} bytes  {sha}")
-        fields += [(f"{name}-sectors", sectors), (f"{name}-sha256", sha)]
-        members.append((f"{name}.img.gz", blob))
+        print(f"{logical:7s} LBA {start}, {sectors} sectors -> {len(blob)} bytes  {sha}")
+        fields += [(f"{logical}-sectors", sectors), (f"{logical}-sha256", sha)]
+        members.append((f"{logical}.img.gz", blob))
 
     for stamp, seen in stamps.items():
         if not seen:

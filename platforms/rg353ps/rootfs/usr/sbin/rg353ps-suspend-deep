@@ -236,6 +236,7 @@ if [ "${WAKE_AFTER:-0}" -gt 0 ] 2>/dev/null; then
 fi
 
 Q_BEFORE=$(gauge_value)
+CAP_BEFORE=$(cat "$BATT/capacity" 2>/dev/null)
 if [ -z "$Q_BEFORE" ]; then
   log "WARNING: no readable charge/energy gauge; the current estimate will be unavailable"
 fi
@@ -326,28 +327,67 @@ if [ "$WIFI_UNBOUND" = 1 ]; then
 fi
 
 Q_AFTER=$(gauge_value)
+CAP_AFTER=$(cat "$BATT/capacity" 2>/dev/null)
+CUR_AVG_AFTER=$(cat "$BATT/current_avg" 2>/dev/null)
 log "gauge_after=$Q_AFTER (source $GAUGE)"
+log "capacity_before=$CAP_BEFORE capacity_after=$CAP_AFTER"
+log "current_avg_after=$CUR_AVG_AFTER uA"
 log "suspend_success_after=$(read_attr /sys/power/suspend_stats/success)"
 log "suspend_fail_after=$(read_attr /sys/power/suspend_stats/fail)"
 dump_battery
 
+# --- sleep-current estimate -------------------------------------------------
+# Three sources, in decreasing order of trustworthiness. The rk817 coulomb
+# counter printed by the charger driver at resume is the best one: it is the
+# chip's own accumulator across the sleep window and is not touched by the
+# OCV-based soc recalibration. charge_now is NOT safe on its own - the driver
+# recomputes soc from the open-circuit voltage while asleep, so the counter can
+# jump *up* by hundreds of uAh even though the pack only ever discharged.
+SLEEP_DONE=0
 if [ -n "$Q_AFTER" ] && [ -n "$Q_BEFORE" ] && [ "$T_AFTER" -gt "$T_BEFORE" ]; then
   SECS=$((T_AFTER - T_BEFORE))
   DQ=$((Q_BEFORE - Q_AFTER))
-  case "$GAUGE" in
-    *energy_now)
-      # uWh -> mW -> mA assuming the 3.8 V nominal pack voltage.
-      MA=$(awk -v q="$DQ" -v s="$SECS" 'BEGIN { if (s > 0) printf "%.1f", (q * 3.6 / s) / 3.8; else print "n/a" }')
-      log "note: gauge is energy_now (uWh); mA assumes 3.80 V nominal"
-      ;;
-    *)
-      # uAh * 3600 / seconds / 1000  ==  uAh * 3.6 / seconds
-      MA=$(awk -v q="$DQ" -v s="$SECS" 'BEGIN { if (s > 0) printf "%.1f", (q * 3.6) / s; else print "n/a" }')
-      ;;
-  esac
+  SLEEP_DONE=1
   log "sleep_window=${SECS}s delta_gauge=${DQ}"
-  log "average_current_estimate=${MA} mA"
-  log "(fuel-gauge estimate; window includes settle time and resume burst)"
+
+  # --- source 1: driver coulomb counter ---
+  CNTLINE=$(dmesg 2>/dev/null | grep -o 'resume after [0-9][0-9]*s: counter [0-9][0-9]* uAh ([0-9][0-9]* at suspend)' | tail -1)
+  if [ -n "$CNTLINE" ]; then
+    CSECS=$(printf '%s\n' "$CNTLINE" | sed -n 's/resume after \([0-9][0-9]*\)s:.*/\1/p')
+    CATS=$(printf '%s\n' "$CNTLINE" | sed -n 's/.*(\([0-9][0-9]*\) at suspend).*/\1/p')
+    CNOW=$(printf '%s\n' "$CNTLINE" | sed -n 's/.*counter \([0-9][0-9]*\) uAh.*/\1/p')
+    log "driver_counter: $CNTLINE"
+    if [ -n "$CSECS" ] && [ -n "$CATS" ] && [ -n "$CNOW" ] && [ "$CSECS" -gt 0 ] && [ "$CATS" -gt "$CNOW" ]; then
+      CQ=$((CATS - CNOW))
+      CMA=$(awk -v q="$CQ" -v s="$CSECS" 'BEGIN { printf "%.1f", (q * 3.6) / s }')
+      log "driver_counter_delta=${CQ}uAh over ${CSECS}s"
+      log "AUTHORITATIVE average_current=${CMA} mA  (RK817 coulomb counter, OCV-recalibration immune)"
+    fi
+  else
+    log "driver_counter: resume line not found in dmesg"
+  fi
+
+  # --- source 2: charge_now delta, only when it actually went down ---
+  if [ "$DQ" -gt 0 ]; then
+    case "$GAUGE" in
+      *energy_now)
+        MA=$(awk -v q="$DQ" -v s="$SECS" 'BEGIN { printf "%.1f", (q * 3.6 / s) / 3.8 }')
+        log "average_current_from_gauge=${MA} mA (energy_now uWh, assumes 3.80 V nominal)"
+        ;;
+      *)
+        MA=$(awk -v q="$DQ" -v s="$SECS" 'BEGIN { printf "%.1f", (q * 3.6) / s }')
+        log "average_current_from_gauge=${MA} mA"
+        ;;
+    esac
+  else
+    log "charge_now delta is ${DQ} (non-negative while discharging): the fuel gauge"
+    log "  recalibrated soc from the open-circuit voltage during sleep, so this delta"
+    log "  is unusable. Do not report it as a current."
+    if [ -n "$CUR_AVG_AFTER" ]; then
+      MA=$(awk -v c="$CUR_AVG_AFTER" 'BEGIN { if (c < 0) c = -c; printf "%.1f", c / 1000 }')
+      log "average_current_from_current_avg=${MA} mA (battery/current_avg at resume)"
+    fi
+  fi
 else
   log "current estimate unavailable (no usable gauge or bad clock)"
 fi

@@ -56,12 +56,59 @@ rotate_diag_logs() {
   done
 }
 : > "$DIAG_LOG"
-# BASEOS_BOOT_LIVE_LOG_V1: mirror logs to BOOT so forced power-off preserves progress.
+
+# --- debug switch ---------------------------------------------------------
+#
+# Everything in here existed to chase intermittent USB enumeration failures:
+# per-second USB snapshots, a ten-second heartbeat that dumps diskstats, pending
+# SCSI commands and a dmesg tail, plus a live copy of the whole trace on the boot
+# partition. It earned its keep while the failures were unexplained, and it is
+# dead weight on a unit that works -- every storage session wrote thousands of
+# lines to BASEOS_BOOT for nothing.
+#
+# So it is behind one switch. With debug off, the trace stays in /run (memory),
+# and the card only ever sees a log when a session actually failed, written once
+# at teardown. With debug on, behaviour is exactly what it was while debugging:
+# live mirroring, snapshots, heartbeat, and five rotating snapshots kept.
+#
+# Set it in /mnt/boot/baseos.conf on the card:
+#
+#     debug=yes
+#
+# The card copy wins over /etc/baseos.conf, which ships the default (no), so
+# the switch can be flipped without rebuilding or updating anything.
+read_debug_setting() {
+  for dbg_conf in /mnt/boot/baseos.conf /etc/baseos.conf; do
+    [ -r "$dbg_conf" ] || continue
+    while IFS='=' read -r dbg_key dbg_value; do
+      case "$dbg_key" in
+        debug)
+          case "$dbg_value" in
+            yes|YES|Yes|1|on) printf 'yes' ;;
+            *) printf 'no' ;;
+          esac
+          return 0
+          ;;
+      esac
+    done < "$dbg_conf"
+  done
+  printf 'no'
+}
+DEBUG=0
+[ "$(read_debug_setting)" = "yes" ] && DEBUG=1
+
 if [ -d /mnt/boot ] && grep -q ' /mnt/boot ' /proc/mounts 2>/dev/null; then
-  rotate_diag_logs
-  : > "$BOOT_LOG" 2>/dev/null || :
-  printf '%s baseos-usb-storage: session started; live BOOT logging enabled\n' "$(date '+%F %T' 2>/dev/null || echo uptime)" >> "$BOOT_LOG" 2>/dev/null || :
-  sync
+  if [ "$DEBUG" -eq 1 ]; then
+    rotate_diag_logs
+    : > "$BOOT_LOG" 2>/dev/null || :
+    printf '%s baseos-usb-storage: session started; debug=yes, live BOOT logging enabled\n' "$(date '+%F %T' 2>/dev/null || echo uptime)" >> "$BOOT_LOG" 2>/dev/null || :
+    sync
+  else
+    # Leave no trace of a session we do not expect to need. A stale log from a
+    # run that succeeded is worse than none: it invites the reader to debug the
+    # wrong thing. Removing it is bounded to the one file this helper owns.
+    rm -f "$BOOT_LOG" 2>/dev/null || :
+  fi
 fi
 case "${1:-}" in
   "") ;;
@@ -73,9 +120,18 @@ log() {
   line="$(date '+%F %T' 2>/dev/null || echo uptime) baseos-usb-storage: $*"
   printf '%s\n' "$line" >> "$DIAG_LOG"
   printf '<6>baseos-usb-storage: %s\n' "$*" > /dev/kmsg 2>/dev/null || :
-  if [ -d /mnt/boot ] && grep -q ' /mnt/boot ' /proc/mounts 2>/dev/null; then
+  # Mirroring every line costs a write per log call. Only worth it when the
+  # trace is being collected deliberately, or after something has gone wrong;
+  # the failed-session copy is written once at teardown instead.
+  if [ "$DEBUG" -eq 1 ] && [ -d /mnt/boot ] && grep -q ' /mnt/boot ' /proc/mounts 2>/dev/null; then
     printf '%s\n' "$line" >> "$BOOT_LOG" 2>/dev/null || :
   fi
+}
+# Debug-only tracing: USB/PHY snapshots, heartbeats and dmesg captures. The
+# critical path still uses log() so a failure always leaves a usable trace.
+dlog() {
+  [ "$DEBUG" -eq 1 ] || return 0
+  log "$@"
 }
 set_storage_console_quiet() {
   [ -r /proc/sys/kernel/printk ] && [ -w /proc/sys/kernel/printk ] || return 0
@@ -508,6 +564,18 @@ cleanup() {
   trap - EXIT INT TERM HUP
   log "cleanup entry trigger=$CLEANUP_TRIGGER status=$cleanup_status elapsed_i=$i bound=$BOUND"
 
+  # With debug off nothing was mirrored to the card during the session, so a
+  # session that failed would leave no evidence at all -- and a failed session is
+  # exactly the one worth reading. Copy the in-memory trace now, once, and only
+  # on failure: exiting 0 means the cable was pulled or the copy finished, which
+  # is not something anyone needs a log of.
+  if [ "$cleanup_status" -ne 0 ] && [ "$DEBUG" -eq 0 ] &&
+     [ -d /mnt/boot ] && grep -q ' /mnt/boot ' /proc/mounts 2>/dev/null; then
+    cp "$DIAG_LOG" "$BOOT_LOG" 2>/dev/null || :
+    sync
+    log "failed session trace written to $BOOT_LOG"
+  fi
+
   # Stop the write-idle flusher first: it holds no lock, but leaving it running
   # would have it sync during teardown for no reason.
   if [ -n "$FLUSH_PID" ]; then
@@ -796,7 +864,7 @@ fi
 # new SDP/VBUS notification. Keep the enumeration timeout disarmed until cable
 # detection below, so plugging in after entering storage mode still works.
 log "storage mode ready; binding gadget before waiting for DC data cable"
-snapshot "immediately-before-bind"
+if [ "$DEBUG" -eq 1 ]; then snapshot "immediately-before-bind"; fi
 if ! printf '%s' "$UDC" > "$G/UDC"; then log "could not bind USB controller $UDC"; exit 1; fi
 BOUND=1
 # Start flushing on write-idle as soon as the host can write anything.
@@ -815,7 +883,7 @@ grep -q " /sys/kernel/debug " /proc/mounts 2>/dev/null ||
 # before inviting the cable makes "plug in when the prompt appears" the safe
 # case instead of the broken one.
 sleep 3
-snapshot "three-seconds-after-bind"
+if [ "$DEBUG" -eq 1 ]; then snapshot "three-seconds-after-bind"; fi
 SESSION_WRITE_SECTORS="$(awk -v p="$PART_NAME" '$3 == p {print $10; exit}' /proc/diskstats 2>/dev/null)"
 log "USB gadget bound for $DEVICE; waiting for PC data cable"
 /usr/bin/baseos-splash --important -1 "WAITING FOR DATA CABLE" 2>/dev/null || :
@@ -830,7 +898,7 @@ i=0
 while ! cable_present && [ "$i" -lt 180 ]; do
   if [ "$i" -eq 0 ]; then
     log "waiting for data cable; initial post-bind USB/PHY snapshot follows"
-    dump_usb_status
+    [ "$DEBUG" -eq 1 ] && dump_usb_status
   elif [ $((i % 60)) -eq 0 ]; then
     log "still waiting for data cable elapsed=${i}s"
   fi
@@ -850,7 +918,7 @@ fi
 log "data cable detected after ${i}s; checking UDC before enumeration timeout"
 /usr/bin/baseos-splash --important 45 "CONNECTING USB STORAGE" 2>/dev/null || :
 rk3566_usb_trigger || :
-snapshot "after-data-cable-detection"
+if [ "$DEBUG" -eq 1 ]; then snapshot "after-data-cable-detection"; fi
 log "PC data cable present for $DEVICE; now waiting for USB enumeration"
 
 # After the data cable is detected and the gadget is bound, allow 45 seconds
@@ -862,12 +930,18 @@ i=0
 while [ "$i" -lt 3600 ]; do
   case "$i" in
     10|30)
-      log "periodic USB role/PHY sample at ${i}s after gadget bind"
-      dump_usb_status
+      [ "$DEBUG" -eq 1 ] && {
+        log "periodic USB role/PHY sample at ${i}s after gadget bind"
+        dump_usb_status
+      }
       ;;
   esac
   # Durable heartbeat with block I/O counters and only new-session kernel events.
-  if [ "$i" -gt 0 ] && [ $((i % 10)) -eq 0 ]; then
+  # The heartbeat dumps diskstats, pending SCSI commands and a dmesg tail every
+  # ten seconds. That is how the enumeration failures were understood, and it is
+  # noise once they are not happening, so it is debug-only. Data safety does not
+  # depend on it: flush_on_idle is a separate process and keeps running.
+  if [ "$DEBUG" -eq 1 ] && [ "$i" -gt 0 ] && [ $((i % 10)) -eq 0 ]; then
     hb_state="$(cat "/sys/class/udc/$UDC/state" 2>/dev/null || echo unknown)"
     hb_speed="$(cat "/sys/class/udc/$UDC/current_speed" 2>/dev/null || echo unknown)"
     hb_cable=no

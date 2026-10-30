@@ -1,6 +1,12 @@
 #!/bin/sh
 # Build the RG353PS diagnostic rootfs: BusyBox, hardware tools and evdev console UI.
 # The Miyoo Flip stock-library harvest and all my355-specific scripts are excluded.
+#
+# ALPINE_MIRROR (optional): point apk at a mirror, e.g.
+#   ALPINE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine/v3.22 ./build-rootfs.sh
+# Unset means the image default (dl-cdn.alpinelinux.org) is used. The value
+# only changes /etc/apk/repositories inside the build container and the copy
+# shipped in the target rootfs.
 set -eu
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -37,7 +43,11 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
   -v "$REPO_ROOT/src":/baseos-src:ro \
   -v "$REPO_ROOT/assets":/assets:ro \
   -e KREL="$KREL" \
+  -e ALPINE_MIRROR="${ALPINE_MIRROR:-}" \
   alpine:3.22 sh -euc '
+    if [ -n "${ALPINE_MIRROR:-}" ]; then
+      printf '%s\n%s\n' "$ALPINE_MIRROR/main" "$ALPINE_MIRROR/community" > /etc/apk/repositories
+    fi
     apk add --no-cache busybox-static tar zstd build-base linux-headers sdl2-dev freetype-dev freetype-static zlib-static libpng-static bzip2-static brotli-static pkgconf
 
     R=/work/rootfs

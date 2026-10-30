@@ -1,0 +1,50 @@
+Subject: [PATCH] arm64: dts: rockchip: power down the SDIO combo in suspend on RG353PS
+
+The shared RGxx3 device tree keeps the RTL8821CS rail always-on and asks the
+MMC core to keep the SDIO card powered across system suspend. That leaves the
+radio energised for the whole sleep window, which is the largest single
+contributor to the board's suspend current and provides no benefit: there is
+no wake-on-wireless on this handheld.
+
+regulator-state-mem cannot be used for this rail because regulator-fixed does
+not implement set_suspend_disable(), so __suspend_set_state() silently does
+nothing. Removing "regulator-always-on" turns the rail into a normal
+switchable regulator, and removing "keep-power-in-suspend" makes
+mmc_sdio_suspend() call mmc_power_off(), which disables vmmc and drives the
+enable GPIO low.
+
+The SDIO card is therefore re-enumerated on resume and rtw88 has to reload its
+firmware; this needs hardware verification.
+
+---
+--- a/arch/arm64/boot/dts/rockchip/rk3566-anbernic-rg353ps.dts
+--- 
+@@ -114,3 +114,28 @@
+ 		rockchip,sleep-filter-current-microamp = <100000>;
+ 	};
+ };
++
++/*
++ * Deep suspend: power the RTL8821CS combo off.
++ *
++ * rk3566-anbernic-rgxx3.dtsi keeps vcc_wifi always-on and asks the MMC core
++ * to keep the SDIO card powered across suspend. Both together leave the radio
++ * energised for the whole suspend window, which dominates the board's sleep
++ * current and buys nothing: this handheld has no wake-on-wireless.
++ *
++ * reg- lator-state-mem cannot help here - regulator-fixed has no
++ * set_suspend_disable op, so __suspend_set_state() silently does nothing.
++ * Dropping "always-on" instead makes the rail a normal switchable regulator,
++ * and dropping "keep-power-in-suspend" makes mmc_sdio_suspend() call
++ * mmc_power_off(), which disables vmmc and drives the enable GPIO low.
++ *
++ * Consequence to verify on hardware: the card is re-enumerated on resume and
++ * rtw88 reloads its firmware. Keep the output quiet only if that works.
++ */
++&vcc_wifi {
++	/delete-property/ regulator-always-on;
++};
++
++&sdmmc2 {
++	/delete-property/ keep-power-in-suspend;
++};

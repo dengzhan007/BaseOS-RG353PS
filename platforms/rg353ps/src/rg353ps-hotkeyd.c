@@ -18,6 +18,16 @@
 #define NAME_LEN 128
 #define PATH_LEN 256
 #define POWER_HOLD_MS 2000
+/* A release shorter than this is a sleep request, not a power-off. 900 ms keeps
+   "hold to shut down" (2 s) unambiguous and still tolerates a slow tap. */
+#define POWER_SHORT_MS 900
+/* Below this the press is switch bounce or an accidental graze. */
+#define POWER_MIN_MS 40
+/* After the wake-up press, ignore power events for a moment: the release of the
+   key that woke the unit is still queued in the evdev buffer and would
+   otherwise be seen as a fresh press. */
+#define RESUME_GUARD_MS 3000
+#define SLEEP_SCRIPT "/usr/sbin/rg353ps-sleep"
 
 enum device_role { ROLE_NONE = 0, ROLE_VOLUME, ROLE_POWER, ROLE_KEYS };
 struct input_device { int fd; enum device_role role; char path[PATH_LEN]; char name[NAME_LEN]; };
@@ -25,6 +35,7 @@ static struct input_device inputs[MAX_INPUTS];
 static int input_count;
 static volatile sig_atomic_t running = 1;
 static long long power_press_start_ms = -1;
+static long long power_ignore_until_ms = 0;
 static int function_down;
 static int mode_down;
 static int storage_latched;
@@ -372,6 +383,50 @@ static int adjust_playback_volume(int up) {
     log_message(up?"volume up failed: amixer returned an error":"volume down failed: amixer returned an error");
     return 0;
 }
+/* Deep sleep is delegated to /usr/sbin/rg353ps-sleep, which owns the
+   unbind -> mem -> rebind sequence. Staying in waitpid() while the script runs
+   is deliberate: the event loop must not process power events during the
+   sleep, and the daemon has nothing else to do until the unit wakes. */
+static void enter_deep_sleep(void) {
+    pid_t child;
+    int status = 0;
+    if (access(SLEEP_SCRIPT, X_OK) != 0) {
+        log_message("sleep script missing or not executable; ignoring short press");
+        return;
+    }
+    child = fork();
+    if (child < 0) {
+        log_message("fork failed; cannot enter deep sleep");
+        return;
+    }
+    if (child == 0) {
+        int nullfd = open("/dev/null", O_RDWR);
+        if (nullfd >= 0) {
+            (void)dup2(nullfd, STDIN_FILENO);
+            (void)dup2(nullfd, STDOUT_FILENO);
+            (void)dup2(nullfd, STDERR_FILENO);
+            if (nullfd > STDERR_FILENO) (void)close(nullfd);
+        }
+        execl(SLEEP_SCRIPT, "rg353ps-sleep", (char *)NULL);
+        _exit(127);
+    }
+    log_message("power key released short; entering deep sleep");
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno == EINTR) {
+            if (!running) break;
+            continue;
+        }
+        status = 0;
+        break;
+    }
+    power_press_start_ms = -1;
+    power_ignore_until_ms = monotonic_ms() + RESUME_GUARD_MS;
+    if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
+        log_message("deep sleep ended with an error status; see /var/log/rg353ps-sleep.log");
+    else
+        log_message("woke from deep sleep");
+}
+
 static void handle_input(struct input_device *dev) {
     struct input_event ev;
     ssize_t count;
@@ -381,8 +436,20 @@ static void handle_input(struct input_device *dev) {
             if((ev.value==1||ev.value==2)&&(ev.code==KEY_VOLUMEUP||ev.code==KEY_VOLUMEDOWN))
                 (void)adjust_playback_volume(ev.code==KEY_VOLUMEUP);
         } else if(dev->role==ROLE_POWER&&ev.code==KEY_POWER) {
-            if(ev.value==1) { if(power_press_start_ms<0) power_press_start_ms=monotonic_ms(); }
-            else if(ev.value==0) power_press_start_ms=-1;
+            long long now = monotonic_ms();
+            if(now < power_ignore_until_ms) {
+                /* Still inside the post-resume guard window. Drop whatever the
+                   kernel queued while we were asleep. */
+                power_press_start_ms = -1;
+                continue;
+            }
+            if(ev.value==1) {
+                if(power_press_start_ms<0) power_press_start_ms=now;
+            } else if(ev.value==0) {
+                long long held = power_press_start_ms>=0 ? now-power_press_start_ms : -1;
+                power_press_start_ms=-1;
+                if(held>=POWER_MIN_MS && held<POWER_SHORT_MS) enter_deep_sleep();
+            }
         } else if (dev->role == ROLE_KEYS && ev.type == EV_KEY) {
             int down = (ev.value != 0);
             char msg[192];

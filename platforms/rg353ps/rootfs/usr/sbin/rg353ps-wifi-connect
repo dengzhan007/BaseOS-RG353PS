@@ -1,0 +1,224 @@
+#!/bin/sh
+# RG353PS WiFi control plane for the frontend and for wake-up recovery.
+#
+# The device ships wpa_supplicant but no NetworkManager, so this script is the
+# single supported entry point: the frontend calls it, rg353ps-sleep calls it
+# after resume, and a human can call it over the debug shell.
+#
+# Configuration lives in /etc/wpa_supplicant/wpa_supplicant.conf with
+# update_config=1, so `join` persists networks across reboots. A copy is kept on
+# the userdata card when one is mounted.
+#
+# Usage:
+#   rg353ps-wifi-connect up                 start supplicant + DHCP
+#   rg353ps-wifi-connect down               stop DHCP + supplicant
+#   rg353ps-wifi-connect status             one screen of state for the UI
+#   rg353ps-wifi-connect scan               rescan and list SSIDs
+#   rg353ps-wifi-connect join SSID [PSK]    add + connect + save (PSK optional)
+#   rg353ps-wifi-connect forget SSID        remove a saved network
+#   rg353ps-wifi-connect list               saved networks
+#   rg353ps-wifi-connect reconnect          drop link, re-associate, renew DHCP
+#
+# Exit codes: 0 ok, 1 failed, 2 usage
+set -u
+
+IFACE=wlan0
+CONF=/etc/wpa_supplicant/wpa_supplicant.conf
+CTRL=/run/wpa_supplicant
+BACKUP=/mnt/SDCARD/.baseos/wifi.conf
+
+log() { printf 'rg353ps-wifi-connect: %s\n' "$*" >&2; }
+die() { log "$*"; exit 1; }
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+ensure_conf() {
+  [ -f "$CONF" ] && return 0
+  mkdir -p "$(dirname "$CONF")" "$CTRL" 2>/dev/null || :
+  if [ -s "$BACKUP" ]; then
+    cp "$BACKUP" "$CONF" 2>/dev/null && { log "restored config from userdata"; return 0; }
+  fi
+  cat > "$CONF" <<'EOF'
+ctrl_interface=/run/wpa_supplicant
+update_config=1
+country=CN
+EOF
+  chmod 600 "$CONF" 2>/dev/null || :
+  return 0
+}
+
+save_backup() {
+  [ -d /mnt/SDCARD ] || return 0
+  mkdir -p "$(dirname "$BACKUP")" 2>/dev/null || return 0
+  cp "$CONF" "$BACKUP" 2>/dev/null || :
+}
+
+wlan_present() { [ -e "/sys/class/net/$IFACE" ]; }
+
+supplicant_running() { pidof wpa_supplicant >/dev/null 2>&1; }
+
+wait_supplicant() {
+  i=0
+  while [ "$i" -lt 50 ]; do
+    [ -e "$CTRL/$IFACE" ] && return 0
+    sleep 0.1; i=$((i + 1))
+  done
+  return 1
+}
+
+start_dhcp() {
+  have udhcpc || { log "udhcpc missing"; return 1; }
+  pidof udhcpc >/dev/null 2>&1 && killall udhcpc 2>/dev/null || :
+  # -b: background if no lease yet - the UI must not block on association.
+  udhcpc -i "$IFACE" -b -q -t 5 -T 3 -s /usr/share/udhcpc/default.script >/dev/null 2>&1 &
+  log "DHCP started on $IFACE"
+  return 0
+}
+
+stop_dhcp() {
+  pidof udhcpc >/dev/null 2>&1 && killall udhcpc 2>/dev/null || :
+  return 0
+}
+
+do_up() {
+  wlan_present || die "$IFACE is absent; is the WiFi module bound?"
+  ensure_conf
+  mkdir -p "$CTRL" 2>/dev/null || :
+  if ! supplicant_running; then
+    have wpa_supplicant || die "wpa_supplicant is not installed"
+    wpa_supplicant -B -i "$IFACE" -c "$CONF" -D nl80211,wext >/dev/null 2>&1 \
+      || die "wpa_supplicant failed to start"
+  fi
+  wait_supplicant || log "WARNING: control socket not ready; DHCP may retry"
+  start_dhcp
+  return 0
+}
+
+do_down() {
+  stop_dhcp
+  if supplicant_running; then
+    wpa_cli -i "$IFACE" terminate >/dev/null 2>&1 || killall wpa_supplicant 2>/dev/null || :
+  fi
+  ip link set "$IFACE" down 2>/dev/null || :
+  log "WiFi stopped"
+  return 0
+}
+
+do_status() {
+  if ! wlan_present; then
+    printf 'present=0\n'
+    return 1
+  fi
+  printf 'present=1\n'
+  printf 'supplicant=%s\n' "$(supplicant_running && echo 1 || echo 0)"
+  if supplicant_running && have wpa_cli; then
+    wpa_cli -i "$IFACE" status 2>/dev/null | while IFS= read -r line; do
+      case "$line" in
+        wpa_state=*|ssid=*|bssid=*|ip_address=*|freq=*|key_mgmt=*) printf '%s\n' "$line" ;;
+      esac
+    done
+  fi
+  IP=$(ip -4 addr show "$IFACE" 2>/dev/null | sed -n 's/.*inet \([0-9.]*\)\/.*/\1/p' | head -1)
+  printf 'ip=%s\n' "${IP:-none}"
+  return 0
+}
+
+do_scan() {
+  wlan_present || die "$IFACE is absent"
+  supplicant_running || do_up >/dev/null 2>&1 || :
+  wpa_cli -i "$IFACE" scan >/dev/null 2>&1 || die "scan request rejected"
+  sleep 3
+  wpa_cli -i "$IFACE" scan_results 2>/dev/null | awk -F'\t' '
+    NR==1 { next }
+    NF < 5 { next }
+    { printf "%s\t%s\t%s\t%s\n", $3, $4, $2, $5 }
+  '
+  return 0
+}
+
+next_network_id() {
+  LAST=$(wpa_cli -i "$IFACE" list_networks 2>/dev/null | awk -F'\t' 'NR>1 && $1 ~ /^[0-9]+$/ { print $1 }' | sort -n | tail -1)
+  [ -n "${LAST:-}" ] || LAST=-1
+  echo $((LAST + 1))
+}
+
+do_join() {
+  SSID=${1:-}
+  PSK=${2:-}
+  [ -n "$SSID" ] || die "usage: $0 join SSID [PSK]"
+  wlan_present || die "$IFACE is absent"
+  ensure_conf
+  supplicant_running || do_up >/dev/null 2>&1 || die "supplicant is not running"
+
+  # Reuse an existing entry for the same SSID instead of piling up duplicates.
+  ID=$(wpa_cli -i "$IFACE" list_networks 2>/dev/null | awk -F'\t' -v s="$SSID" 'NR>1 && $2==s { print $1; exit }')
+  if [ -z "${ID:-}" ]; then
+    ID=$(next_network_id)
+    wpa_cli -i "$IFACE" add_network >/dev/null 2>&1 || die "add_network failed"
+  fi
+  wpa_cli -i "$IFACE" set_network "$ID" ssid "\"$SSID\"" >/dev/null 2>&1 || die "set_network ssid failed"
+  if [ -n "$PSK" ]; then
+    wpa_cli -i "$IFACE" set_network "$ID" psk "\"$PSK\"" >/dev/null 2>&1 || die "set_network psk failed"
+  else
+    wpa_cli -i "$IFACE" set_network "$ID" key_mgmt NONE >/dev/null 2>&1 || :
+  fi
+  wpa_cli -i "$IFACE" enable_network "$ID" >/dev/null 2>&1 || :
+  wpa_cli -i "$IFACE" select_network "$ID" >/dev/null 2>&1 || :
+  wpa_cli -i "$IFACE" save_config >/dev/null 2>&1 || log "WARNING: save_config failed"
+  save_backup
+  log "joining '$SSID' (network $ID)"
+
+  i=0
+  while [ "$i" -lt 100 ]; do
+    wpa_cli -i "$IFACE" status 2>/dev/null | grep -q '^wpa_state=COMPLETED' && break
+    sleep 0.2; i=$((i + 1))
+  done
+  if wpa_cli -i "$IFACE" status 2>/dev/null | grep -q '^wpa_state=COMPLETED'; then
+    start_dhcp
+    log "associated with '$SSID'"
+    return 0
+  fi
+  log "did not associate within 20s"
+  return 1
+}
+
+do_forget() {
+  SSID=${1:-}
+  [ -n "$SSID" ] || die "usage: $0 forget SSID"
+  supplicant_running || do_up >/dev/null 2>&1 || :
+  ID=$(wpa_cli -i "$IFACE" list_networks 2>/dev/null | awk -F'\t' -v s="$SSID" 'NR>1 && $2==s { print $1; exit }')
+  [ -n "${ID:-}" ] || { log "no saved network '$SSID'"; return 1; }
+  wpa_cli -i "$IFACE" remove_network "$ID" >/dev/null 2>&1 || :
+  wpa_cli -i "$IFACE" save_config >/dev/null 2>&1 || :
+  save_backup
+  log "forgot '$SSID'"
+  return 0
+}
+
+do_list() {
+  supplicant_running || { log "supplicant not running"; return 1; }
+  wpa_cli -i "$IFACE" list_networks 2>/dev/null | awk -F'\t' 'NR>1 && $1 ~ /^[0-9]+$/ { printf "%s\t%s\n", $1, $2 }'
+  return 0
+}
+
+do_reconnect() {
+  supplicant_running || { do_up; return $?; }
+  wpa_cli -i "$IFACE" reassociate >/dev/null 2>&1 || :
+  stop_dhcp
+  start_dhcp
+  return 0
+}
+
+[ "$#" -ge 1 ] || die "usage: $0 up|down|status|scan|join|forget|list|reconnect"
+
+case "$1" in
+  up)        do_up ;;
+  down)      do_down ;;
+  status)    do_status ;;
+  scan)      do_scan ;;
+  join)      shift; do_join "$@" ;;
+  forget)    shift; do_forget "$@" ;;
+  list)      do_list ;;
+  reconnect) do_reconnect ;;
+  *)         die "unknown command '$1'" ;;
+esac

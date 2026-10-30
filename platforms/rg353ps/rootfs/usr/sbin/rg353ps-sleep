@@ -1,0 +1,192 @@
+#!/bin/sh
+# RG353PS deep sleep (option A, product form).
+#
+# Sequence: stop supplicant -> unbind SDIO WiFi -> blank backlight -> mem ->
+# restore backlight -> rebind SDIO WiFi -> restart supplicant -> DHCP.
+#
+# Why the unbind is mandatory is documented in rg353ps-wifi-cycle. In short:
+# rtw_sdio_suspend() requests MMC_PM_KEEP_POWER, and as long as the function
+# driver is bound the MMC core refuses to power the card off. Unbinding is the
+# only way to switch vcc_wifi off without patching the driver.
+#
+# This script is the runtime path. Use rg353ps-suspend-deep when a written
+# report with gauge data is needed instead.
+#
+# Usage: rg353ps-sleep [--no-wifi] [--settle SECONDS]
+#
+# Exit codes: 0 slept, 1 refused, 2 usage, 3 suspend failed
+set -u
+
+LOG=/var/log/rg353ps-sleep.log
+LOCK=/run/rg353ps-sleep.lock
+WIFI_CYCLE=/usr/sbin/rg353ps-wifi-cycle
+WIFI_CTL=/usr/sbin/rg353ps-wifi-connect
+SETTLE=2
+WIFI_OFF=1
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --no-wifi) WIFI_OFF=0 ;;
+    --settle)  shift; [ "$#" -ge 1 ] || exit 2; SETTLE=$1 ;;
+    -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+mkdir -p /var/log 2>/dev/null || :
+# Keep the log bounded; it is written once per sleep and read on demand.
+if [ -s "$LOG" ]; then
+  SIZE=$(wc -c < "$LOG" 2>/dev/null || echo 0)
+  [ "$SIZE" -gt 65536 ] 2>/dev/null && mv -f "$LOG" "$LOG.1" 2>/dev/null
+fi
+
+log() {
+  printf '%s rg353ps-sleep: %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >> "$LOG" 2>/dev/null
+  printf 'rg353ps-sleep: %s\n' "$*" > /dev/kmsg 2>/dev/null
+  return 0
+}
+
+# --- single instance --------------------------------------------------------
+# mkdir is atomic, so two triggers (key repeat, frontend call) cannot race.
+if ! mkdir "$LOCK" 2>/dev/null; then
+  OLD=$(cat "$LOCK/pid" 2>/dev/null || :)
+  if [ -n "$OLD" ] && kill -0 "$OLD" 2>/dev/null; then
+    log "already sleeping (pid $OLD); ignoring request"
+    exit 1
+  fi
+  log "stale lock from pid ${OLD:-?}; taking over"
+  rm -rf "$LOCK" 2>/dev/null || :
+  mkdir "$LOCK" 2>/dev/null || { log "cannot create lock; refusing"; exit 1; }
+fi
+printf '%s\n' "$$" > "$LOCK/pid"
+cleanup_lock() { rm -rf "$LOCK" 2>/dev/null || :; }
+trap cleanup_lock EXIT INT TERM
+
+[ -w /sys/power/state ] || { log "/sys/power/state not writable; refusing"; exit 1; }
+
+log "=== sleep requested (args settle=$SETTLE wifi_off=$WIFI_OFF) ==="
+
+# --- backlight --------------------------------------------------------------
+# Blank before suspending so nothing is left scanning out if the panel stays
+# powered for a moment. Restore exactly what the user had, not a fixed value.
+BACKLIGHT=
+BACKLIGHT_OLD=
+for c in /sys/class/backlight/*/brightness; do
+  [ -w "$c" ] || continue
+  BACKLIGHT=$c
+  BACKLIGHT_OLD=$(cat "$c" 2>/dev/null || echo 255)
+  break
+done
+[ -n "$BACKLIGHT" ] || log "WARNING: no writable backlight; the screen may glow while asleep"
+
+# --- WiFi state before sleep ------------------------------------------------
+WIFI_WAS_CONNECTED=0
+if [ -e /sys/class/net/wlan0 ]; then
+  if command -v wpa_cli >/dev/null 2>&1; then
+    if wpa_cli -i wlan0 status 2>/dev/null | grep -q '^wpa_state=COMPLETED'; then
+      WIFI_WAS_CONNECTED=1
+    fi
+  fi
+  if [ "$WIFI_WAS_CONNECTED" = 0 ]; then
+    case "$(cat /sys/class/net/wlan0/operstate 2>/dev/null)" in
+      up) WIFI_WAS_CONNECTED=1 ;;
+    esac
+  fi
+fi
+log "wifi_was_connected=$WIFI_WAS_CONNECTED"
+
+# --- stop the supplicant ----------------------------------------------------
+# A live supplicant holds the netdev open and keeps re-arming the SDIO function,
+# which makes the unbind flaky. Stop it first, restart after the rebind.
+SUPPLICANT_WAS_RUNNING=0
+if pidof wpa_supplicant >/dev/null 2>&1; then
+  SUPPLICANT_WAS_RUNNING=1
+fi
+if [ "$SUPPLICANT_WAS_RUNNING" = 1 ]; then
+  log "stopping wpa_supplicant (was running)"
+  if command -v wpa_cli >/dev/null 2>&1; then
+    wpa_cli -i wlan0 terminate >/dev/null 2>&1 || :
+  fi
+  i=0
+  while [ "$i" -lt 30 ] && pidof wpa_supplicant >/dev/null 2>&1; do
+    sleep 0.1; i=$((i + 1))
+  done
+  pidof wpa_supplicant >/dev/null 2>&1 && killall wpa_supplicant 2>/dev/null || :
+fi
+pidof udhcpc >/dev/null 2>&1 && killall udhcpc 2>/dev/null || :
+
+# --- cut WiFi ---------------------------------------------------------------
+WIFI_UNBOUND=0
+if [ "$WIFI_OFF" = 1 ] && [ -x "$WIFI_CYCLE" ]; then
+  if "$WIFI_CYCLE" unbind >> "$LOG" 2>&1; then
+    WIFI_UNBOUND=1
+    log "wifi unbound; vcc_wifi can now be cut by the MMC core"
+  else
+    # Keep going: a sleep with WiFi powered is still far better than no sleep.
+    log "WARNING: wifi unbind failed; sleeping with the rail powered"
+  fi
+else
+  log "wifi unbind skipped (--no-wifi or $WIFI_CYCLE missing)"
+fi
+
+# --- select deep ------------------------------------------------------------
+MEM_SLEEP_OLD=$(cat /sys/power/mem_sleep 2>/dev/null | tr -d '\n')
+if printf 'deep\n' > /sys/power/mem_sleep 2>/dev/null; then
+  log "mem_sleep=deep selected"
+else
+  log "WARNING: cannot select deep; kernel offers: $MEM_SLEEP_OLD"
+fi
+
+[ "$SETTLE" -gt 0 ] 2>/dev/null && sleep "$SETTLE"
+
+sync
+log "--- entering suspend ---"
+[ -n "$BACKLIGHT" ] && printf '0\n' > "$BACKLIGHT" 2>/dev/null
+
+printf 'mem\n' > /sys/power/state
+RC=$?
+
+log "suspend returned rc=$RC at $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+# The panel is off until we say otherwise; restore the brightness the user had.
+[ -n "$BACKLIGHT" ] && printf '%s\n' "$BACKLIGHT_OLD" > "$BACKLIGHT" 2>/dev/null
+
+# Fallback: if the write failed, the DTB still requests MMC_PM_KEEP_POWER while
+# the function is unbound and the PM core rejected the transition. Sleep in
+# s2idle so the button press still does something useful.
+if [ "$RC" -ne 0 ] && [ "$WIFI_UNBOUND" = 1 ]; then
+  log "deep suspend failed with rc=$RC; retrying in s2idle"
+  printf 's2idle\n' > /sys/power/mem_sleep 2>/dev/null
+  [ -n "$BACKLIGHT" ] && printf '0\n' > "$BACKLIGHT" 2>/dev/null
+  printf 'mem\n' > /sys/power/state
+  RC=$?
+  log "s2idle suspend returned rc=$RC"
+  [ -n "$BACKLIGHT" ] && printf '%s\n' "$BACKLIGHT_OLD" > "$BACKLIGHT" 2>/dev/null
+fi
+
+# --- restore WiFi -----------------------------------------------------------
+if [ "$WIFI_UNBOUND" = 1 ]; then
+  if "$WIFI_CYCLE" bind >> "$LOG" 2>&1; then
+    log "wifi rebound; wlan0 is back"
+    if [ "$WIFI_WAS_CONNECTED" = 1 ] || [ "$SUPPLICANT_WAS_RUNNING" = 1 ]; then
+      if [ -x "$WIFI_CTL" ]; then
+        # Background: reconnect must not delay the hand-back to the frontend.
+        "$WIFI_CTL" up >> "$LOG" 2>&1 &
+        log "wpa_supplicant restart requested"
+      fi
+    fi
+  else
+    log "ERROR: wifi rebind failed; run rg353ps-wifi-cycle bind to recover"
+  fi
+fi
+
+# --- restore mem_sleep ------------------------------------------------------
+case "$MEM_SLEEP_OLD" in
+  *'[deep]'*) printf 'deep\n' > /sys/power/mem_sleep 2>/dev/null ;;
+  *'[s2idle]'*) printf 's2idle\n' > /sys/power/mem_sleep 2>/dev/null ;;
+esac
+
+log "=== sleep finished (rc=$RC) ==="
+[ "$RC" -eq 0 ] && exit 0
+exit 3

@@ -92,6 +92,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     cp /etc/apk/repositories "$R/etc/apk/repositories"
     apk --root "$R" --arch aarch64 --initdb --no-scripts --no-cache add \
       v4l-utils evtest alsa-utils iw libzip libgcc \
+      wpa_supplicant \
       mesa-egl mesa-gles mesa-gbm mesa-dri-gallium \
       libdrm-tests mesa-utils kmscube sdl2 sdl2_image sdl2_ttf \
       sgdisk partx blkid wipefs exfatprogs
@@ -158,6 +159,28 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       echo "iw was not installed into target rootfs" >&2
       exit 1
     }
+    # WiFi control plane. wpa_supplicant is what makes "reconnect after wake"
+    # possible at all; the two scripts below are the only supported entry
+    # points (hotkeyd calls rg353ps-sleep, the frontend calls wifi-connect).
+    for wifi_tool in usr/sbin/wpa_supplicant usr/sbin/wpa_cli; do
+      test -x "$R/$wifi_tool" || {
+        echo "WiFi tool is missing from target rootfs: $wifi_tool" >&2
+        exit 1
+      }
+    done
+    for wifi_script in rg353ps-sleep rg353ps-wifi-connect rg353ps-wifi-cycle; do
+      test -x "$R/usr/sbin/$wifi_script" || {
+        echo "WiFi/sleep helper is missing or not executable: $wifi_script" >&2
+        exit 1
+      }
+    done
+    # udhcpc needs a lease handler; the Alpine one that ships in the rootfs
+    # drives `ip` and writes /run/resolv.conf (the image links /etc/resolv.conf
+    # there), so fail early rather than end up with an address but no DNS.
+    test -x "$R/usr/share/udhcpc/default.script" || {
+      echo "udhcpc default.script is missing" >&2
+      exit 1
+    }
 
     chmod 0755 "$R/etc/init.d/rcS"
     chmod 0755 "$R/usr/bin/baseos-splash"
@@ -167,6 +190,9 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     chmod 0755 "$R/usr/sbin/baseos-frontend-session"
     chmod 0755 "$R/usr/sbin/baseos-slot-launcher"
     chmod 0755 "$R/usr/sbin/rg353ps-hotkeyd"
+    chmod 0755 "$R/usr/sbin/rg353ps-sleep"
+    chmod 0755 "$R/usr/sbin/rg353ps-wifi-connect"
+    chmod 0755 "$R/usr/sbin/rg353ps-wifi-cycle"
     chmod 0755 "$R/usr/sbin/rg353ps-v4l2-report"
     chmod 0755 "$R/usr/sbin/rg353ps-jpeg-encode-test"
     chmod 0755 "$R/usr/sbin/rg353ps-hardware-audit"

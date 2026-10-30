@@ -83,6 +83,25 @@ find_partition_number() {
 
 mkdir -p "$USERDATA"
 
+# The boot logo lives on the data partition so the owner can replace it without
+# rebuilding. fbsplash reads /mnt/SDCARD/bootlogo/bootlogo.bmp after the data
+# partition is mounted. Seed it once; never overwrite an existing file, so a
+# user-supplied logo survives every reboot and every system update.
+ensure_bootlogo() {
+  [ -d "$USERDATA" ] || return 0
+  mkdir -p "$USERDATA/bootlogo" 2>/dev/null || return 0
+  [ -s "$USERDATA/bootlogo/bootlogo.bmp" ] && return 0
+  [ -s /etc/baseos/bootlogo.bmp ] || return 0
+  if cp /etc/baseos/bootlogo.bmp "$USERDATA/bootlogo/bootlogo.bmp" 2>/dev/null; then
+    sync
+    log "seeded boot logo at $USERDATA/bootlogo/bootlogo.bmp"
+  else
+    log "could not seed the boot logo into $USERDATA/bootlogo"
+  fi
+  return 0
+}
+
+
 # If already mounted, do not touch the partition table; ensure the first-boot
 # marker is present so the startup gate can distinguish success from failure.
 if is_mounted "$USERDATA"; then
@@ -97,6 +116,7 @@ if is_mounted "$USERDATA"; then
     fi
   fi
   log "$USERDATA already mounted"
+  ensure_bootlogo
   exit 0
 fi
 
@@ -137,9 +157,9 @@ DISK="/dev/$DISK_NAME"
 # Locate BASEOS_DATA. Older smoke images had only BOOT and ROOT; on a larger
 # physical card create partition 3 in the unused space after the 2 GiB image.
 if ! find_partition BASEOS_DATA "$DISK_NAME"; then
-  # Recover an existing p3 first, which may have been formatted on a PC before
+  # Recover an existing p4 first, which may have been formatted on a PC before
   # its GPT partition name was recognized by BaseOS.
-  if find_partition_number 3 "$DISK_NAME"; then
+  if find_partition_number 4 "$DISK_NAME"; then
     EXISTING_TYPE=$(blkid -p -s TYPE -o value "$FOUND_DEV" 2>/dev/null || :)
     case "$EXISTING_TYPE" in
       exfat|vfat) ;;
@@ -155,20 +175,20 @@ if ! find_partition BASEOS_DATA "$DISK_NAME"; then
         exit 0
         ;;
     esac
-    if ! sgdisk --typecode=3:0700 --change-name=3:BASEOS_DATA "$DISK" >/dev/null 2>&1; then
+    if ! sgdisk --typecode=4:0700 --change-name=4:BASEOS_DATA "$DISK" >/dev/null 2>&1; then
       log "could not restore BASEOS_DATA GPT name on $FOUND_DEV"
       exit 0
     fi
-    partx -u -n 3 "$DISK" >/dev/null 2>&1 || :
+    partx -u -n 4 "$DISK" >/dev/null 2>&1 || :
     /sbin/mdev -s 2>/dev/null || :
     sleep 1
     find_partition BASEOS_DATA "$DISK_NAME" || {
       # Keep the already identified numbered device usable if only PARTNAME
       # metadata refresh is delayed; no new partition was created.
-      FOUND_DEV="/dev/${DISK_NAME}p3"
-      FOUND_NAME="${DISK_NAME}p3"
+      FOUND_DEV="/dev/${DISK_NAME}p4"
+      FOUND_NAME="${DISK_NAME}p4"
       [ -b "$FOUND_DEV" ] || {
-        log "renamed p3 but the kernel device node is unavailable; reboot and inspect"
+        log "renamed p4 but the kernel device node is unavailable; reboot and inspect"
         exit 0
       }
     }
@@ -179,21 +199,21 @@ if ! find_partition BASEOS_DATA "$DISK_NAME"; then
       exit 0
     fi
     log "BASEOS_DATA absent; checking for free space after system partitions on $DISK"
-    if ! sgdisk --move-second-header --new=3:0:0 --typecode=3:0700 \
-        --change-name=3:BASEOS_DATA "$DISK" >/dev/null 2>&1; then
+    if ! sgdisk --move-second-header --new=4:0:0 --typecode=4:0700 \
+        --change-name=4:BASEOS_DATA "$DISK" >/dev/null 2>&1; then
       log "could not create BASEOS_DATA (card may be no larger than the old 2 GiB smoke image)"
       exit 0
     fi
-    if ! partx -u -n 3 "$DISK" >/dev/null 2>&1; then
+    if ! partx -u -n 4 "$DISK" >/dev/null 2>&1; then
       log "partx could not refresh partition 3 after creating BASEOS_DATA"
     fi
     /sbin/mdev -s 2>/dev/null || :
     sleep 1
     if ! find_partition BASEOS_DATA "$DISK_NAME"; then
       # PARTNAME in sysfs can lag behind GPT changes even when the kernel block
-      # device exists. Fall back to the expected mmcblkXp3 node before failing.
-      if ! find_partition_number 3 "$DISK_NAME"; then
-        log "BASEOS_DATA was added to GPT but /dev/${DISK_NAME}p3 is not available yet; power off and reboot"
+      # device exists. Fall back to the expected mmcblkXp4 node before failing.
+      if ! find_partition_number 4 "$DISK_NAME"; then
+        log "BASEOS_DATA was added to GPT but /dev/${DISK_NAME}p4 is not available yet; power off and reboot"
         exit 0
       fi
       log "using numbered partition node $FOUND_DEV while GPT partition name refreshes"
@@ -226,20 +246,20 @@ if [ -z "$FS_TYPE" ] && [ ! -e "$MARKER" ]; then
 
   # Move the backup GPT to the actual end of the card and extend partition 3
   # while it is still blank. Formatting happens only after this succeeds.
-  if ! sgdisk --move-second-header --delete=3 --new="3:$START:0" \
-      --typecode=3:0700 --change-name=3:BASEOS_DATA "$DISK" >/dev/null 2>&1; then
+  if ! sgdisk --move-second-header --delete=4 --new="4:$START:0" \
+      --typecode=4:0700 --change-name=4:BASEOS_DATA "$DISK" >/dev/null 2>&1; then
     log "failed to extend blank BASEOS_DATA to the end of $DISK"
     exit 0
   fi
-  if ! partx -u -n 3 "$DISK" >/dev/null 2>&1; then
+  if ! partx -u -n 4 "$DISK" >/dev/null 2>&1; then
     log "partx could not refresh partition 3 after extending BASEOS_DATA"
   fi
   /sbin/mdev -s 2>/dev/null || :
   sleep 1
   if ! find_partition BASEOS_DATA "$DISK_NAME"; then
     # Do not confuse a stale sysfs PARTNAME with a missing block node.
-    if ! find_partition_number 3 "$DISK_NAME"; then
-      log "extended partition 3 is not available as /dev/${DISK_NAME}p3 yet; power off and reboot"
+    if ! find_partition_number 4 "$DISK_NAME"; then
+      log "extended partition 3 is not available as /dev/${DISK_NAME}p4 yet; power off and reboot"
       exit 0
     fi
     log "using numbered partition node $FOUND_DEV; will verify its live geometry before formatting"
@@ -249,7 +269,7 @@ if [ -z "$FS_TYPE" ] && [ ! -e "$MARKER" ]; then
 
   # Do not format until the kernel sees the full partition size written to GPT.
   # This avoids silently creating a small filesystem if partx could not update it.
-  NEW_END=$(sgdisk --info=3 "$DISK" | sed -n 's/^Last sector: *\([0-9][0-9]*\).*/\1/p')
+  NEW_END=$(sgdisk --info=4 "$DISK" | sed -n 's/^Last sector: *\([0-9][0-9]*\).*/\1/p')
   ACTUAL_START=$(cat "/sys/class/block/$DATA_NAME/start" 2>/dev/null || :)
   ACTUAL_SIZE=$(cat "/sys/class/block/$DATA_NAME/size" 2>/dev/null || :)
   case "$NEW_END" in ''|*[!0-9]*)
@@ -302,6 +322,7 @@ fi
 
 mkdir -p "$USERDATA/.baseos" "$USERDATA/Games" "$USERDATA/BIOS" \
   "$USERDATA/Saves" "$USERDATA/States" "$USERDATA/System" 2>/dev/null || :
+ensure_bootlogo
 if [ ! -e "$MARKER" ]; then
   if printf 'version=1\npartition=%s\nfilesystem=%s\n' "$DATA_DEV" "$FS_TYPE" > "$MARKER"; then
     sync

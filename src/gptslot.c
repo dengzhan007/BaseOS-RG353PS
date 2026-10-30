@@ -24,8 +24,15 @@
 #define UBOOT_START 16384   // fixed by the SPL (docs/boot-chain.md)
 #define NSLOTS 3
 
-static const char *NAMES[NSLOTS] = {"uboot", "boot", "rootfs"};
+// The RG353PS boot chain is mainline U-Boot over Rockchip's SPL, not the Miyoo
+// loader. That SPL reads u-boot.itb from CONFIG_SYS_MMCSD_RAW_MODE_U_BOOT_SECTOR
+// — an absolute offset of 16384, not a partition name — so the uboot region
+// cannot move between halves and has no A/B copy. It is still the first region
+// of the tiling, so the table stays comparable with the other target, but only
+// boot and rootfs take part in a flip.
+static const char *NAMES[NSLOTS] = {"BASEOS_UBOOT", "BASEOS_BOOT", "BASEOS_ROOT"};
 static const char *UPPER[NSLOTS] = {"UBOOT", "BOOT", "ROOTFS"};
+#define DATA_NAME "BASEOS_DATA"
 
 struct slot {
 	int idx;            // entry index
@@ -48,16 +55,25 @@ static int derive(struct gpt *g, struct slot *s) {
 		uint64_t end = gpt_rd64(gpt_entry(g, idx) + GPT_END);
 		if (end <= start) return -1;
 		uint64_t n = end - start + 1;
-		if (start == base) s[i].letter = 'A';
-		else if (start == base + n) s[i].letter = 'B';
-		else return -1;
 		s[i].idx = idx;
 		s[i].sectors = n;
 		s[i].active = start;
-		s[i].inactive = (s[i].letter == 'A') ? base + n : base;
-		base += 2 * n;
+		if (i == 0) {
+			// Fixed region: the SPL finds it by offset, so it must sit exactly
+			// where the tiling starts and never moves.
+			if (start != base) return -1;
+			s[i].letter = 'F';
+			s[i].inactive = start;
+			base += n;
+		} else {
+			if (start == base) s[i].letter = 'A';
+			else if (start == base + n) s[i].letter = 'B';
+			else return -1;
+			s[i].inactive = (s[i].letter == 'A') ? base + n : base;
+			base += 2 * n;
+		}
 	}
-	int data = gpt_find(g, "data");
+	int data = gpt_find(g, DATA_NAME);
 	if (data < 0 || gpt_rd64(gpt_entry(g, data) + GPT_START) != base) return -1;
 	return 0;
 }
@@ -108,6 +124,8 @@ int main(int argc, char **argv) {
 		int i = 0;
 		while (i < NSLOTS && strcmp(argv[a], NAMES[i]) != 0) i++;
 		if (i == NSLOTS) return fail("not an A/B partition");
+		if (s[i].letter == 'F')
+			return fail("BASEOS_UBOOT is read from a fixed offset by the SPL and has no A/B copy");
 		uint8_t *e = gpt_entry(&g, s[i].idx);
 		gpt_wr64(e + GPT_START, s[i].inactive);
 		gpt_wr64(e + GPT_END, s[i].inactive + s[i].sectors - 1);

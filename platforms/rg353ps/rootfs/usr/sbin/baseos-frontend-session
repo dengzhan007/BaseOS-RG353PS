@@ -16,6 +16,13 @@ CONFIG=/mnt/boot/baseos.conf
 BOOT_STORAGE_REQUEST=/run/baseos-usb-storage.boot-request
 while [ -e "$BOOT_STORAGE_REQUEST" ]; do sleep 0.1; done
 
+# Reaching a frontend session is what ends an update's trial: the slots that
+# booted are proven to work, so the payload is removed and the trial state
+# cleared. Until this runs, three failed boots roll the previous slots back.
+if [ -x /usr/sbin/baseos-update ] && [ -e /mnt/boot/update/state ]; then
+  /usr/sbin/baseos-update confirm
+fi
+
 # Keep frontend-discovery traces in tmpfs on normal boots. Copy them to BOOT
 # only when detection falls back to diagnostics, where a PC can read the report.
 DETECTION_LOG=/mnt/boot/baseos-frontend-detection.txt

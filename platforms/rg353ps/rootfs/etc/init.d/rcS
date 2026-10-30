@@ -38,6 +38,14 @@ while [ ! -e /run/rg353ps-hotkeyd.ready ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$(
 
 /usr/sbin/baseos-mount-storage
 
+# A freshly updated slot set is on trial until a frontend session starts. This
+# must run before anything else touches the slots: if the trial never reaches a
+# session, boot-check puts the previous slots back. It only looks at
+# /mnt/boot/update/state, so an ordinary boot pays one test.
+if [ -e /mnt/boot/update/state ] && [ -x /usr/sbin/baseos-update ]; then
+  /usr/sbin/baseos-update boot-check
+fi
+
 # Successful userdata initialization is routine; keep its trace in tmpfs and
 # persist a copy on BASEOS_BOOT only if the initialization loop fails.
 if grep -q ' /mnt/boot ' /proc/mounts 2>/dev/null; then
@@ -106,6 +114,13 @@ while :; do
     /usr/bin/fbsplash 45 "EXPANDING STORAGE" 2>/dev/null || :
   fi
 done
+
+# A *.bosupd sitting on either volume means the owner asked for an update: it is
+# written into the reserved half of boot and rootfs, read back and verified, and
+# only then does the GPT flip commit. baseos-update reboots the unit itself.
+if [ ! -e "$BOOT_USB_REQUEST" ] && [ -x /usr/sbin/baseos-update ]; then
+  /usr/sbin/baseos-update apply
+fi
 
 # BASEOS_DATA is now mounted at /mnt/SDCARD. This is the first point where
 # the user-supplied bootlogo can be opened reliably. Never fall back to the

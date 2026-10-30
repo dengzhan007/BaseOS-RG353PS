@@ -26,6 +26,17 @@ done
 [ -s "$FIRMWARE_OUT/firmware-manifest.txt" ] || "$HERE/build-firmware.sh"
 
 KREL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["kernel_release"])' "$KERNEL_META")"
+
+# Release identity. /etc/baseos-release carries these two lines, and the update
+# payload's manifest must agree with them or mkupdate.py refuses to build — a
+# payload that claims a version the filesystem does not carry would be applied
+# on every boot.
+BASEOS_VERSION="$(tr -d ' \n' < "$REPO_ROOT/VERSION")"
+[ -n "$BASEOS_VERSION" ] || { echo "VERSION is empty" >&2; exit 1; }
+BASEOS_BUILD="$(git -C "$REPO_ROOT" describe --always --dirty 2>/dev/null || echo unknown)"
+case "$BASEOS_BUILD" in *-dirty) BASEOS_BUILD="$BASEOS_BUILD-$(date -u +%Y%m%d%H%M%S)" ;; esac
+mkdir -p "$WORK"
+printf '%s\n' "$BASEOS_BUILD" > "$WORK/build-id"
 MODULES_TARBALL="$KERNEL_OUT/modules-$KREL.tar.zst"
 [ -s "$MODULES_TARBALL" ] || { echo "missing kernel modules bundle: $MODULES_TARBALL" >&2; exit 1; }
 [ -s "$FIRMWARE_OUT/rtw88/rtw8821c_fw.bin" ] || { echo "missing RTL8821CS Wi-Fi firmware" >&2; exit 1; }
@@ -43,10 +54,13 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
   -v "$REPO_ROOT/src":/baseos-src:ro \
   -v "$REPO_ROOT/assets":/assets:ro \
   -e KREL="$KREL" \
+  -e BASEOS_VERSION="$BASEOS_VERSION" \
+  -e BASEOS_BUILD="$BASEOS_BUILD" \
   -e ALPINE_MIRROR="${ALPINE_MIRROR:-}" \
   alpine:3.22 sh -euc '
     if [ -n "${ALPINE_MIRROR:-}" ]; then
-      printf '%s\n%s\n' "$ALPINE_MIRROR/main" "$ALPINE_MIRROR/community" > /etc/apk/repositories
+      printf "%s\n%s\n" "$ALPINE_MIRROR/main" "$ALPINE_MIRROR/community" > /etc/apk/repositories
+      echo "apk repositories now:"; cat /etc/apk/repositories
     fi
     apk add --no-cache busybox-static tar zstd build-base linux-headers sdl2-dev freetype-dev freetype-static zlib-static libpng-static bzip2-static brotli-static pkgconf
 
@@ -100,6 +114,10 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       -o "$R/usr/sbin/rg353ps-control-center" /src/rg353ps-control-center.c
     gcc -std=c11 -O2 -Wall -Wextra -Werror -static \
       -o "$R/usr/sbin/rg353ps-hotkeyd" /src/rg353ps-hotkeyd.c
+    # gptslot is the only thing that may move boot/rootfs between their two
+    # halves; an update is not possible without it.
+    gcc -static -O2 -o "$R/usr/sbin/gptslot" /src/gptslot.c
+    strip "$R/usr/sbin/gptslot"
     # Build upstream BaseOS framebuffer splash statically so the boot and
     # USB-storage UI needs no extra runtime libraries.
     mkdir -p "$R/usr/share/baseos"
@@ -181,6 +199,18 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       echo "udhcpc default.script is missing" >&2
       exit 1
     }
+    # Update machinery. gptslot is the only writer of the slot flip, and
+    # baseos-release is what a payload is validated against.
+    for upd_tool in usr/sbin/gptslot usr/sbin/baseos-update usr/share/baseos/log.sh; do
+      test -e "$R/$upd_tool" || {
+        echo "update component is missing from target rootfs: $upd_tool" >&2
+        exit 1
+      }
+    done
+    grep -q '^BASEOS_VERSION=' "$R/etc/baseos-release" || {
+      echo "baseos-release carries no BASEOS_VERSION; .bosupd payloads could not be validated" >&2
+      exit 1
+    }
 
     chmod 0755 "$R/etc/init.d/rcS"
     chmod 0755 "$R/usr/bin/baseos-splash"
@@ -190,6 +220,8 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     chmod 0755 "$R/usr/sbin/baseos-frontend-session"
     chmod 0755 "$R/usr/sbin/baseos-slot-launcher"
     chmod 0755 "$R/usr/sbin/rg353ps-hotkeyd"
+    chmod 0755 "$R/usr/sbin/baseos-update"
+    chmod 0755 "$R/usr/sbin/gptslot"
     chmod 0755 "$R/usr/sbin/rg353ps-sleep"
     chmod 0755 "$R/usr/sbin/rg353ps-wifi-connect"
     chmod 0755 "$R/usr/sbin/rg353ps-wifi-cycle"
@@ -211,6 +243,14 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     ln -sfn /run/resolv.conf "$R/etc/resolv.conf"
     printf "BaseOS RG353PS rootfs\n" > "$R/etc/motd"
     printf "%s\n" "$KREL" > "$R/etc/baseos-kernel-release"
+
+    cat > "$R/etc/baseos-release" <<EOF
+BASEOS_TARGET=rg353ps
+BASEOS_VERSION=$BASEOS_VERSION
+BASEOS_BUILD=$BASEOS_BUILD
+# fbsplash reads this; the RG353PS panel is mounted upright.
+BASEOS_PANEL_ROTATION_CCW=0
+EOF
 
     cat > "$R/etc/baseos-build.json" <<EOF
 {

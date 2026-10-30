@@ -85,13 +85,26 @@ def main() -> int:
     ap.add_argument("version")
     ap.add_argument("build", help="the build id build-rootfs.sh stamped into the rootfs")
     ap.add_argument("output", type=Path)
+    ap.add_argument(
+        "--regions",
+        default=None,
+        help="comma-separated updatable regions in tiling order (default: %s); "
+             "omit a region whose loader cannot be moved between halves"
+             % ",".join(REGIONS),
+    )
+    ap.add_argument(
+        "--data-partition",
+        default="data",
+        help="name of the persistent data partition (default: data)",
+    )
     a = ap.parse_args()
     image, target, version, build, output = (
         a.image, a.target, a.version, a.build, a.output
     )
+    regions = tuple(a.regions.split(",")) if a.regions else REGIONS
 
     parts = extents(image)
-    for name in (*REGIONS, "data", "primary"):
+    for name in (*regions, a.data_partition):
         if name not in parts:
             die(f"the image has no `{name}` partition")
 
@@ -109,7 +122,7 @@ def main() -> int:
         ("version", version),
         ("build", build),
     ]
-    for name in REGIONS:
+    for name in regions:
         start, sectors = parts[name]
         sha, blob = pack(image, start, sectors, stamps)
         print(f"{name:7s} LBA {start}, {sectors} sectors -> {len(blob)} bytes  {sha}")

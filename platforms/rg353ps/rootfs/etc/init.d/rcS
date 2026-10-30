@@ -132,6 +132,30 @@ while :; do
   fi
 done
 
+# Earlier builds wrote a few traces on every boot with no way to turn them off:
+# a duplicate baseos.log on the data volume, a boot-key report beside it, and a
+# frontend-discovery report on BASEOS_BOOT. Nothing recreates them now unless
+# debug=yes is set, but a card that ran one of those builds still carries them,
+# and a leftover file looks exactly like "the switch does nothing". Clear them
+# once per boot here, after both volumes are mounted and before anything that
+# might still want to write one. The card's own baseos.conf wins over /etc.
+debug_setting() {
+  for _cfg in /mnt/boot/baseos.conf /etc/baseos.conf; do
+    [ -r "$_cfg" ] || continue
+    _val="$(sed -n 's/^debug=//p' "$_cfg" 2>/dev/null | tail -1 | tr -d ' \t\r')"
+    if [ -n "$_val" ]; then printf '%s' "$_val"; return 0; fi
+  done
+  printf 'no'
+}
+case "$(debug_setting)" in
+  yes|YES|Yes|1|on) ;;
+  *)
+    rm -f /mnt/SDCARD/baseos.log \
+          /mnt/SDCARD/rg353ps-boot-key.log \
+          /mnt/boot/baseos-frontend-detection.txt 2>/dev/null || :
+    ;;
+esac
+
 # A freshly updated slot set is on trial until a frontend session starts. If the
 # trial never reaches a session, boot-check puts the previous slots back. It runs
 # here, not earlier, because the trial state lives on BASEOS_DATA: that is the

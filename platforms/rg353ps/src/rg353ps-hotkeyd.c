@@ -49,8 +49,15 @@ static int ignored_input_count;
 static long long startup_wait_start_ms;
 static long long keys_first_seen_ms = -1;
 static int missing_keys_reported;
+static int stale_report_removed;
 #define BOOT_LOG_STAGE "/run/rg353ps-boot-key.log"
 #define BOOT_LOG_FINAL "/mnt/SDCARD/rg353ps-boot-key.log"
+
+/* Debug switch, shared with baseos-usb-storage: the card copy of baseos.conf
+   wins over the one in /etc. This daemon starts before BASEOS_BOOT is mounted,
+   so the answer has to be looked up when a message is written rather than once
+   at startup; it is cached briefly because the flush below runs every loop. */
+static int debug_logging_enabled(void);
 #define BOOT_STORAGE_REQUEST "/run/baseos-usb-storage.boot-request"
 
 static void stop_running(int sig) { (void)sig; running = 0; }
@@ -74,6 +81,17 @@ static void flush_staged_log(void) {
     char buf[1024];
     ssize_t n;
     if (!userdata_is_mounted()) return;
+    /* With debug off this daemon writes nothing to the card. Drop whatever was
+       staged before the card appeared, and clear a report left behind by an
+       earlier build once, so the card does not keep a file nobody asked for. */
+    if (!debug_logging_enabled()) {
+        (void)unlink(BOOT_LOG_STAGE);
+        if (!stale_report_removed) {
+            (void)unlink(BOOT_LOG_FINAL);
+            stale_report_removed = 1;
+        }
+        return;
+    }
 
     in_fd = open(BOOT_LOG_STAGE, O_RDONLY | O_CLOEXEC);
     if (in_fd < 0) {
@@ -111,6 +129,44 @@ static long long monotonic_ms(void) {
     if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
     return ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL;
 }
+/* Read key=<value> from a shell-style config file. Returns 1 for yes/on/1,
+   0 for anything else, -1 when the file or the key is absent. */
+static int config_flag_yes(const char *path, const char *key) {
+    FILE *fp = fopen(path, "r");
+    char line[256];
+    if (fp == NULL) return -1;
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        char *eq = strchr(line, '=');
+        char *value;
+        int yes;
+        if (eq == NULL) continue;
+        *eq = '\0';
+        if (strcmp(line, key) != 0) continue;
+        value = eq + 1;
+        while (*value == ' ' || *value == '\t') value++;
+        value[strcspn(value, " \t\r\n")] = '\0';
+        yes = (strcmp(value, "yes") == 0 || strcmp(value, "YES") == 0 ||
+               strcmp(value, "1") == 0 || strcmp(value, "on") == 0);
+        (void)fclose(fp);
+        return yes ? 1 : 0;
+    }
+    (void)fclose(fp);
+    return -1;
+}
+static int debug_logging_enabled(void) {
+    static int cached = -1;
+    static long long checked_ms = -1;
+    long long now = monotonic_ms();
+    int r;
+    /* BASEOS_BOOT is not mounted for the first few seconds of every boot, so a
+       value cached from /etc alone would outlive the card's own answer. */
+    if (cached >= 0 && checked_ms >= 0 && now - checked_ms < 2000) return cached;
+    r = config_flag_yes("/mnt/boot/baseos.conf", "debug");
+    if (r < 0) r = config_flag_yes("/etc/baseos.conf", "debug");
+    cached = (r > 0) ? 1 : 0;
+    checked_ms = now;
+    return cached;
+}
 static int keep_persistent_log_message(const char *message) {
     /* Keep the removable-card report focused on startup decisions and hotkey
        events. Full input enumeration remains available in the kernel log. */
@@ -141,7 +197,7 @@ static void log_message(const char *message) {
         if (n > 0) (void)write(fd, line, (size_t)n < sizeof(line) ? (size_t)n : sizeof(line)-1);
         (void)close(fd);
     }
-    if (n > 0 && keep_persistent_log_message(message)) {
+    if (n > 0 && keep_persistent_log_message(message) && debug_logging_enabled()) {
         /* BASEOS_DATA is deliberately unmounted while it is exported over USB.
            Never write through the now-unmounted /mnt/SDCARD mountpoint into
            the system rootfs; stage those messages in tmpfs and flush on return. */
@@ -477,7 +533,13 @@ int main(void) {
     (void)unlink(BOOT_LOG_STAGE);
     sd_log_active = 0;
     startup_wait_start_ms = monotonic_ms();
-    log_message("started; boot-key diagnostic logging enabled; target=/mnt/SDCARD/rg353ps-boot-key.log");
+    /* BASEOS_BOOT is not mounted yet, so this first answer can only reflect
+       /etc/baseos.conf. The card's own setting takes effect a couple of seconds
+       later, once the flush below can read it. */
+    if (debug_logging_enabled())
+        log_message("started; boot-key report enabled by debug=yes; target=" BOOT_LOG_FINAL);
+    else
+        log_message("started; boot-key report off; set debug=yes in baseos.conf on the card to enable");
     while(running) {
         int nfds=0, rc;
         discover_inputs();

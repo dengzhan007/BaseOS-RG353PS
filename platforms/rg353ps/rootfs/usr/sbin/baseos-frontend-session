@@ -43,6 +43,10 @@ log() {
   fi
 }
 persist_detection_log() {
+  # Falling back to the diagnostic UI is a normal, self-explanatory outcome, and
+  # the UI says as much on screen. The trace is only copied to the card when
+  # debugging is on -- same switch as baseos-usb-storage and rg353ps-hotkeyd.
+  if [ "$(setting debug no)" != yes ]; then return 0; fi
   if [ "$PERSIST_DETECTION_LOG" != yes ]; then
     cp "$DETECTION_TMP" "$DETECTION_LOG" 2>/dev/null || :
     PERSIST_DETECTION_LOG=yes

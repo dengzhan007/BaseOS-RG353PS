@@ -250,6 +250,10 @@ B 组漏了编译能过但摇杆仍然没反应** —— 后者更容易悄悄�
 - [ ] 模拟核心能加载并运行（mGBA / gpSP）
 - [ ] 电池/背光脚本不报错（无 AXP 设备时安全跳过）
 - [ ] 存档 / 退出 / 休眠唤醒正常
+- [ ] 启动耗时：`/usr/sbin/baseos-boot-report` 的 `Linux to menu` 不超过 9 s（拔掉数据线再测一次，
+      插线时 USB 调试 gadget 会让整机变慢）；`handoff: entered` 到 `frontend exec` 应在几十毫秒内
+- [ ] 音量在 audio 走上后台之后仍然正确：开机后 `amixer -c <n> sget 'BaseOS Master'` 是 90，
+      硬件 `Master Playback Volume` 是 0 dB（这两条靠后台补救，别只验"能出声"）
 
 ### 摇杆不对时先分层，别一上来就改代码
 
@@ -356,7 +360,91 @@ RG353PS 实测参考值：`adc-joystick` 是 **event4**（`event1` 是电源键�
 
 ---
 
-## 6. 资产清单（文件位置）
+## 6. 启动速度（怎么量、量出了什么、还剩什么）
+
+原版 BaseOS 的 README 敢写"4 秒启动"，是因为它先建了测量设施再优化。移植版一开始
+两样都没有：`/proc/uptime` 看不见引导器，而插着数据线时 dwc3 的调试打印每个 USB 包
+写好几行，几秒内就把内核日志挤出 ring buffer。于是"开机前花了多少"和"内核里花了
+多少"这两个问题都答不了。
+
+### 6.1 三个工具（已在 rootfs 里，构建脚本会校验它们存在）
+
+| 工具 | 作用 |
+|---|---|
+| `src/boot-clock.c` → `/usr/sbin/boot-clock` | 读 `CNTVCT_EL0`（内核不复位它）再减去 `CLOCK_MONOTONIC_RAW`，把总时长拆成「开机前」和「Linux 到现在」。这是唯一能看到 U-Boot 和内核解压的手段 |
+| `baseos-boot-mark` / `baseos-boot-report` | 在 rcS / 前端会话里打 uptime 标记，汇总成一张分阶段表 |
+| rcS 首行的 `dmesg > /run/dmesg-boot.txt` | 在 USB gadget 起来之前抓一份干净内核日志。**必须放在 rcS 最前面**，晚几秒就没用了 |
+
+看结果：SSH 登录后 `/usr/sbin/baseos-boot-report`。每次启动还会往卡上
+`Logs/boot.log` 追加一段（在后台写，不挡启动）。
+
+### 6.2 实测时间线（uptime，单位秒）
+
+```
+ 4.17  rcS 开始
+ 4.94  hotkeyd ready          ← rcS 会一直等这个标记
+ 5.47  userdata ready
+ 5.81  GL 预取完成
+ 6.09  选中前端 slot
+ 6.12  开始等音频就绪
+ 7.75  音频就绪                ← 波动 0.2~1.6
+ 7.79  接棒记录
+ 8.05  exec 前端
+ +2.06 Slot 进程内首帧
+```
+
+加上 `boot-clock` 给出的 **开机前 6.19 s**，从通电到画面约 14.2 s；优化前是 17.6~19.3 s。
+
+### 6.3 量出来才发现的四个坑
+
+都是"看起来合理、实际白等"，共同特征是**等待的东西早就在手上了**：
+
+1. **`hotkeyd` 固定采样 1500 ms 才写 ready，而 rcS 整个启动都阻塞在这个标记上。**
+   开机就按住的键，在 evdev 节点被打开时已经按下，`EVIOCGKEY` 快照当场就能读到 ——
+   那 1500 ms 等不到任何快照漏掉的东西。改成 400 ms（仍然覆盖"开机时按住 Function"
+   这个文档写明的操作）：**1.74 s → 0.61 s**。
+2. **`audio-init` 为了注册 softvol 控件播了整整 1 秒静音**（`aplay -d 1`）。控件是在
+   PCM **打开时**注册的，与放多久无关。改把 2 KB 管道给 aplay，同样效果 **1.02 s → 0.14 s**。
+3. **`alsactl restore` 在真机启动时序里要 1.6 s，热态只要 0.02 s。** 它压在 ready 标记
+   前面，是前端启动前最后一块大开销。移到 ready 之后的后台过程，并在里面重新钉硬件
+   增益、重设 softvol —— 顺序照样成立，前端不再等：**1.84 s → 0.2~0.3 s**。
+4. **启动日志是写在启动路径上的。** `write_boot_log` 往 SD 卡 exFAT 追加一段，加上
+   `baseos-boot-report` 的一次 fork，实测 0.3~1.4 s，而没有任何东西需要等这个文件。
+   改后台写：**1.35 s → 0.26 s**。
+
+另外两项：`libgallium` 有 33 MB，原本是前端启动时冷读（`surface` 那 2.2 s 主要是它），
+改成在 hotkeyd 采样窗口旁边后台预读，Slot 首帧 **4.21 s → 2.06 s**；Mesa 着色器缓存
+本来就落在 `/.cache`（`HOME=/`），确认已生效即不动。
+
+### 6.4 还没做的，按收益排序
+
+- **ext4 日志恢复 ≈ 3.4 s，每次启动都有。** 内核日志显示
+  `1.16s mmcblk0p3 分区就绪 → 4.55s EXT4-fs recovery complete`。原因是这台机器的
+  关机路径从来没把根文件系统标干净：BusyBox 的 `reboot` 直接 `reboot(2)`，不通知
+  init 走 `::shutdown:/bin/umount -a -r`；手动跑那条命令也会报
+  `can't remount /dev/root read-only`。掌机被长按断电时更是必然脏。
+  彻底解法是根分区只读 + 可写目录挂 tmpfs（所有复古掌机都这么做），需要改镜像结构。
+- **开机前 6.19 s**：U-Boot + 内核加载/解压。原版的做法（gzip 内核、去 vendor
+  initramfs、boot0/U-Boot 关串口）都在这一层，得重刷镜像才能验。
+- **dwc3 调试打印**：`build-kernel.sh` 里注入了约 10 处无条件 `dev_info`，插线时每个包
+  写 3~5 行。它们既刷爆 ring buffer（所以才有 §6.1 的 dmesg 快照），也白烧 USB 带宽。
+  改成 `dev_dbg` 是最小改动，但需要重编内核。
+- **softvol 控件第一次真正打开 PCM 要 ~1.4 s**（aplay 刚关掉 PCM，控件赋值又要重开，
+  触发 DAPM 上电）。这笔钱目前由 `audio-init` 先付、前端等它；理想做法是并进前端那次
+  PCM 会话里，让这 1.4 s 和 Slot 自己的启动重叠。
+
+### 6.5 量启动时的注意事项
+
+- **别用不同启动之间的小数互相减**：内核 dmesg 时间戳、`/proc/uptime`、`boot-clock`
+  是三个基准，每次都略有不同。要比就比同一份 `baseos-boot-report` 里的行。
+- `handoff: entered` 和 `frontend exec` 之间只应该差几十毫秒。如果差出上百毫秒，
+  说明 `record_handoff` 里又混进了写卡操作。
+- 插着数据线调试时机器会明显更慢（USB 调试 gadget 在跑），优化的真实收益要在
+  `usb_debug=no` 下复核一次。
+
+---
+
+## 7. 资产清单（文件位置）
 
 - 构建镜像定义：`platforms/rg353ps/frontends/slot/Dockerfile.slot-build`
 - 暖缓存脚本：`diag/warm-slot-cache.sh`
@@ -367,6 +455,10 @@ RG353PS 实测参考值：`adc-joystick` 是 **event4**（`event1` 是电源键�
 - 摇杆模拟轴 patch（跨 15 个文件，与 DTS 无关）：`platforms/rg353ps/frontends/slot/slot-analog.patch`
 - 音量/电源归属实现：`platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session`
   （`claim_volume_for_frontend` / `release_power_owner`）与 `src/rg353ps-hotkeyd.c`
+- 启动测量：`src/boot-clock.c`、`platforms/rg353ps/rootfs/usr/sbin/baseos-boot-mark`、
+  `platforms/rg353ps/rootfs/usr/sbin/baseos-boot-report`（用法见 §6）
+- GL 后台预读：`platforms/rg353ps/rootfs/usr/sbin/baseos-prefetch-gl`（rcS 里与
+  hotkeyd 采样窗口并行启动，不占关键路径）
 - 本指南：`platforms/rg353ps/frontends/slot/PORTING.md`
 
 > 持久卷：`rg353ps-slot-cargo`（registry）、`rg353ps-slot-target`（编译产物缓存）。

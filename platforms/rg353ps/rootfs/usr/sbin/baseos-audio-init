@@ -27,7 +27,18 @@
 # nothing here can block the boot.
 
 LOG=/run/baseos-audio.log
-STATE=/var/lib/alsa/asound.state
+# Deliberately not /var/lib/alsa/asound.state. On this unit that one path is
+# dead: every alsactl store there fails with
+#
+#     state_lock:168: file /var/lib/alsa/asound.state lock error:
+#     No such file or directory
+#
+# while /var/lib/alsa/x.state, /var/lib/alsa/asound.state2 and
+# /var/lib/alsa2/asound.state all succeed - the directory entry itself is
+# damaged (the rootfs is a writable ext4 that has taken hard power-offs), and
+# deleting and recreating the file does not clear it. The state blob is ours
+# alone, so it takes a name whose entry is healthy instead of fighting it.
+STATE=/var/lib/alsa/baseos-alsa-state
 SOFTVOL_CTL='BaseOS Master'
 # 0% maps here. -48 dB is inaudible on this speaker while still leaving the
 # whole 0..100 range useful instead of squeezing it into the top 5%.
@@ -168,14 +179,19 @@ pin_hardware
 # blob and can give up on a single mismatched control, and silently losing the
 # user's volume to that is worse than a duplicated source of truth. The file
 # wins when it is present and well formed.
+#
+# The number in the file is the control's own value (0..99), not a percentage.
+# That distinction is not cosmetic: writing 99 and then restoring it as "99%"
+# lands on 98, so a unit would lose one step of volume on every boot. cset
+# writes the value through untouched.
 VOLUME_FILE=/var/lib/alsa/baseos-volume
 if [ -s "$VOLUME_FILE" ]; then
     saved=$(cat "$VOLUME_FILE" 2>/dev/null)
     case "$saved" in
         ''|*[!0-9]*) say "ignoring malformed $VOLUME_FILE ('$saved')" ;;
         *)
-            if amixer -c "$CARD" sset "$SOFTVOL_CTL" "${saved}%" >/dev/null 2>&1; then
-                say "softvol '$SOFTVOL_CTL' -> ${saved}% from $VOLUME_FILE"
+            if amixer -c "$CARD" cset name="$SOFTVOL_CTL" "$saved" >/dev/null 2>&1; then
+                say "softvol '$SOFTVOL_CTL' -> value $saved from $VOLUME_FILE"
             fi
             ;;
     esac
@@ -197,12 +213,35 @@ fi
 
 # 5. Store, so the hardware gains stay pinned across reboots even if something
 #    else writes the state file.
+#
+#    alsactl locks "<state>.lock" next to the state file with fcntl, and opens
+#    that lock with O_CREAT only when the *state file already exists*. On a
+#    first boot it therefore fails before writing anything:
+#
+#        alsactl: state_lock:168: file /var/lib/alsa/asound.state lock error:
+#        No such file or directory
+#
+#    which is exactly the line the unit reported, and which quietly cost every
+#    boot its persisted hardware gains. An empty file is enough for the lock to
+#    have something to open; store overwrites it with real content straight
+#    after.
+mkdir -p "${STATE%/*}" 2>/dev/null || :
+[ -e "$STATE" ] || : >"$STATE" 2>/dev/null || :
 if alsactl -f "$STATE" store >/dev/null 2>&1; then
     say "saved $STATE"
 else
     say "could not save $STATE"
 fi
 
+# The user's level is also written back here, so a volume set through the
+# frontend (which never touches the hotkey daemon) is not lost on reboot. It
+# only records a value that is actually readable - a failed cget must not
+# overwrite a good file with garbage.
 cur=$(amixer -c "$CARD" cget name="$SOFTVOL_CTL" 2>/dev/null | sed -n 's/^ *: values=\([0-9]*\).*/\1/p' | head -1)
+case "${cur:-}" in
+    ''|*[!0-9]*) : ;;
+    *) [ -s "$VOLUME_FILE" ] && [ "$(cat "$VOLUME_FILE" 2>/dev/null)" = "$cur" ] || \
+           printf '%s\n' "$cur" >"$VOLUME_FILE" 2>/dev/null || : ;;
+esac
 say "volume model: hardware 0 dB, softvol ${cur:-?}% (-48..0 dB)"
 exit 0

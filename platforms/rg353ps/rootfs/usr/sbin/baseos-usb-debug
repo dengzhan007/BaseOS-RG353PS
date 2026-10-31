@@ -582,6 +582,13 @@ start_dhcp() {
         # tmpfs, so the directory does not exist. Point the lease file somewhere
         # that does.
         mkdir -p /var/lib/misc 2>/dev/null || :
+        # Two things this rootfs does not have by default, both of which dnsmasq
+        # only reports after it has already given up:
+        #   - no `dnsmasq` account (assembled without --scripts), so the default
+        #     privilege drop fails with "unknown user or group: dnsmasq";
+        #   - no /var/lib/misc for the default lease file.
+        # Naming root and /run up front turns both into a first-try success
+        # instead of a failure the log has to explain away.
         dnsmasq_run() {
             dnsmasq --conf-file=/dev/null --port=0 --no-resolv --log-queries=no \
                 --bind-interfaces \
@@ -590,6 +597,7 @@ start_dhcp() {
                 --dhcp-leasefile=/run/baseos-dnsmasq.leases \
                 --dhcp-option=3,"$ADDR" \
                 --dhcp-authoritative \
+                --user=root --group=root \
                 --pid-file=/run/baseos-dnsmasq.pid \
                 --log-facility=/run/baseos-dnsmasq.log "$@" 2>"$err"
         }
@@ -598,14 +606,6 @@ start_dhcp() {
             return 0
         fi
         say "dnsmasq failed: $(head -n 3 "$err" 2>/dev/null | tr '\n' ';')"
-        # dnsmasq drops to "nobody" unless told otherwise; a rootfs assembled
-        # with --no-scripts may not have that account. Retrying as root is ugly
-        # but this is a single-purpose debug link on a handheld.
-        if dnsmasq_run --user=root --group=root >/dev/null; then
-            say "dhcp: $DHCP_FIRST-$DHCP_LAST on $iface (dnsmasq, user=root)"
-            return 0
-        fi
-        say "dnsmasq failed as root too: $(head -n 3 "$err" 2>/dev/null | tr '\n' ';')"
         say "set 192.168.42.2/24 on the host by hand; the link still works"
         return 0
     fi

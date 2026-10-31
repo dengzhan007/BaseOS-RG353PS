@@ -23,11 +23,25 @@ audio playback, Wi-Fi/BT association and audio, battery/charging accuracy, HDMI,
 
 **This remains an experimental bring-up image, not a finished BaseOS release.** The built-in diagnostic UI is the fallback when no usable frontend adapter is found. Frontend selection is automatic; users do not need to edit `baseos.conf` to identify a frontend.
 
-At boot, BaseOS scans TF2 first (normally `/dev/mmcblk2p1`) and mounts it at `/mnt/TF2`. If the card root contains a recognized, usable adapter at `.baseos/frontends/<name>/launch.sh`, that frontend is selected. If TF2 is absent, cannot be mounted, or has no usable frontend, BaseOS scans TF1's `BASEOS_DATA` partition at `/mnt/SDCARD`. The `/mnt/sdcard` compatibility link follows the selected frontend root. Slot is staged onto writable `/tmp` before launch because exFAT/Windows extraction does not reliably preserve Unix executable permissions. If neither card contains a usable adapter, the diagnostic UI starts. Storage initialization logs are saved as `BASEOS_BOOT/baseos-userdata-init.txt`, and frontend discovery logs as `BASEOS_BOOT/baseos-frontend-detection.txt`, for PC-side troubleshooting. The tty1 selector is not started until TF1 user storage has been initialized, mounted, and recorded with a persistent marker. If storage is not ready, a full-screen retry prompt is shown instead of diagnostics. After first initialization succeeds, BaseOS asks for A/Enter once, then continues automatic frontend discovery. The old `frontend=...` and `allow_external_frontend_adapters=...` configuration keys are ignored; frontend adapter scripts execute with root privileges, so install only trusted packages.
+At boot, BaseOS scans TF2 first (normally `/dev/mmcblk2p1`) and mounts it at `/mnt/TF2`. If the card root contains a recognized, usable adapter at `.baseos/frontends/<name>/launch.sh`, that frontend is selected. If TF2 is absent, cannot be mounted, or has no usable frontend, BaseOS scans TF1's `BASEOS` partition at `/mnt/SDCARD`. The `/mnt/sdcard` compatibility link follows the selected frontend root. Slot is staged onto writable `/tmp` before launch because exFAT/Windows extraction does not reliably preserve Unix executable permissions. If neither card contains a usable adapter, the diagnostic UI starts. Storage initialization logs are saved as `BASEOS_BOOT/baseos-userdata-init.txt`, and frontend discovery logs as `BASEOS_BOOT/baseos-frontend-detection.txt`, for PC-side troubleshooting. The tty1 selector is not started until TF1 user storage has been initialized, mounted, and recorded with a persistent marker. If storage is not ready, a full-screen retry prompt is shown instead of diagnostics. After first initialization succeeds, BaseOS asks for A/Enter once, then continues automatic frontend discovery. The old `frontend=...` and `allow_external_frontend_adapters=...` configuration keys are ignored; frontend adapter scripts execute with root privileges, so install only trusted packages.
 
-The image layout separates `BASEOS_BOOT`, a fixed-size `BASEOS_ROOT`, and `BASEOS_DATA` for frontend/user files. At first boot, the blank user partition is expanded to the physical card's end and formatted as exFAT, then mounted at `/mnt/SDCARD`. Install frontend ZIP contents at the root of TF2 for priority use, or at the root of TF1's `BASEOS_DATA` for fallback use—not on the small FAT boot partition. Existing images from before this change do not gain a dedicated user-data partition unless reflashed; back up the card first. The boot partition remains visible to a PC for maintenance, while the Linux root partition is separate from user files. The system still lacks a final read-only root, A/B updater and release packaging. Use a spare TF card. The file `work/rg353ps/rg353ps-uboot.bin` remains an intermediate bootloader region, not a standalone SD-card image.
+The image layout separates `BASEOS_BOOT`, a fixed-size `BASEOS_ROOT`, and `BASEOS` for frontend/user files. At first boot, the blank user partition is expanded to the physical card's end and formatted as exFAT, then mounted at `/mnt/SDCARD`. Install frontend ZIP contents at the root of TF2 for priority use, or at the root of TF1's `BASEOS` for fallback use—not on the small FAT boot partition. Existing images from before this change do not gain a dedicated user-data partition unless reflashed; back up the card first. Only the BASEOS user partition shows up on a PC: BASEOS_BOOT carries the hidden and no-automount GPT flags, and BASEOS_ROOT is ext4. Maintenance files on the boot volume are reachable from a Linux host, not from Windows or macOS. The system still lacks a final read-only root, A/B updater and release packaging. Use a spare TF card. The file `work/rg353ps/rg353ps-uboot.bin` remains an intermediate bootloader region, not a standalone SD-card image.
 
 For details, see [FRONTENDS.md](FRONTENDS.md).
+
+## USB storage mode: plug the cable first
+
+Connect the USB data cable **before** triggering storage mode (long-press
+Function while powering on, or the diagnostic menu entry). Entering with the
+cable already attached lets the controller finish negotiating with the host
+before the wait loop starts, so the screen goes straight from `WAITING` to
+`CONNECTING`. Plugging in while the device is already waiting races the
+USB2 PHY against the DWC3 bind; the recovery ladder (soft pulse, re-probe,
+unbind/rebind, re-probe) rescues most but not all cable/host combinations,
+and a failure there is indistinguishable from a real fault in the logs.
+The card appears as a single removable `BASEOS` exFAT volume. Unplugging does
+not need an eject first: pending writes are flushed after two idle seconds.
+
 
 ## Graphics userspace and first render test
 
@@ -115,7 +129,7 @@ trusted key. Kernel config/patch and certificate provenance is in
 
 The result is `work/rg353ps/baseos-rg353ps-smoke.img.gz`, a 2 GiB SD-card
 **bring-up image**. It uses a 256 MiB FAT `BASEOS_BOOT` partition, a bounded
-1280 MiB ext4 `BASEOS_ROOT` partition, and a blank `BASEOS_DATA` partition.
+1280 MiB ext4 `BASEOS_ROOT` partition, and a blank `BASEOS` partition.
 The first-boot initializer expands the user partition to the actual TF-card end
 and formats it as exFAT, then mounts it at `/mnt/SDCARD`. This allows the same
 card to hold user-installed frontend packages, ROMs and saves. It boots a

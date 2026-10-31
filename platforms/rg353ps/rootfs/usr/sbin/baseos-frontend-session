@@ -472,7 +472,34 @@ if [ -x /usr/sbin/baseos-audio-init ]; then
     /usr/sbin/baseos-audio-init >/dev/null 2>&1 || :
   fi
 fi
+# Slot keeps its own software volume (Config/slot.state, keys volume= and
+# volume_hp=) and multiplies it into its own output, on top of the mixer the
+# volume keys drive. Two attenuators in series is what made the same on-screen
+# percentage sound different from one session to the next, and what made "40"
+# on its bar nearly silent. rg353ps-hotkeyd now takes the volume keys
+# exclusively, so the frontend can no longer move that number; pin it to unity
+# so the mixer is the only thing left in the path.
+neutralize_frontend_volume() {
+  nv_state="$FRONTEND_ROOT/Config/slot.state"
+  [ -f "$nv_state" ] || return 0
+  if grep -qx 'volume=100' "$nv_state" 2>/dev/null &&
+     grep -qx 'volume_hp=100' "$nv_state" 2>/dev/null; then
+    return 0
+  fi
+  [ -f "$nv_state.baseos-unity.bak" ] || cp "$nv_state" "$nv_state.baseos-unity.bak" 2>/dev/null || :
+  nv_tmp="$nv_state.baseos-tmp"
+  if sed -e 's/^volume=.*/volume=100/' -e 's/^volume_hp=.*/volume_hp=100/' \
+        "$nv_state" > "$nv_tmp" 2>/dev/null && [ -s "$nv_tmp" ]; then
+    mv "$nv_tmp" "$nv_state" 2>/dev/null && \
+      log "pinned frontend software volume to unity in $nv_state"
+  fi
+  rm -f "$nv_tmp" 2>/dev/null || :
+}
+
 log "launching $SELECTED frontend ($LAUNCH_MODE): $LAUNCHER"
+if [ "$SELECTED" = "slot" ]; then
+  neutralize_frontend_volume
+fi
 # Pause the frontend before exposing its mounted card to the USB host.
 kill_tree() {
   signal=$1

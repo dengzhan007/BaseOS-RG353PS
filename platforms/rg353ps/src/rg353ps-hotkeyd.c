@@ -8,6 +8,7 @@
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
@@ -31,6 +32,11 @@
 /* Floor between two autorepeat volume steps. The input layer's own repeat rate
    is not a contract, and it made a held key move by an unpredictable amount. */
 #define VOL_REPEAT_MS 120
+/* One key press moves five raw units of the 0..99 softvol control, i.e. 2.4 dB.
+   Small enough to be a fine adjustment, large enough that twenty presses
+   cross the whole useful range. */
+#define VOL_STEP_UNITS 5
+#define VOL_MAX_UNITS 99
 #define SLEEP_SCRIPT "/usr/sbin/rg353ps-sleep"
 /* Written by baseos-frontend-session once a frontend that claims the power key
    has started; it holds that frontend's pid. */
@@ -372,6 +378,24 @@ static void discover_inputs(void) {
         dev->fd=fd; dev->role=role;
         (void)snprintf(dev->path,sizeof(dev->path),"%s",path);
         (void)snprintf(dev->name,sizeof(dev->name),"%s",name);
+        /* The frontend reads the same node and keeps its own software volume,
+           which multiplies on top of the mixer. Two controls moving at once
+           meant its on-screen number drifted away from what the speaker
+           actually did. Grab the node while we are alive: the frontend stops
+           seeing volume keys, its stored level stays where it was put, and the
+           mixer is the only volume there is. */
+        if (role == ROLE_VOLUME) {
+            char msg[256];
+            if (ioctl(fd, EVIOCGRAB, 1) == 0) {
+                (void)snprintf(msg,sizeof(msg),"exclusive grab on %s (%s)",path,name);
+                log_message(msg);
+            } else {
+                (void)snprintf(msg,sizeof(msg),
+                    "could not grab %s (%s): %s; the frontend may still move its own volume",
+                    path,name,strerror(errno));
+                log_message(msg);
+            }
+        }
         if (role == ROLE_KEYS) {
             unsigned long key_bits[(KEY_MAX + (sizeof(unsigned long) * 8)) /
                                    (sizeof(unsigned long) * 8)];
@@ -451,6 +475,59 @@ static int find_audio_card(void) {
 
 /* One amixer call, argument by argument so a control name with a space stays a
    single argument. Returns the exit status, or -1 if the call never ran. */
+/* Reading a control back has to happen in the parent, and this is a debug-grade
+   path (one fork per key press at most), so a popen through /bin/sh is enough. */
+static int read_mixer_value(int card, const char *control) {
+    char cmd[320];
+    char line[128];
+    FILE *fp;
+    int value = -1;
+    (void)snprintf(cmd,sizeof(cmd),
+        "amixer -c %d cget name='%s' 2>/dev/null | "
+        "sed -n 's/^ *: values=\\([0-9][0-9]*\\).*/\\1/p' | head -1",
+        card,control);
+    fp=popen(cmd,"r");
+    if(fp==NULL) return -1;
+    if(fgets(line,sizeof(line),fp)!=NULL) {
+        char *end=NULL;
+        long parsed=strtol(line,&end,10);
+        if(end!=line && parsed>=0 && parsed<100000) value=(int)parsed;
+    }
+    (void)pclose(fp);
+    return value;
+}
+
+/* amixer's "N+"/"N-" on sset is a percentage of the range, and on this control
+   a 5% relative step lands on 10 raw units, not 5 - which is why a "+ then -"
+   round trip did not come back. Setting an absolute raw value has no such
+   ambiguity. */
+static int set_mixer_value(int card, const char *control, int value) {
+    char cardarg[8];
+    char valuearg[16];
+    pid_t child;
+    int status;
+    (void)snprintf(cardarg,sizeof(cardarg),"%d",card);
+    (void)snprintf(valuearg,sizeof(valuearg),"%d",value);
+    child=fork();
+    if(child<0) return -1;
+    if(child==0) {
+        int nullfd=open("/dev/null",O_WRONLY);
+        if(nullfd>=0) {
+            (void)dup2(nullfd,STDOUT_FILENO); (void)dup2(nullfd,STDERR_FILENO);
+            if(nullfd>STDERR_FILENO) (void)close(nullfd);
+        }
+        execl("/usr/bin/amixer","amixer","-c",cardarg,"cset",control,valuearg,(char *)NULL);
+        execl("/bin/amixer","amixer","-c",cardarg,"cset",control,valuearg,(char *)NULL);
+        _exit(127);
+    }
+    while(waitpid(child,&status,0)<0) {
+        if(errno==EINTR) continue;
+        return -1;
+    }
+    if(!WIFEXITED(status)) return -1;
+    return WEXITSTATUS(status);
+}
+
 static int run_amixer(int card, const char *control, const char *adjust) {
     char cardarg[8];
     pid_t child;
@@ -518,18 +595,40 @@ static int adjust_playback_volume(int up) {
     int card=find_audio_card();
     const char *used=NULL;
     int rc;
+    int newval=-1;
     size_t i;
     char msg[200];
     if(card<0) { log_message("volume: no rk817 sound card found"); return 0; }
-    /* Absolute raw steps, not percent. "5%" of a 0..99 control is 4.95, which
-       the layer rounds to 4 or 5 depending on where the value happens to sit -
-       so two presses from the same place do not always move the same distance,
-       and the position that sounded like 50% last time no longer does. "5+" is
-       five raw units (2.4 dB) every single time; ALSA clamps at the ends. */
-    rc=run_amixer(card,"BaseOS Master",up?"5+":"5-");
-    if(rc==0) {
-        used="BaseOS Master";
-    } else {
+    /* One press is one fixed distance. Everything else about the old code was
+       guessing: "5%" of a 0..99 control is 4.95 units and the layer rounds it
+       per call, and amixer's own "5+" relative form moves 10 units here, so a
+       "+ then -" round trip did not even land where it started. Read the value,
+       add the step, clamp, write the absolute result. */
+    {
+        int current=read_mixer_value(card,"BaseOS Master");
+        if(current>=0) {
+            int target=current+(up?VOL_STEP_UNITS:-VOL_STEP_UNITS);
+            if(target<0) target=0;
+            if(target>VOL_MAX_UNITS) target=VOL_MAX_UNITS;
+            if(target==current) {
+                /* Already at the end of the range; nothing to write. */
+                (void)snprintf(msg,sizeof(msg),"volume %s: already at %d",up?"up":"down",current);
+                log_message(msg);
+                return 1;
+            }
+            if(set_mixer_value(card,"BaseOS Master",target)==0) {
+                used="BaseOS Master";
+                newval=target;
+            }
+        }
+    }
+    if(used==NULL) {
+        /* Older state or a different control name: fall back to a dB step,
+           which is exact whatever the control's raw range happens to be. */
+        rc=run_amixer(card,"BaseOS Master",up?"3dB+":"3dB-");
+        if(rc==0) used="BaseOS Master";
+    }
+    if(used==NULL) {
         for(i=0;i<sizeof(fallbacks)/sizeof(fallbacks[0]);i++) {
             if(run_amixer(card,fallbacks[i],up?"3dB+":"3dB-")==0) {
                 used=fallbacks[i];
@@ -538,8 +637,12 @@ static int adjust_playback_volume(int up) {
         }
     }
     if(used) {
-        if(strcmp(used,"BaseOS Master")==0) save_softvol(card);
-        (void)snprintf(msg,sizeof(msg),"volume %s: %s on card %d",up?"up":"down",used,card);
+        if(strcmp(used,"BaseOS Master")==0) {
+            if(newval<0) newval=read_mixer_value(card,"BaseOS Master");
+            save_softvol(card);
+        }
+        (void)snprintf(msg,sizeof(msg),"volume %s: %s on card %d -> %d",
+                       up?"up":"down",used,card,newval);
         log_message(msg);
         return 1;
     }

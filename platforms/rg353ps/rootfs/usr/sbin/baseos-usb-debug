@@ -167,23 +167,15 @@ disable_usb_runtime_pm() {
     done
 }
 
-# A gadget bound before the cable arrives can leave the PHY's cable bit
-# unasserted, and then no enumeration ever starts: the host shows nothing at
-# all. Storage mode sidesteps this by being entered with the cable already
-# plugged; this channel cannot ask for that, so it escalates instead - and the
-# escalation has to run on a clock, not on a cable edge, because the field log
-# showed a plugged cable producing no edge at all.
-pulse_soft_connect() {
-    soft=/sys/class/udc/$UDC/soft_connect
-    [ -w "$soft" ] || soft=$G/soft_connect
-    [ -w "$soft" ] || { say "recovery: no writable soft_connect"; return 1; }
-    say "recovery: soft_connect pulse via $soft"
-    printf 'disconnect' >"$soft" 2>/dev/null || :
-    sleep 0.5
-    printf 'connect' >"$soft" 2>/dev/null || :
-    sleep 1
-    say "recovery: pulse done state=$(udc_state)"
-}
+# Note: there used to be a soft_connect pulse here. The field log retired it -
+# the guest had SDP=1 and the pulse produced
+#
+#     dwc3 fcc00000.usb: failed to enable ep0out
+#
+# three seconds later, without ever moving the UDC out of "not attached". A
+# disconnect/connect on a controller whose PHY is not in a settled state leaves
+# EP0 disabled on this part; baseos-usb-storage had already learned that. The
+# ladder below only re-probes drivers, never toggles soft_connect.
 
 rebind_gadget() {
     say "recovery: unbinding and rebinding $UDC"
@@ -242,6 +234,61 @@ reprobe_udc_driver() {
     return 0
 }
 
+# Heavier still: rebuild the USB2PHY as well as the controller, in the order a
+# cold boot uses - PHY probes with VBUS already present, then dwc3 attaches to
+# it. The field log shows why this ordering may matter: with VBUS arriving long
+# after both had probed, dwc3 took a device event with speed=0 and immediately
+# reported a disconnect, i.e. the host's port reset never produced a usable
+# link. That is the state storage mode never sees, because it boots with the
+# cable in.
+reprobe_usb_stack() {
+    phy=
+    for candidate in /sys/bus/platform/devices/*usb2phy; do
+        case "$(readlink "$candidate/driver" 2>/dev/null)" in
+            *rockchip-usb2phy*) phy=${candidate##*/}; break ;;
+        esac
+    done
+    drv=$(readlink "/sys/bus/platform/devices/$UDC/driver" 2>/dev/null) || {
+        say "recovery: no platform driver on $UDC; cannot rebuild the stack"
+        return 1
+    }
+    drv=${drv##*/}
+    say "recovery: rebuilding the USB stack: $drv + ${phy:-no phy} (cable=$(cable_present && echo yes || echo no))"
+    printf '\n' >"$G/UDC" 2>/dev/null || :
+    sleep 1
+    printf '%s' "$UDC" >"/sys/bus/platform/drivers/$drv/unbind" 2>/dev/null || {
+        say "recovery: unbind from $drv failed"; return 1
+    }
+    sleep 1
+    if [ -n "$phy" ]; then
+        phydrv=$(readlink "/sys/bus/platform/devices/$phy/driver" 2>/dev/null)
+        phydrv=${phydrv##*/}
+        if [ -n "$phydrv" ]; then
+            printf '%s' "$phy" >"/sys/bus/platform/drivers/$phydrv/unbind" 2>/dev/null || :
+            sleep 1
+            printf '%s' "$phy" >"/sys/bus/platform/drivers/$phydrv/bind" 2>/dev/null || {
+                say "recovery: PHY rebind failed; the port will stay dead until reboot"
+            }
+            sleep 1
+            say "recovery: PHY ${phy} re-probed (cable=$(cable_present && echo yes || echo no))"
+        fi
+    fi
+    printf '%s' "$UDC" >"/sys/bus/platform/drivers/$drv/bind" 2>/dev/null || {
+        say "recovery: bind to $drv failed"; return 1
+    }
+    sleep 2
+    printf '%s' "$UDC" >"$G/UDC" 2>/dev/null || {
+        sleep 2
+        printf '%s' "$UDC" >"$G/UDC" 2>/dev/null || { say "recovery: gadget rebind failed"; return 1; }
+    }
+    disable_usb_runtime_pm
+    configure_iface || :
+    start_dhcp "$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)"
+    sleep 1
+    say "recovery: stack rebuild done state=$(udc_state) cable=$(cable_present && echo yes || echo no)"
+    return 0
+}
+
 # One supervisor for the whole session. It runs at two-second intervals and its
 # job is to get the host to see the device at all.
 #
@@ -253,19 +300,23 @@ reprobe_udc_driver() {
 # with whatever VBUS is present right now, which is precisely the situation
 # mass storage boots into and never fails in.
 #
-# Steps, cheapest first and only where safe:
-#   re-probe  fresh dwc3 + usb2phy probe under the current cable state. Safe
-#             with no cable: it lands in the same state as a cold boot.
-#   pulse     soft_connect disconnect/connect. Only with a cable present: doing
-#             it while unattached has left EP0 disabled on this part before.
-#   rebind    gadget off/on, for an EP0 that failed to enable.
+# Steps, cheapest first:
+#   re-probe   controller driver off/on under the current cable state.
+#   rebind     gadget off/on.
+#   rebuild    PHY off/on and then the controller, which reproduces the probe
+#              order of a cable-present cold boot.
+#
+# No soft_connect anywhere: see the note above rebind_gadget.
 WATCH_PID=/run/baseos-usb-debug.watch.pid
 watch_cable() {
     tick=0
     last_state=x
     last_present=no
     attempt=0
-    next_tick=2
+    # Twelve seconds of grace: a boot that has the cable already in is the one
+    # case that works on its own, and tearing the controller down while the
+    # host is mid-enumeration would turn a good boot bad.
+    next_tick=6
     say "supervisor: started pid=$$ (state=$(udc_state) cable=$(cable_present && echo yes || echo no) vbus=$(vbus_state))"
     probe_dump "boot"
     while :; do
@@ -284,8 +335,11 @@ watch_cable() {
         if [ "$present" != "$last_present" ]; then
             if [ "$present" = yes ]; then
                 say "supervisor: cable inserted (state=$state)"
-                # A real edge is the one case worth acting on immediately.
+                # The cable's arrival is the moment the whole stack has to be
+                # rebuilt, so act on the next iteration rather than on a timer -
+                # but never inside the startup grace period.
                 next_tick=$tick
+                [ "$next_tick" -lt 6 ] && next_tick=6
                 attempt=0
             else
                 say "supervisor: cable removed (state=$state)"
@@ -299,20 +353,28 @@ watch_cable() {
 
         if [ "$tick" -ge "$next_tick" ]; then
             attempt=$((attempt + 1))
-            if [ "$present" = yes ] && [ "$attempt" -lt 3 ]; then
+            if [ "$present" = yes ]; then
+                # With a cable in, escalate quickly: two controller re-probes,
+                # then a gadget rebind, then rebuild PHY as well - the order a
+                # cable-present cold boot probes in, which is the sequence the
+                # field log shows dwc3 never got (it took the VBUS event with
+                # speed=0 and dropped straight to a disconnect).
                 case "$attempt" in
-                    1) pulse_soft_connect ;;
-                    2) rebind_gadget ;;
+                    1|2) reprobe_udc_driver || : ;;
+                    3)   rebind_gadget ;;
+                    *)   reprobe_usb_stack || : ;;
                 esac
             else
-                reprobe_udc_driver || probe_dump "re-probe failed"
+                reprobe_udc_driver || :
             fi
             say "supervisor: attempt $attempt done state=$(udc_state) cable=$(cable_present && echo yes || echo no)"
             probe_dump "attempt $attempt"
             persist_log
-            # Tight for the first two minutes so a person plugging in just
-            # after boot is not kept waiting, then once a minute for an hour.
-            if [ "$attempt" -le 12 ]; then
+            # Four seconds between tries with a cable in, ten without, then a
+            # slower sweep for an hour before giving up.
+            if [ "$present" = yes ] && [ "$attempt" -le 60 ]; then
+                next_tick=$((tick + 2))
+            elif [ "$attempt" -le 12 ]; then
                 next_tick=$((tick + 5))
             elif [ "$attempt" -le 72 ]; then
                 next_tick=$((tick + 30))
@@ -447,11 +509,18 @@ start_dhcp() {
     # on, and the host-then-needs-a-static-address note was all it left behind.
     if command -v dnsmasq >/dev/null 2>&1; then
         err=/run/baseos-dnsmasq.err
+        # The first attempt still said only "failed to start"; with the daemon's
+        # own stderr it turned out to be one line - dnsmasq wants its lease file
+        # in /var/lib/misc, and this rootfs is squashfs-shaped with /var on
+        # tmpfs, so the directory does not exist. Point the lease file somewhere
+        # that does.
+        mkdir -p /var/lib/misc 2>/dev/null || :
         dnsmasq_run() {
             dnsmasq --conf-file=/dev/null --port=0 --no-resolv --log-queries=no \
                 --bind-interfaces \
                 --interface="$iface" \
                 --dhcp-range="$DHCP_FIRST,$DHCP_LAST,12h" \
+                --dhcp-leasefile=/run/baseos-dnsmasq.leases \
                 --dhcp-option=3,"$ADDR" \
                 --dhcp-authoritative \
                 --pid-file=/run/baseos-dnsmasq.pid \

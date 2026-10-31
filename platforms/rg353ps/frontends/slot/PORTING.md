@@ -380,6 +380,8 @@ RG353PS 实测参考值：`adc-joystick` 是 **event4**（`event1` 是电源键�
 
 ### 6.2 实测时间线（uptime，单位秒）
 
+只读根之前（第一轮优化的结果）：
+
 ```
  4.17  rcS 开始
  4.94  hotkeyd ready          ← rcS 会一直等这个标记
@@ -393,7 +395,30 @@ RG353PS 实测参考值：`adc-joystick` 是 **event4**（`event1` 是电源键�
  +2.06 Slot 进程内首帧
 ```
 
-加上 `boot-clock` 给出的 **开机前 6.19 s**，从通电到画面约 14.2 s；优化前是 17.6~19.3 s。
+只读根之后（`baseos-boot-report` 原样输出）：
+
+```
+Startup: 6.186 s before Linux, 3.978 s Linux to menu, 10.165 s total
+    1.26     +0.00  rcS: proc/sys/dev
+    1.32     +0.06  rcS: mdev done
+    1.93     +0.61  hotkeyd ready
+    1.95     +0.02  storage mounted
+    2.00     +0.05  modules: gpu ready
+    2.45     +0.45  userdata ready
+    2.80     +0.35  bg: gl prefetch done
+    2.93     +0.13  rcS done
+    2.94     +0.01  session entry
+    3.07     +0.13  frontend selected: slot
+    3.10     +0.03  session: audio wait begins
+    3.31     +0.21  session: audio ready (waited 200 ms)
+    3.35     +0.04  session: prepped
+    3.35     +0.00  handoff: entered
+    3.97     +0.62  frontend exec
+```
+
+**通电到前端进程启动 14.2 s → 10.2 s**，其中 2.9 s 全部来自 ext4 不再重放日志
+（1.25 s 就能进 rcS，之前是 4.17 s）。`boot-clock` 的开机前段仍是 6.19 s ——
+它现在是整条链上最大的一块，占 61%。
 
 ### 6.3 量出来才发现的四个坑
 
@@ -416,31 +441,105 @@ RG353PS 实测参考值：`adc-joystick` 是 **event4**（`event1` 是电源键�
 改成在 hotkeyd 采样窗口旁边后台预读，Slot 首帧 **4.21 s → 2.06 s**；Mesa 着色器缓存
 本来就落在 `/.cache`（`HOME=/`），确认已生效即不动。
 
-### 6.4 还没做的，按收益排序
+### 6.4 第二轮：根分区只读，干掉每次启动 2.9 s 的日志重放
 
-- **ext4 日志恢复 ≈ 3.4 s，每次启动都有。** 内核日志显示
-  `1.16s mmcblk0p3 分区就绪 → 4.55s EXT4-fs recovery complete`。原因是这台机器的
-  关机路径从来没把根文件系统标干净：BusyBox 的 `reboot` 直接 `reboot(2)`，不通知
-  init 走 `::shutdown:/bin/umount -a -r`；手动跑那条命令也会报
-  `can't remount /dev/root read-only`。掌机被长按断电时更是必然脏。
-  彻底解法是根分区只读 + 可写目录挂 tmpfs（所有复古掌机都这么做），需要改镜像结构。
-- **开机前 6.19 s**：U-Boot + 内核加载/解压。原版的做法（gzip 内核、去 vendor
-  initramfs、boot0/U-Boot 关串口）都在这一层，得重刷镜像才能验。
-- **dwc3 调试打印**：`build-kernel.sh` 里注入了约 10 处无条件 `dev_info`，插线时每个包
-  写 3~5 行。它们既刷爆 ring buffer（所以才有 §6.1 的 dmesg 快照），也白烧 USB 带宽。
-  改成 `dev_dbg` 是最小改动，但需要重编内核。
+内核日志里那三行就是全部证据：
+
+```
+[ 1.137309] EXT4-fs (mmcblk0p3): INFO: recovery required on readonly filesystem
+[ 3.405310] EXT4-fs (mmcblk0p3): recovery complete
+[ 3.877031] EXT4-fs (mmcblk0p3): mounted filesystem ... ro
+```
+
+**为什么每次都是脏的**：BusyBox 的 `reboot` 直接调 `reboot(2)`，不会通知 init 去跑
+`::shutdown:/bin/umount -a -r`；手动 `mount -o remount,ro /` 会 `EBUSY`（真有写句柄
+拿着，换 `/dev/mmcblk0p3` 也一样）。掌机长按断电更是必然脏。
+
+**为什么一个几乎空的日志要 2.8 s**：JBD2 恢复是整个日志顺序扫一遍，4 KiB 一块地读，
+4096 块就是 4096 次单块 I/O。日志本身没几条事务，时间全花在"扫完它"上。
+
+**解法**：根分区只用只读挂载（`ro`），可写的东西全进 RAM。改动只有四处：
+
+| 位置 | 改动 |
+|---|---|
+| `build-image.sh` extlinux `APPEND` | `rootwait rw` → `rootwait ro` |
+| `build-image.sh` `mkfs.ext4` | `-J size=4`，把日志压到 4 MiB（真脏时的代价上限） |
+| `rcS` 开头 | `/var`、`/root`、`/etc/wpa_supplicant` 挂 tmpfs |
+| `build-rootfs.sh` | `/etc/asound.conf` → 指向 `/run/asound.conf` 的符号链接 |
+
+只读根一旦成立，文件系统**永远不会脏**，也就没有东西可重放；顺带把"断电损坏根分区"
+这个复古掌机最经典的故障一起去掉了。日志恢复仍在（内核会在只读挂载时照样重放），
+所以真有特殊情况也不会带着坏账跑。
+
+三个坑，都在"可写目录"这件事上：
+
+1. **`/etc/asound.conf` 是 audio-init 每次都重写的**（softvol 定义里要写声卡序号）。
+   只读根会让它静默失败 → 没声音。用符号链接指到 `/run/asound.conf`：写穿链接落在
+   tmpfs 上，ALSA 读 `/etc/asound.conf` 的路径一个字没变；链接悬空时 alsa-lib 当
+   "没有配置文件"处理，正是镜像出厂的状态。
+2. **`/etc/wpa_supplicant` 不能只做文件级链接**：`update_config=1` 时 wpa_supplicant
+   用"写临时文件再 rename"落盘，rename 会把符号链接换成普通文件，在只读目录里直接
+   EROFS。所以挂整个目录 tmpfs，持久副本仍在用户分区的 `.baseos/wifi.conf`。
+3. **`/root` 也要 tmpfs**：dropbear 的 `authorized_keys` 是由 `baseos-usb-debug`
+   从镜像或用户分区拷进去的，`/root` 里没有任何需要跨启动保留的东西。
+
+排查时先看这两条，能省一小时：`grep EXT4-fs /run/dmesg-boot.txt` 应该只有一行
+`mounted ... ro`；`grep -c EROFS /run/dmesg-boot.txt` 应该是 0（真出错时去看是谁在写，
+而不是去把根分区改回 rw）。
+
+### 6.5 第二轮：开机前 6.19 s
+
+`boot-clock` 说 6.19 s，而 `bootflow`/U-Boot 的串口没人接，所以这一层只能靠"改一项、
+量一次"来逼近。第一刀是最便宜的：**`CONFIG_BOOTDELAY` 板级默认是 2**，每次启动白等
+两秒按键——这台机器没有串口，U-Boot 也不轮询手柄。`platforms/rg353ps/uboot.config`
+把它设成 0（构建脚本用 `merge_config.sh` 合进去，并 grep 校验真的生效）。
+
+剩下的大头是内核本身：`Image` 有 29 MB，U-Boot 要把每一字节从 FAT 读进内存。可选方向
+（都需要重刷验证）：U-Boot 里把 SD 时钟提到 UHS、内核存成压缩的 FIT 让 U-Boot 解压、
+砍内建驱动。别在没量的情况下动，这一层的"看起来合理"通常不准。
+
+### 6.6 dwc3 的调试打印：从淹没日志到按需打开
+
+`build-kernel.sh` 里注入了一整套 USB bring-up 探针（dwc3 请求映射、PHY 状态机、
+FSG 生命周期），原本全是 `dev_info`/`pr_info`。插着数据线时每个 USB 包 3~5 行，
+1 MB 的 ring buffer 几秒就满了 —— 所以才有 §6.1 那个"必须在 rcS 首行抓 dmesg"的技巧。
+那本质上是拿快照绕过一个自己制造的噪声源。
+
+现在这些探针统一收进动态调试（`CONFIG_DYNAMIC_DEBUG` + `CONFIG_JUMP_LABEL` 都在，
+关掉时是 nop 跳转，零成本），源码和格式串原样保留：
+
+```sh
+mount -t debugfs none /sys/kernel/debug
+echo "file gadget.c +p" > /sys/kernel/debug/dynamic_debug/control
+echo "file ep0.c +p"    > /sys/kernel/debug/dynamic_debug/control
+```
+
+实现是 `build-kernel.sh` 末尾一段"往回找到调用它的括号、再改函数名"的改写，而不是
+在十处注入点各改一遍：格式串统一以 `RG353PS` 开头，所以锚点稳定，且改写是幂等的
+（源码树有缓存，同一棵树会被处理两次）。
+
+### 6.7 还没做的
+
 - **softvol 控件第一次真正打开 PCM 要 ~1.4 s**（aplay 刚关掉 PCM，控件赋值又要重开，
   触发 DAPM 上电）。这笔钱目前由 `audio-init` 先付、前端等它；理想做法是并进前端那次
   PCM 会话里，让这 1.4 s 和 Slot 自己的启动重叠。
+- **SD 卡初始化在 Linux 里要 0.7 s**，其中 0.53 s 是 SDR104 的调谐，而且第一次调谐
+  会失败（`tuning execution failed: -5`）再整体重来一次。改 `sd-uhs-sdr50` 可以省掉
+  调谐，代价是读速从 ~79 MB/s 掉到 ~40 MB/s —— 那 33 MB 的 `libgallium` 预读会慢
+  0.35 s 左右（目前预取有 0.35 s 余量）。要不要换是个取舍，没量透之前不动。
 
-### 6.5 量启动时的注意事项
+### 6.8 量启动时的注意事项
 
 - **别用不同启动之间的小数互相减**：内核 dmesg 时间戳、`/proc/uptime`、`boot-clock`
   是三个基准，每次都略有不同。要比就比同一份 `baseos-boot-report` 里的行。
+- `boot-clock` 是唯一能量"U-Boot + 内核加载"的手段，但它只给总数。要拆开就得在
+  U-Boot 里埋点（`bootstage` 或往 FAT 写报告），这一层目前没做。
 - `handoff: entered` 和 `frontend exec` 之间只应该差几十毫秒。如果差出上百毫秒，
   说明 `record_handoff` 里又混进了写卡操作。
 - 插着数据线调试时机器会明显更慢（USB 调试 gadget 在跑），优化的真实收益要在
   `usb_debug=no` 下复核一次。
+- rcS 首行的 dmesg 快照现在不再是"救命"的（探针已收进动态调试），但它便宜到没有理由
+  去掉：它同时是只读根是否生效的第一手证据。
 
 ---
 

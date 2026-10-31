@@ -64,6 +64,7 @@ echo "== building RG353PS U-Boot ($UBOOT_DEFCONFIG) =="
 docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
   -v "$WORK":/work \
   -v "$PLATFORM_DIR/patches":/patches:ro \
+  -v "$PLATFORM_DIR/uboot.config":/uboot.config:ro \
   -e UBOOT_VERSION="$UBOOT_VERSION" \
   -e UBOOT_DEFCONFIG="$UBOOT_DEFCONFIG" \
   -e PATCH_SHA="$PATCH_SHA" \
@@ -103,7 +104,20 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
 
     export ARCH=arm64 CROSS_COMPILE="$CROSS" SOURCE_DATE_EPOCH=0
     make mrproper
-    make LDFLAGS="" "$UBOOT_DEFCONFIG" u-boot.dtb u-boot.img tools
+    make LDFLAGS="" "$UBOOT_DEFCONFIG"
+    # Our own changes, kept out of the upstream defconfig so they stay readable
+    # and survive a U-Boot bump as a diff rather than an argument. tr strips CR:
+    # this repository is edited on Windows with core.autocrlf on, and a value of
+    # "0\r" is not 0.
+    tr -d "\r" < /uboot.config > /tmp/uboot.config
+    scripts/kconfig/merge_config.sh -m -O . .config /tmp/uboot.config >/dev/null
+    make LDFLAGS="" olddefconfig
+    grep -q "^CONFIG_BOOTDELAY=0$" .config || {
+      echo "uboot.config did not take effect: BOOTDELAY is not 0" >&2
+      grep "^CONFIG_BOOTDELAY" .config || true
+      exit 1
+    }
+    make LDFLAGS="" u-boot.dtb u-boot.img tools
     make LDFLAGS="" BL31="$BL31" ROCKCHIP_TPL="$DDR_BIN" -j"$(nproc)"
 
     test -s spl/u-boot-spl.bin

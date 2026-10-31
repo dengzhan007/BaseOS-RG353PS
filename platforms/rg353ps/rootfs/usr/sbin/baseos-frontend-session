@@ -470,8 +470,24 @@ export BASEOS_FRONTEND_ROOT BASEOS_DATA_DIR BASEOS_USERDATA_DIR BASEOS_LAUNCHER
 # to anyone looking for where the space went. Name it, and cap it: Mesa's default
 # limit is 1 GB while this rootfs has ~130 MB free, so an unbounded cache on a
 # long-lived card is a slow way to fill the system partition.
-XDG_CACHE_HOME=/var/cache
-mkdir -p "$XDG_CACHE_HOME" 2>/dev/null || :
+#
+# The cache has to outlive the boot, and the root filesystem is mounted
+# read-only, so it cannot live there: a read-only /.cache is not merely stale,
+# Mesa cannot add to it, and every new shader would be compiled from scratch on
+# every boot. /var is a tmpfs for the same reason the root is read-only, so that
+# is not a home for it either. The user volume is the one place on this device
+# that is writable and persistent, and exFAT was checked on the device before
+# the path was moved there: the cache is written, read back, and rebuilt after a
+# part file is deleted.
+#
+# The fallback is a tmpfs: a unit whose user volume did not mount still gets a
+# frontend, it just compiles its shaders every time.
+MESA_CACHE_DIR=/mnt/SDCARD/.baseos/cache
+if ! mkdir -p "$MESA_CACHE_DIR" 2>/dev/null; then
+  MESA_CACHE_DIR=/var/cache
+  mkdir -p "$MESA_CACHE_DIR" 2>/dev/null || :
+fi
+XDG_CACHE_HOME=$MESA_CACHE_DIR
 export XDG_CACHE_HOME
 export MESA_SHADER_CACHE_MAX_SIZE=32M
 mkdir -p "$BASEOS_DATA_DIR" "$BASEOS_USERDATA_DIR" 2>/dev/null || :

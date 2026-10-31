@@ -27,18 +27,25 @@
 # nothing here can block the boot.
 
 LOG=/run/baseos-audio.log
-# Deliberately not /var/lib/alsa/asound.state. On this unit that one path is
-# dead: every alsactl store there fails with
+# Where the mixer state lives. The root filesystem is mounted read-only, so a
+# path under /var would be lost on the next boot; the state has to be on the
+# user volume instead. The name on the volume is deliberately not
+# "asound.state": the directory entry for that one is damaged on cards that
+# have taken hard power-offs, and deleting and recreating it does not clear
+# it. This path is ours alone, so it takes a name whose entry is healthy
+# instead of fighting a damaged one.
 #
-#     state_lock:168: file /var/lib/alsa/asound.state lock error:
-#     No such file or directory
-#
-# while /var/lib/alsa/x.state, /var/lib/alsa/asound.state2 and
-# /var/lib/alsa2/asound.state all succeed - the directory entry itself is
-# damaged (the rootfs is a writable ext4 that has taken hard power-offs), and
-# deleting and recreating the file does not clear it. The state blob is ours
-# alone, so it takes a name whose entry is healthy instead of fighting it.
-STATE=/var/lib/alsa/baseos-alsa-state
+# The blob is only used to carry the user's own mixer settings across a boot.
+# If the volume is not there - a card that failed to mount, a unit that has
+# never been initialized - the mixer still works, it just starts from the
+# defaults below.
+STATE_DIR=/mnt/SDCARD/.baseos/state
+# A unit whose user volume did not mount has nowhere persistent to write, but
+# /var is a tmpfs and is writable. The mixer settings are then lost across the
+# reboot, which is a much smaller failure than a script that cannot run at all.
+mkdir -p "$STATE_DIR" 2>/dev/null || STATE_DIR=/var/lib/alsa
+mkdir -p "$STATE_DIR" 2>/dev/null || :
+STATE=$STATE_DIR/baseos-alsa-state
 SOFTVOL_CTL='BaseOS Master'
 # 0% maps here. -48 dB is inaudible on this speaker while still leaving the
 # whole 0..100 range useful instead of squeezing it into the top 5%.
@@ -65,7 +72,6 @@ find_card() {
     return 1
 }
 
-mkdir -p /var/lib/alsa 2>/dev/null || :
 : >>"$LOG" 2>/dev/null || :
 
 CARD=
@@ -207,7 +213,7 @@ pin_hardware
 # That distinction is not cosmetic: writing 99 and then restoring it as "99%"
 # lands on 98, so a unit would lose one step of volume on every boot. cset
 # writes the value through untouched.
-VOLUME_FILE=/var/lib/alsa/baseos-volume
+VOLUME_FILE=$STATE_DIR/baseos-volume
 # A frontend that runs its own volume bar (Slot, and anything else that answers
 # the volume keys itself) does not use this control as a fader - it uses it as a
 # fixed gain stage and draws its own percentage. When one owns the keys, the
@@ -253,7 +259,7 @@ fi
 # layer: start at 100% so "volume all the way up" really is full scale. The
 # marker is what decides this, not the current value - a user who left the
 # volume at 0 must not be turned back up by the next boot.
-VOLUME_MARKER=/var/lib/alsa/baseos-volume-model
+VOLUME_MARKER=$STATE_DIR/baseos-volume-model
 if ! softvol_present; then
     say "softvol control still missing; volume keys will fall back to hardware"
 elif [ ! -e "$VOLUME_MARKER" ]; then
@@ -283,13 +289,15 @@ WANT_LEVEL=$(amixer -c "$CARD" cget name="$SOFTVOL_CTL" 2>/dev/null |
 #    that lock with O_CREAT only when the *state file already exists*. On a
 #    first boot it therefore fails before writing anything:
 #
-#        alsactl: state_lock:168: file /var/lib/alsa/asound.state lock error:
+#        alsactl: state_lock:168: file .../asound.state lock error:
 #        No such file or directory
 #
 #    which is exactly the line the unit reported, and which quietly cost every
 #    boot its persisted hardware gains. An empty file is enough for the lock to
 #    have something to open; store overwrites it with real content straight
-#    after.
+#    after. The lock file itself is never removed, so it has to live on a
+#    filesystem that supports fcntl locks - the user volume's exFAT does, and
+#    that was checked on the device before the path was moved there.
 (
     if [ -s "$STATE" ] && alsactl -f "$STATE" restore >/dev/null 2>&1; then
         say "restored $STATE (deferred)"

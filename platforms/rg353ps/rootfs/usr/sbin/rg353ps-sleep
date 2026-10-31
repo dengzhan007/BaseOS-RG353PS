@@ -17,7 +17,13 @@
 # Exit codes: 0 slept, 1 refused, 2 usage, 3 suspend failed
 set -u
 
-LOG=/var/log/rg353ps-sleep.log
+# The sleep log is diagnostic evidence: what a unit did before it went to
+# sleep is only useful if it survives the wake-up. /var is a tmpfs on this
+# image (the root filesystem is read-only, so the boot is fast), so the log
+# goes on the user volume. /var/log stays as the fallback for a unit whose
+# user volume did not mount.
+LOG=/mnt/SDCARD/.baseos/state/rg353ps-sleep.log
+mkdir -p /mnt/SDCARD/.baseos/state 2>/dev/null || LOG=/var/log/rg353ps-sleep.log
 LOCK=/run/rg353ps-sleep.lock
 WIFI_CYCLE=/usr/sbin/rg353ps-wifi-cycle
 WIFI_CTL=/usr/sbin/rg353ps-wifi-connect

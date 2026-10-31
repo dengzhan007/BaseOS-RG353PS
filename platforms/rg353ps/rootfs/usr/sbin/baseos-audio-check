@@ -80,7 +80,7 @@ card_for() {
             grep -E "name='(Playback Volume|DAC Playback Volume)'|dBscale" |
             sed -n '1,6p' || echo "(none)"
         echo "--- saved softvol value ---"
-        cat /var/lib/alsa/baseos-volume 2>/dev/null || echo "(none yet)"
+        cat /mnt/SDCARD/.baseos/state/baseos-volume 2>/dev/null || echo "(none yet)"
     fi
     echo
 

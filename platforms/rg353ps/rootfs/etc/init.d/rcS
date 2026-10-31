@@ -11,6 +11,33 @@ mount -t devpts devpts /dev/pts 2>/dev/null || :
 mount -t tmpfs -o mode=0755 tmpfs /run 2>/dev/null || :
 mount -t tmpfs -o mode=1777 tmpfs /tmp 2>/dev/null || :
 
+# The card is the root filesystem and the kernel mounts it read-only (`ro` on
+# the command line). That is not tidiness. ext4 replays its journal whenever the
+# previous boot did not unmount, and this unit never unmounts: BusyBox's reboot
+# calls reboot(2) directly, so the "::shutdown:/bin/umount -a -r" line never
+# runs, and `mount -o remount,ro /` fails with EBUSY on the live system. The
+# replay is not cheap - 1.29 s to 4.10 s in the kernel log, 2.8 s of a 4.2 s
+# userspace handoff - because JBD2 walks the whole journal in single 4 KiB
+# reads. A filesystem that is only ever mounted ro is never dirty, so there is
+# nothing to replay, and cutting the power (the normal way this unit is turned
+# off) cannot corrupt it either. What a boot does need to write lives in RAM.
+#
+# /var is where a Linux system keeps state; on this image all of it is either
+# per-boot or already persisted on the user volume.
+mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /var 2>/dev/null || :
+mkdir -p /var/log /var/lib/misc /var/cache /var/empty /var/tmp \
+  2>/dev/null || :
+ln -sfn /run /var/run 2>/dev/null || :
+# dropbear authorizes against /root/.ssh/authorized_keys, which baseos-usb-debug
+# fills from /etc/dropbear/authorized_keys or from the user volume below. The
+# home directory holds nothing that has to outlive a boot.
+mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs /root 2>/dev/null || :
+mkdir -p /root/.ssh 2>/dev/null || :
+# wpa_supplicant writes its networks back with update_config=1 and rewrites the
+# file by rename, so a file symlink would not survive it. The directory is RAM,
+# and rg353ps-wifi-connect keeps the durable copy on the user volume.
+mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /etc/wpa_supplicant 2>/dev/null || :
+
 # Boot-stage marks, defined here because /run only becomes writable at the line
 # above -- earlier, the helper would either have nowhere to write or would write
 # to the card. Each mark is a line in /run/boot-marks, read back by

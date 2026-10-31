@@ -134,19 +134,30 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
     mcopy -o -i "$BOOTFS" /work/rootfs/etc/baseos.conf ::/baseos.conf
     # Install the replaceable keyboard-free diagnostic task on the FAT boot partition.
 
+    # `ro`, not `rw`. Nothing on this image writes to the root filesystem: the
+    # slots are written as raw regions by the updater, state lives on BASEOS and
+    # everything else a boot writes goes to tmpfs (see the top of rcS). Mounting
+    # it read-only is what removes ext4's journal replay from every boot - the
+    # journal is only dirty because the previous boot never unmounted, and the
+    # replay alone measured 2.8 s of a 4.2 s kernel-side handoff. It also means a
+    # yanked card or a dead battery cannot corrupt it.
     cat > /tmp/extlinux.conf <<EOF
 LABEL BaseOS-RG353PS
   MENU LABEL BaseOS RG353PS experimental bring-up
   LINUX /Image
   FDT /device_trees/rk3566-anbernic-rg353ps.dtb
-  APPEND root=PARTUUID=$ROOT_PARTUUID rootfstype=ext4 rootwait rw console=ttyS2,1500000n8 quiet loglevel=3 vt.global_cursor_default=0 init=/sbin/init
+  APPEND root=PARTUUID=$ROOT_PARTUUID rootfstype=ext4 rootwait ro console=ttyS2,1500000n8 quiet loglevel=3 vt.global_cursor_default=0 init=/sbin/init
 EOF
     mcopy -i "$BOOTFS" /tmp/extlinux.conf ::/extlinux/extlinux.conf
 
     # Create ext4 directly from the staged root directory; partition 2 has a
     # fixed size so the remaining partition can be used for persistent userdata.
+    # The journal is capped at 4 MiB. It is never replayed on a normal boot now
+    # that the kernel mounts this read-only, but JBD2 walks the entire journal in
+    # single 4 KiB reads when it does replay, so the size is what a dirty mount
+    # would cost: 16 MiB of default journal was 2.8 s.
     truncate -s "$ROOT_BYTES" "$ROOTFS_IMG"
-    mkfs.ext4 -F -L BASEOS_ROOT -d /work/rootfs "$ROOTFS_IMG"
+    mkfs.ext4 -F -L BASEOS_ROOT -J size=4 -d /work/rootfs "$ROOTFS_IMG"
 
     # The combined bootloader is a raw region, never a full disk image. Place it
     # at LBA 64, then write filesystems into their GPT partition extents.

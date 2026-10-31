@@ -2297,6 +2297,81 @@ if callback_marker not in func:
     fsg_source.write_text(text)
 
 print("Applied RG353PS v31: trace FSG OUT queue generations, completion status and request age without changing request lifecycle")
+
+# The bring-up instrument above is a dev_info family: it was written to be read
+# on a live unit and never turned off. With the debug cable attached the gadget
+# side emits three to five lines per USB packet, so the 1 MB ring buffer is full
+# of "RG353PS EP2 REQMAP" within seconds and every kernel message the boot work
+# needs to read has been pushed out of it. dmesg taken at the top of rcS was 635
+# lines of it and nothing else.
+#
+# They stay in the source, one dynamic-debug switch away, and cost nothing when
+# off - CONFIG_DYNAMIC_DEBUG and CONFIG_JUMP_LABEL are both on, so a disabled
+# dev_dbg is a nop jump:
+#
+#   mount -t debugfs none /sys/kernel/debug
+#   echo "file gadget.c +p" > /sys/kernel/debug/dynamic_debug/control
+#   echo "file ep0.c +p" > /sys/kernel/debug/dynamic_debug/control
+#
+# The mass-storage traces stay at info: they only run during a USB storage
+# session the owner asked for with the Function key, never during a boot.
+DIAG_FILES = [
+    "$SRC/drivers/usb/dwc3/gadget.c",
+    "$SRC/drivers/usb/dwc3/ep0.c",
+    "$SRC/drivers/phy/rockchip/phy-rockchip-inno-usb2.c",
+    "$SRC/drivers/usb/gadget/function/f_mass_storage.c",
+]
+QUOTE = chr(34)
+# The format strings are the anchor: every diagnostic starts with RG353PS. The
+# call is found by walking back over its argument list to the opening
+# parenthesis, because the device argument can be a cast with parentheses of its
+# own. Idempotent, so a cached source tree is not rewritten twice.
+def rg353ps_debug_only(path):
+    text = Path(path).read_text()
+    marker = QUOTE + "RG353PS"
+    pieces = []
+    changed = 0
+    i = 0
+    while True:
+        hit = text.find(marker, i)
+        if hit < 0:
+            pieces.append(text[i:])
+            break
+        k = hit
+        depth = 0
+        while k > i:
+            k -= 1
+            ch = text[k]
+            if ch == ")":
+                depth += 1
+            elif ch == "(":
+                if depth == 0:
+                    break
+                depth -= 1
+        name_end = k
+        name_start = k
+        while name_start > 0 and (text[name_start - 1].isalnum() or text[name_start - 1] == "_"):
+            name_start -= 1
+        name = text[name_start:name_end]
+        pieces.append(text[i:name_start])
+        if name == "dev_info":
+            pieces.append("dev_dbg")
+            changed += 1
+        elif name == "pr_info":
+            pieces.append("pr_debug")
+            changed += 1
+        else:
+            pieces.append(name)
+        pieces.append(text[name_end:hit + 1])
+        i = hit + 1
+    new_text = "".join(pieces)
+    if new_text != text:
+        Path(path).write_text(new_text)
+    return changed
+
+for diag_path in DIAG_FILES:
+    gated = rg353ps_debug_only(diag_path)
+    print("RG353PS diagnostics behind dynamic debug: " + str(gated) + " call(s) in " + diag_path)
 PYCODE
 
     cd "$SRC"

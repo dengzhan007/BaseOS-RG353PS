@@ -170,6 +170,17 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     for boot_tool in usr/sbin/baseos-boot-mark usr/sbin/baseos-boot-report usr/sbin/boot-clock usr/sbin/baseos-prefetch-gl; do
       test -x "$R/$boot_tool" || { echo "boot timing tool is missing: $boot_tool" >&2; exit 1; }
     done
+    # The root filesystem is mounted read-only and stays that way, so anything a
+    # boot writes has to be RAM or a link into it. These links are what makes
+    # that true for mount state, DNS and the ALSA softvol definition; if one of
+    # them silently disappears the write fails with EROFS and the failure is
+    # easy to miss - no sound, or no DNS, with a clean boot log.
+    for writable in etc/mtab etc/resolv.conf etc/asound.conf; do
+      test -L "$R/$writable" || {
+        echo "$writable must be a symlink into RAM for the read-only root" >&2
+        exit 1
+      }
+    done
     test -x "$R/usr/bin/sgdisk" || test -x "$R/usr/sbin/sgdisk" || { echo "sgdisk is missing" >&2; exit 1; }
     test -x "$R/usr/bin/partx" || test -x "$R/usr/sbin/partx" || { echo "partx is missing" >&2; exit 1; }
     test -x "$R/usr/bin/blkid" || test -x "$R/usr/sbin/blkid" || { echo "blkid is missing" >&2; exit 1; }
@@ -259,13 +270,19 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     # CHANGED". Git cannot carry mode 0600, so set it here; dropbear refuses a
     # group/world-readable host key.
     chmod 0600 "$R/etc/dropbear/dropbear_ed25519_host_key"
-    mkdir -p "$R/mnt/SDCARD" "$R/run" "$R/root" "$R/var/empty"
+    mkdir -p "$R/mnt/SDCARD" "$R/run" "$R/root" "$R/var/empty" "$R/etc/wpa_supplicant"
     ln -sfn /mnt/SDCARD "$R/mnt/sdcard"
     printf "root:x:0:0:root:/root:/bin/sh\n" > "$R/etc/passwd"
     printf "root:x:0:\n" > "$R/etc/group"
     printf "root:*:19000:0:99999:7:::\n" > "$R/etc/shadow"
     ln -sfn /proc/mounts "$R/etc/mtab"
     ln -sfn /run/resolv.conf "$R/etc/resolv.conf"
+    # baseos-audio-init writes the softvol definition at boot, and the root
+    # filesystem is mounted read-only. /run is tmpfs, so the write lands there
+    # through this link; ALSA reads /etc/asound.conf exactly as before. A
+    # dangling link is harmless: alsa-lib treats ENOENT as "no config", which is
+    # the state the image shipped in anyway.
+    ln -sfn /run/asound.conf "$R/etc/asound.conf"
     printf "BaseOS RG353PS rootfs\n" > "$R/etc/motd"
     printf "%s\n" "$KREL" > "$R/etc/baseos-kernel-release"
 

@@ -71,10 +71,40 @@ wait_udc() {
     return 1
 }
 
-# "Is a PC on the other end?" - same two signals the storage helper settled on:
-# the PHY's SDP/CDP cable bits, and a UDC state above "not attached". "attached"
-# alone is reported as soon as a gadget is bound, with or without a cable, so it
-# is deliberately not part of this.
+udc_state() { cat "/sys/class/udc/$UDC/state" 2>/dev/null || :; }
+
+# The charger is a second, completely independent VBUS witness: it sits on the
+# PMIC and is told about 5 V by its own IRQ, without the USB2PHY being involved.
+# That matters here because the PHY's SDP/CDP bits are exactly what stopped
+# reporting in the field log - if the only witness is the thing that is asleep,
+# a plugged cable looks like no cable at all.
+vbus_state() {
+    for ps in /sys/class/power_supply/*; do
+        [ -r "$ps/status" ] || continue
+        case "$(cat "$ps/status" 2>/dev/null)" in
+            Charging|Full) printf 'charging'; return 0 ;;
+        esac
+    done
+    printf 'idle'
+}
+
+vbus_present() { [ "$(vbus_state)" = charging ]; }
+
+extcon_summary() {
+    out=
+    for e in /sys/class/extcon/*; do
+        [ -r "$e/name" ] || continue
+        name=$(cat "$e/name" 2>/dev/null)
+        case "$name" in *usb2phy*) ;; *) continue ;; esac
+        out="$out${out:+,}$name=$(cat "$e/state" 2>/dev/null)"
+    done
+    printf '%s' "${out:-none}"
+}
+
+# "Is a PC on the other end?" - three signals, any one of which counts: the
+# PHY's SDP/CDP cable bits, the PMIC seeing charge current, and a UDC state
+# above "not attached". "attached" alone is reported as soon as a gadget is
+# bound, with or without a cable, so it is deliberately not part of this.
 cable_present() {
     for cable in /sys/devices/platform/"$UDC"/supplier:platform:*usb2phy/extcon/*/cable.*; do
         [ -r "$cable/name" ] && [ -r "$cable/state" ] || continue
@@ -90,13 +120,40 @@ cable_present() {
             return 0
         fi
     done
+    vbus_present && return 0
     case "$(udc_state)" in
         powered|configured) return 0 ;;
     esac
     return 1
 }
 
-udc_state() { cat "/sys/class/udc/$UDC/state" 2>/dev/null || :; }
+# Everything a remote reader needs to tell "the PHY never saw the cable" from
+# "the PHY saw it and dwc3 still would not attach", written to the card because
+# the whole point of this channel is that there is no shell yet.
+probe_dump() {
+    [ -d /mnt/SDCARD ] || return 0
+    out=/mnt/SDCARD/rg353ps-usb-probe.txt
+    {
+        printf '== %s  %s\n' "$1" "$(date '+%F %T' 2>/dev/null)"
+        printf 'udc=%s state=%s\n' "${UDC:-none}" "$(udc_state)"
+        printf 'gadget UDC=%s driver=%s\n' \
+            "$(cat "$G/UDC" 2>/dev/null)" \
+            "$(readlink "/sys/bus/platform/devices/${UDC:-none}/driver" 2>/dev/null)"
+        for e in /sys/class/extcon/*; do
+            [ -r "$e/name" ] || continue
+            printf 'extcon %s: %s\n' "$(cat "$e/name" 2>/dev/null)" "$(cat "$e/state" 2>/dev/null)"
+        done
+        for ps in /sys/class/power_supply/*; do
+            [ -r "$ps/status" ] || continue
+            printf 'power %s: status=%s online=%s\n' "${ps##*/}" \
+                "$(cat "$ps/status" 2>/dev/null)" "$(cat "$ps/online" 2>/dev/null)"
+        done
+        printf -- '-- dmesg --\n'
+        dmesg 2>/dev/null | grep -iE 'dwc3|usb2phy|xhci|gadget|rndis|ep0' | tail -20
+    } >>"$out" 2>/dev/null || :
+    tail -n 240 "$out" >"$out.new" 2>/dev/null && mv "$out.new" "$out" 2>/dev/null || :
+    sync 2>/dev/null || :
+}
 
 # Hold the controller and its PHYs out of autosuspend for the life of the
 # channel. The storage helper does this because a suspended PHY never reports
@@ -111,77 +168,158 @@ disable_usb_runtime_pm() {
 }
 
 # A gadget bound before the cable arrives can leave the PHY's cable bit
-# unasserted even after the controller attaches, and then no enumeration ever
-# starts: the host shows nothing at all. Storage mode sidesteps this by being
-# entered with the cable already plugging; this channel cannot ask for that, so
-# the two escalating actions from the storage ladder are used here instead,
-# triggered by a cable transition rather than a timeout.
+# unasserted, and then no enumeration ever starts: the host shows nothing at
+# all. Storage mode sidesteps this by being entered with the cable already
+# plugged; this channel cannot ask for that, so it escalates instead - and the
+# escalation has to run on a clock, not on a cable edge, because the field log
+# showed a plugged cable producing no edge at all.
 pulse_soft_connect() {
-    [ -w "$G/soft_connect" ] || return 1
-    say "enumeration recovery: soft_connect pulse"
-    printf 'disconnect' >"$G/soft_connect" 2>/dev/null || :
-    sleep 0.3
-    printf 'connect' >"$G/soft_connect" 2>/dev/null || :
+    soft=/sys/class/udc/$UDC/soft_connect
+    [ -w "$soft" ] || soft=$G/soft_connect
+    [ -w "$soft" ] || { say "recovery: no writable soft_connect"; return 1; }
+    say "recovery: soft_connect pulse via $soft"
+    printf 'disconnect' >"$soft" 2>/dev/null || :
     sleep 0.5
-    say "enumeration recovery: pulse done state=$(udc_state)"
+    printf 'connect' >"$soft" 2>/dev/null || :
+    sleep 1
+    say "recovery: pulse done state=$(udc_state)"
 }
 
 rebind_gadget() {
-    say "enumeration recovery: unbinding and rebinding $UDC"
+    say "recovery: unbinding and rebinding $UDC"
     printf '\n' >"$G/UDC" 2>/dev/null || :
     sleep 0.5
     if printf '%s' "$UDC" >"$G/UDC" 2>/dev/null; then
         sleep 1
-        say "enumeration recovery: rebind done state=$(udc_state)"
+        say "recovery: rebind done state=$(udc_state)"
         configure_iface || :
         start_dhcp "$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)"
     else
-        say "enumeration recovery: rebind failed"
+        say "recovery: rebind failed"
     fi
 }
 
-# One watcher for the whole session: report every cable transition and make a
-# late plug actually enumerate. Runs at two-second intervals, which is far
-# cheaper than a poll loop per second and still feels immediate to a person
-# reaching for the cable.
+# The heavy one, lifted from baseos-usb-storage where it is the step that
+# actually recovers this port: unbind the controller from its platform driver
+# and let it probe again. That rebuilds dwc3 and usb2phy from scratch and is the
+# closest thing to the state the unit is in right after boot - with VBUS already
+# present - which is the only state mass storage has never failed in.
+#
+# This is also the only action that does not need the cable edge: re-probing
+# while the cable is already in is exactly how storage mode succeeds.
+reprobe_udc_driver() {
+    drv=$(readlink "/sys/bus/platform/devices/$UDC/driver" 2>/dev/null) || {
+        say "recovery: no platform driver on $UDC; cannot re-probe"
+        return 1
+    }
+    drv=${drv##*/}
+    say "recovery: re-probing $UDC on $drv (cable=$(cable_present && echo yes || echo no) vbus=$(vbus_state))"
+    # The gadget must come off first: a UDC device that vanishes under a bound
+    # gadget leaves the gadget unbound for the rest of the session.
+    printf '\n' >"$G/UDC" 2>/dev/null || :
+    sleep 1
+    if ! printf '%s' "$UDC" >"/sys/bus/platform/drivers/$drv/unbind" 2>/dev/null; then
+        say "recovery: unbind from $drv failed"
+        return 1
+    fi
+    sleep 1
+    if ! printf '%s' "$UDC" >"/sys/bus/platform/drivers/$drv/bind" 2>/dev/null; then
+        say "recovery: bind to $drv failed"
+        return 1
+    fi
+    sleep 2
+    if ! printf '%s' "$UDC" >"$G/UDC" 2>/dev/null; then
+        sleep 2
+        printf '%s' "$UDC" >"$G/UDC" 2>/dev/null || { say "recovery: gadget rebind failed"; return 1; }
+    fi
+    # The fresh platform device comes back with power/control=auto, so the PHY
+    # would be free to idle again the moment it is probed.
+    disable_usb_runtime_pm
+    configure_iface || :
+    start_dhcp "$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)"
+    sleep 1
+    say "recovery: re-probe done state=$(udc_state) cable=$(cable_present && echo yes || echo no)"
+    return 0
+}
+
+# One supervisor for the whole session. It runs at two-second intervals and its
+# job is to get the host to see the device at all.
+#
+# The first field log ended with "cable status at start: absent" and nothing
+# after it, with a cable the owner had just plugged in: neither the PHY's
+# SDP/CDP bits nor the UDC state ever moved. Waiting for a cable edge on this
+# part is therefore not a plan. Every N ticks that find the UDC not configured
+# the supervisor takes one step up the ladder on its own - a re-probe of dwc3
+# with whatever VBUS is present right now, which is precisely the situation
+# mass storage boots into and never fails in.
+#
+# Steps, cheapest first and only where safe:
+#   re-probe  fresh dwc3 + usb2phy probe under the current cable state. Safe
+#             with no cable: it lands in the same state as a cold boot.
+#   pulse     soft_connect disconnect/connect. Only with a cable present: doing
+#             it while unattached has left EP0 disabled on this part before.
+#   rebind    gadget off/on, for an EP0 that failed to enable.
 WATCH_PID=/run/baseos-usb-debug.watch.pid
 watch_cable() {
-    pulses=0
-    rebinds=0
+    tick=0
+    last_state=x
     last_present=no
-    last_state=
+    attempt=0
+    next_tick=2
+    say "supervisor: started pid=$$ (state=$(udc_state) cable=$(cable_present && echo yes || echo no) vbus=$(vbus_state))"
+    probe_dump "boot"
     while :; do
         sleep 2
-        [ -e "$G/UDC" ] || { say "watch: gadget gone; watcher exits"; exit 0; }
+        tick=$((tick + 1))
+        [ -e "$G/UDC" ] || { say "supervisor: gadget gone; exiting"; exit 0; }
+        state=$(udc_state)
         present=no
         cable_present && present=yes
-        state=$(udc_state)
+        # The first few ticks prove the loop is alive; after that only changes
+        # are worth a line, otherwise the card copy is all heartbeat and the
+        # event that matters scrolls out of the 120-line tail.
+        if [ "$tick" -le 3 ] || [ "$state" != "$last_state" ] || [ "$present" != "$last_present" ]; then
+            say "supervisor: tick=$tick state=$state cable=$present vbus=$(vbus_state) extcon=$(extcon_summary)"
+        fi
         if [ "$present" != "$last_present" ]; then
             if [ "$present" = yes ]; then
-                say "watch: cable inserted (state=$state)"
-                pulses=0
-                rebinds=0
+                say "supervisor: cable inserted (state=$state)"
+                # A real edge is the one case worth acting on immediately.
+                next_tick=$tick
+                attempt=0
             else
-                say "watch: cable removed (state=$state)"
+                say "supervisor: cable removed (state=$state)"
             fi
             last_present=$present
+            probe_dump "cable $present"
             persist_log
         fi
-        if [ "$state" != "$last_state" ]; then
-            say "watch: udc state $state"
-            last_state=$state
-            [ "$state" = configured ] && persist_log
-        fi
-        # Cable in, controller not configured a few seconds later: escalate. Two
-        # rounds are enough on this hardware; after that the host is the problem
-        # and the log says so instead of looping forever.
-        if [ "$present" = yes ] && [ "$state" != configured ]; then
-            if [ "$pulses" -lt 2 ]; then
-                pulses=$((pulses + 1))
-                pulse_soft_connect
-            elif [ "$rebinds" -lt 2 ]; then
-                rebinds=$((rebinds + 1))
-                rebind_gadget
+        last_state=$state
+        [ "$state" = configured ] && { persist_log; continue; }
+
+        if [ "$tick" -ge "$next_tick" ]; then
+            attempt=$((attempt + 1))
+            if [ "$present" = yes ] && [ "$attempt" -lt 3 ]; then
+                case "$attempt" in
+                    1) pulse_soft_connect ;;
+                    2) rebind_gadget ;;
+                esac
+            else
+                reprobe_udc_driver || probe_dump "re-probe failed"
+            fi
+            say "supervisor: attempt $attempt done state=$(udc_state) cable=$(cable_present && echo yes || echo no)"
+            probe_dump "attempt $attempt"
+            persist_log
+            # Tight for the first two minutes so a person plugging in just
+            # after boot is not kept waiting, then once a minute for an hour.
+            if [ "$attempt" -le 12 ]; then
+                next_tick=$((tick + 5))
+            elif [ "$attempt" -le 72 ]; then
+                next_tick=$((tick + 30))
+            else
+                say "supervisor: giving up after $attempt attempts; state=$(udc_state)"
+                persist_log
+                exit 0
             fi
         fi
     done
@@ -191,15 +329,30 @@ start_watch() {
     if [ -f "$WATCH_PID" ] && kill -0 "$(cat "$WATCH_PID" 2>/dev/null)" 2>/dev/null; then
         return 0
     fi
-    ( watch_cable ) >/dev/null 2>&1 &
-    printf '%s\n' "$!" >"$WATCH_PID" 2>/dev/null || :
+    # setsid when present: rcS exits right after this, and a supervisor that
+    # dies with its parent would leave the channel deaf for the whole session -
+    # which is one of the two readings of the first field log, where a cable
+    # arrived and no transition was ever recorded. It writes its own pid into
+    # $WATCH_PID once running, because setsid may fork.
+    if command -v setsid >/dev/null 2>&1; then
+        setsid "$0" __supervise >/dev/null 2>&1 &
+    else
+        ( watch_cable ) >/dev/null 2>&1 &
+    fi
 }
 
 stop_watch() {
     if [ -f "$WATCH_PID" ]; then
-        kill "$(cat "$WATCH_PID" 2>/dev/null)" 2>/dev/null || :
+        pid=$(cat "$WATCH_PID" 2>/dev/null)
+        [ -n "$pid" ] && kill "$pid" 2>/dev/null || :
+        # Let it notice before the UDC is taken away, otherwise it may re-probe
+        # dwc3 in the middle of storage mode taking the controller.
+        sleep 1
         rm -f "$WATCH_PID" 2>/dev/null || :
     fi
+    # Belt and braces: a supervisor whose pidfile was never written (setsid
+    # forked and stop ran inside the same few milliseconds) still has to go.
+    pkill -f 'baseos-usb-debug __supervise' 2>/dev/null || :
 }
 
 # The channel exists to be inspected before a shell does, so its log has to be
@@ -289,19 +442,35 @@ start_dhcp() {
     pidof udhcpd >/dev/null 2>&1 && return 0
     # busybox on Alpine ships no udhcpd applet, so dnsmasq is the one that is
     # actually present. port=0 keeps it from answering DNS; only DHCP is wanted.
+    # Every failure is logged with the daemon's own words: the first field log
+    # said only "dnsmasq failed to start", which is not something anyone can act
+    # on, and the host-then-needs-a-static-address note was all it left behind.
     if command -v dnsmasq >/dev/null 2>&1; then
-        if dnsmasq --conf-file=/dev/null --port=0 --no-resolv --log-queries=no \
-             --bind-interfaces \
-             --interface="$iface" \
-             --dhcp-range="$DHCP_FIRST,$DHCP_LAST,12h" \
-             --dhcp-option=3,"$ADDR" \
-             --dhcp-authoritative \
-             --pid-file=/run/baseos-dnsmasq.pid \
-             --log-facility=/run/baseos-dnsmasq.log >/dev/null 2>&1; then
+        err=/run/baseos-dnsmasq.err
+        dnsmasq_run() {
+            dnsmasq --conf-file=/dev/null --port=0 --no-resolv --log-queries=no \
+                --bind-interfaces \
+                --interface="$iface" \
+                --dhcp-range="$DHCP_FIRST,$DHCP_LAST,12h" \
+                --dhcp-option=3,"$ADDR" \
+                --dhcp-authoritative \
+                --pid-file=/run/baseos-dnsmasq.pid \
+                --log-facility=/run/baseos-dnsmasq.log "$@" 2>"$err"
+        }
+        if dnsmasq_run >/dev/null; then
             say "dhcp: $DHCP_FIRST-$DHCP_LAST on $iface (dnsmasq)"
             return 0
         fi
-        say "dnsmasq failed to start; the host will need a static address"
+        say "dnsmasq failed: $(head -n 3 "$err" 2>/dev/null | tr '\n' ';')"
+        # dnsmasq drops to "nobody" unless told otherwise; a rootfs assembled
+        # with --no-scripts may not have that account. Retrying as root is ugly
+        # but this is a single-purpose debug link on a handheld.
+        if dnsmasq_run --user=root --group=root >/dev/null; then
+            say "dhcp: $DHCP_FIRST-$DHCP_LAST on $iface (dnsmasq, user=root)"
+            return 0
+        fi
+        say "dnsmasq failed as root too: $(head -n 3 "$err" 2>/dev/null | tr '\n' ';')"
+        say "set 192.168.42.2/24 on the host by hand; the link still works"
         return 0
     fi
     command -v udhcpd >/dev/null 2>&1 || { say "no dhcp server; set 192.168.42.2/24 on the host"; return 0; }
@@ -383,9 +552,11 @@ do_start() {
     iface=$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)
     start_dhcp "$iface"
     start_sshd
-    # Cable may already be in, and may arrive later; either way the watcher owns
-    # the transitions from here.
-    say "cable status at start: $(cable_present && echo present || echo absent)"
+    # Cable may already be in, and may arrive later; either way the supervisor
+    # owns everything from here - including the case where plugging it in
+    # produces no event at all, which is what the field log showed.
+    say "cable status at start: $(cable_present && echo present || echo absent) vbus=$(vbus_state) state=$(udc_state)"
+    probe_dump "after start"
     start_watch
     persist_log
 }
@@ -409,6 +580,8 @@ do_status() {
     printf 'udc bound: %s\n' "$(cat "$G/UDC" 2>/dev/null || echo none)"
     printf 'udc state: %s\n' "$(udc_state)"
     printf 'cable:     %s\n' "$(cable_present && echo present || echo absent)"
+    printf 'vbus:      %s\n' "$(vbus_state)"
+    printf 'extcon:    %s\n' "$(extcon_summary)"
     printf 'interface: %s\n' "$iface"
     [ "$iface" != none ] && ip -4 addr show "$iface" 2>/dev/null | sed -n 's/^ *inet /address:   /p'
     printf 'dropbear:  %s\n' "$(pidof dropbear >/dev/null 2>&1 && echo running || echo stopped)"
@@ -423,5 +596,13 @@ case "${1:-status}" in
     stop)    do_stop ;;
     restart) do_stop; sleep 1; do_start ;;
     status)  do_status ;;
+    # Internal entry point for the detached supervisor: it re-resolves the UDC
+    # itself instead of inheriting do_start's variables, so it survives rcS.
+    __supervise)
+        printf '%s\n' "$$" >"$WATCH_PID" 2>/dev/null || :
+        UDC=$(find_udc) || :
+        [ -n "$UDC" ] || { say "supervisor: no UDC; exiting"; exit 1; }
+        watch_cable
+        ;;
     *) echo "usage: $0 start|stop|restart|status" >&2; exit 2 ;;
 esac

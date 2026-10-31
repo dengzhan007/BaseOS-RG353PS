@@ -130,6 +130,51 @@ ensure_bootlogo() {
   return 0
 }
 
+# The settings file has to be reachable from a PC, and BASEOS_BOOT - where the
+# image ships one - is deliberately hidden from file browsers. So the visible
+# data volume gets a copy of its own, next to Games/ and Saves/. Every reader
+# checks this copy first (see debug_setting in rcS, baseos-usb-debug,
+# baseos-frontend-session, rg353ps-hotkeyd), which makes it the one that wins.
+#
+# Only the switches an owner might actually flip are written here: a key that is
+# absent falls through to the image copy, so future defaults still reach a card
+# that was seeded by an older build. Seeded once; never overwritten, and deleted
+# by the owner if they want it back.
+ensure_card_config() {
+  [ -d "$USERDATA" ] || return 0
+  [ -s "$USERDATA/baseos.conf" ] && return 0
+  cat > "$USERDATA/baseos.conf" 2>/dev/null <<'EOF'
+# BaseOS RG353PS settings you can change without rebuilding.
+#
+# This file sits next to Games/ on the card and is read before the copy inside
+# the system image, so editing it here overrides the defaults. Keys that are not
+# present here keep their built-in values - frontend selection, in particular,
+# is automatic and needs nothing here.
+#
+# Delete this file and reboot to get it back with the defaults.
+
+# Verbose tracing for the USB-storage session and the boot-key report.
+# Leaves nothing on the card when no.
+debug=no
+
+# Turn the USB port into a network with an SSH server while the unit is NOT in
+# storage mode: the unit becomes 192.168.42.1, the PC gets 192.168.42.100, and
+# dropbear answers on port 22 with key-only root login. Function + plug still
+# enters USB mass storage. On by default; set to no to bind nothing.
+usb_debug=yes
+
+# Uncomment to change the frontend order. The default is shown.
+# frontends_order=nextui,slot,custom,baseos
+EOF
+  if [ -s "$USERDATA/baseos.conf" ]; then
+    sync 2>/dev/null || :
+    log "seeded editable settings at $USERDATA/baseos.conf"
+  else
+    log "could not seed baseos.conf onto the data volume"
+  fi
+  return 0
+}
+
 
 # If already mounted, do not touch the partition table; ensure the first-boot
 # marker is present so the startup gate can distinguish success from failure.
@@ -146,6 +191,7 @@ if is_mounted "$USERDATA"; then
   fi
   log "$USERDATA already mounted"
   ensure_bootlogo
+  ensure_card_config
   exit 0
 fi
 
@@ -353,6 +399,7 @@ fi
 mkdir -p "$USERDATA/.baseos" "$USERDATA/Games" "$USERDATA/BIOS" \
   "$USERDATA/Saves" "$USERDATA/States" "$USERDATA/System" 2>/dev/null || :
 ensure_bootlogo
+ensure_card_config
 if [ ! -e "$MARKER" ]; then
   if printf 'version=1\npartition=%s\nfilesystem=%s\n' "$DATA_DEV" "$FS_TYPE" > "$MARKER"; then
     sync

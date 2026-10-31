@@ -1,5 +1,5 @@
 diff --git a/crates/slot/src/input/evdev.rs b/crates/slot/src/input/evdev.rs
-index 7de3178..45e73d4 100644
+index 7de3178..15a10df 100644
 --- a/crates/slot/src/input/evdev.rs
 +++ b/crates/slot/src/input/evdev.rs
 @@ -14,16 +14,26 @@ pub const ABS_HAT0X: u16 = 0x10;
@@ -52,7 +52,7 @@ index 7de3178..45e73d4 100644
              _ => return Vec::new(),
          };
          let was = self.held(axis);
-@@ -116,17 +136,31 @@ pub fn to_raw(ev: Ev) -> Option<RawEvent> {
+@@ -116,27 +136,44 @@ pub fn to_raw(ev: Ev) -> Option<RawEvent> {
  
  pub fn code_to_btn(code: u16) -> Option<Btn> {
      Some(match code {
@@ -94,21 +94,25 @@ index 7de3178..45e73d4 100644
 +        106 => Btn::Right,   // KEY_RIGHT
          115 => Btn::VolUp,
          114 => Btn::VolDown,
-         116 => Btn::Power,
-@@ -134,9 +168,9 @@ pub fn code_to_btn(code: u16) -> Option<Btn> {
+-        116 => Btn::Power,
++        /* KEY_POWER (116) is deliberately left unmapped. Slot's own power
++           action is a doze that only blanks the panel, while BaseOS suspends
++           the whole unit for the same tap; with both claiming the key one tap
++           blanked the screen and never slept. rg353ps-hotkeyd owns it now. */
+         _ => return None,
      })
  }
  
 -const WANTED: [u16; 15] = [
 -    0x130, 0x131, 0x132, 0x133, 0x134, 0x135, 0x136, 0x137, 0x138, 0x13a, 0x13b, 0x162, 115, 114,
 -    116,
-+const WANTED: [u16; 25] = [
++const WANTED: [u16; 24] = [
 +    0x130, 0x131, 0x133, 0x134, 0x136, 0x137, 0x138, 0x139, 0x13a, 0x13b, 0x13c, 0x13d, 0x13e,
-+    0x220, 0x221, 0x222, 0x223, 103, 108, 105, 106, 115, 114, 116, 0x162,
++    0x220, 0x221, 0x222, 0x223, 103, 108, 105, 106, 115, 114, 0x162,
  ];
  
  pub use slot_power::has_bit;
-@@ -166,8 +200,15 @@ pub fn pick_devices(dev: &Path, sys: &Path) -> Vec<PathBuf> {
+@@ -166,8 +203,15 @@ pub fn pick_devices(dev: &Path, sys: &Path) -> Vec<PathBuf> {
  fn wanted_node(device: &Path) -> bool {
      let cap = |file: &str| std::fs::read_to_string(device.join("capabilities").join(file));
      let keys = cap("key").unwrap_or_default();

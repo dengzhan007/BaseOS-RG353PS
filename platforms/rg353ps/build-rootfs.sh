@@ -219,6 +219,8 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     chmod 0755 "$R/usr/sbin/rg353ps-hotkeyd"
     chmod 0755 "$R/usr/sbin/baseos-update"
     chmod 0755 "$R/usr/sbin/gptslot"
+    chmod 0755 "$R/usr/sbin/baseos-audio-init"
+    chmod 0755 "$R/usr/sbin/baseos-audio-check"
     chmod 0755 "$R/usr/sbin/rg353ps-sleep"
     chmod 0755 "$R/usr/sbin/rg353ps-wifi-connect"
     chmod 0755 "$R/usr/sbin/rg353ps-wifi-cycle"

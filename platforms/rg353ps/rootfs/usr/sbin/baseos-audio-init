@@ -1,0 +1,111 @@
+#!/bin/sh
+# Bring the RG353PS codec up before any frontend starts.
+#
+# The board's only output is a simple-audio-card named rk817_ext: the RK817
+# codec drives HPOL/HPOR, and the internal speakers hang off a separate
+# simple-amplifier ("Speaker Amp") gated by GPIO4_C2. A stock Alpine rootfs
+# never touches either, so the amplifier stays off and the DAC sits at its reset
+# level - a frontend that opens ALSA but never talks to the mixer (Slot does
+# exactly that) comes up silent. NextUI hides the same gap because its audiomon
+# daemon sets the controls itself.
+#
+# Runs once per boot before the frontend. Every step is best effort and nothing
+# here can block the boot.
+
+LOG=/run/baseos-audio.log
+STATE=/var/lib/alsa/asound.state
+MAX_WAIT=15
+
+say() { printf '%s %s\n' "$(date '+%H:%M:%S' 2>/dev/null)" "$*" >>"$LOG" 2>/dev/null || :; }
+
+find_card() {
+    i=0
+    while [ "$i" -lt 8 ]; do
+        id=$(cat "/sys/class/sound/card$i/id" 2>/dev/null || :)
+        case "$id" in
+            *[rR][kK]817*) echo "$i"; return 0 ;;
+        esac
+        i=$((i + 1))
+    done
+    return 1
+}
+
+: >"$LOG" 2>/dev/null || :
+
+CARD=
+n=0
+while [ "$n" -lt "$MAX_WAIT" ]; do
+    CARD=$(find_card) && break
+    sleep 1
+    n=$((n + 1))
+done
+if [ -z "$CARD" ]; then
+    say "no rk817 sound card after ${MAX_WAIT}s; leaving the mixer alone"
+    exit 0
+fi
+say "rk817 codec is card$CARD ($(cat "/sys/class/sound/card$CARD/id" 2>/dev/null))"
+
+# 1. Point ALSA's default at this card. "default" otherwise resolves to card 0,
+#    and on this board HDMI can probe as card 0 with no sink attached, which is
+#    a very quiet way to lose all sound.
+if ! grep -q 'BASEOS audio' /etc/asound.conf 2>/dev/null; then
+    if {
+        echo '# BASEOS audio: the RK817 codec is the only output this unit has.'
+        echo 'pcm.!default {'
+        echo '    type plug'
+        echo "    slave.pcm \"hw:$CARD,0\""
+        echo '}'
+        echo 'ctl.!default {'
+        echo '    type hw'
+        echo "    card $CARD"
+        echo '}'
+    } >/etc/asound.conf 2>/dev/null; then
+        say "wrote /etc/asound.conf -> hw:$CARD,0"
+    else
+        say "could not write /etc/asound.conf"
+    fi
+fi
+
+mixer_names() {
+    amixer -c "$CARD" controls 2>/dev/null |
+        sed -n "s/^numid=[0-9][0-9]*,.*name='\(.*\)'$/\1/p"
+}
+
+mkdir -p /var/lib/alsa 2>/dev/null || :
+
+if [ -s "$STATE" ]; then
+    if alsactl -f "$STATE" restore >/dev/null 2>&1; then
+        say "restored the saved mixer state from $STATE"
+        exit 0
+    fi
+    say "saved mixer state did not restore; falling back to defaults"
+fi
+
+# 2. First boot on this card: raise the DAC, unmute, switch the speaker
+#    amplifier on, then save the result so the user's own volume survives.
+CHANGED=0
+mixer_names | while IFS= read -r name; do
+    case "$name" in
+        *Volume*)
+            if amixer -c "$CARD" cset name="$name" 100% >/dev/null 2>&1; then
+                say "volume '$name' -> 100%"
+            fi
+            ;;
+        *Switch*)
+            case "$name" in
+                *Capture*|*Mic*|*PGA*) continue ;;
+            esac
+            if amixer -c "$CARD" cset name="$name" on >/dev/null 2>&1; then
+                say "switch '$name' -> on"
+            fi
+            ;;
+    esac
+done
+
+if alsactl -f "$STATE" store >/dev/null 2>&1; then
+    say "saved the mixer state to $STATE"
+else
+    say "could not save the mixer state"
+fi
+
+exit 0

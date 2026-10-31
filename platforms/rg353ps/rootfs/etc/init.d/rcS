@@ -191,6 +191,12 @@ if [ "$FIRST_BOOT" -eq 1 ] && [ "$SHOW_STARTUP_STATUS" -eq 1 ]; then
   /usr/bin/baseos-splash --important 100 "STORAGE READY" 2>/dev/null || :
 fi
 
+# Put the RK817 codec into a usable state before a frontend can open ALSA. The
+# rootfs itself never touched the mixer, so the speaker amplifier stayed off and
+# every frontend without its own audio daemon came up silent. Backgrounded: it
+# waits for the card to probe, and nothing after this needs its result.
+[ -x /usr/sbin/baseos-audio-init ] && /usr/sbin/baseos-audio-init >/dev/null 2>&1 &
+
 # Optional boot-partition task for keyboard-free field diagnostics.
 # This hook is deliberately opt-in: normal boots are unchanged unless the
 # user places /mnt/boot/BASEOS-RUN.SH on BASEOS_BOOT. Run after BASEOS_DATA is

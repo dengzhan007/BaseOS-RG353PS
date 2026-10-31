@@ -1,0 +1,77 @@
+#!/bin/sh
+# Dump everything needed to explain "the games have no sound" on one page.
+#
+# Usage: baseos-audio-check [output]
+# Default output is the user partition root, which shows up on a PC; the boot
+# partition is used only when the user partition is not mounted.
+
+OUT=${1:-}
+if [ -z "$OUT" ]; then
+    if grep -q ' /mnt/SDCARD ' /proc/mounts 2>/dev/null; then
+        OUT=/mnt/SDCARD/rg353ps-audio-report.txt
+    else
+        OUT=/mnt/boot/rg353ps-audio-report.txt
+    fi
+fi
+
+card_for() {
+    i=0
+    while [ "$i" -lt 8 ]; do
+        id=$(cat "/sys/class/sound/card$i/id" 2>/dev/null || :)
+        case "$id" in
+            *[rR][kK]817*) echo "$i"; return 0 ;;
+        esac
+        i=$((i + 1))
+    done
+    return 1
+}
+
+{
+    echo "BaseOS RG353PS audio report"
+    echo "generated: $(date 2>/dev/null || echo unknown)"
+    echo "kernel:    $(uname -a 2>/dev/null)"
+    echo
+
+    echo "=== /proc/asound/cards ==="
+    cat /proc/asound/cards 2>/dev/null || echo "(missing)"
+    echo
+    echo "=== /proc/asound/devices ==="
+    cat /proc/asound/devices 2>/dev/null || echo "(missing)"
+    echo
+    echo "=== aplay -l ==="
+    aplay -l 2>&1 || echo "(aplay failed)"
+    echo
+
+    echo "=== /etc/asound.conf ==="
+    cat /etc/asound.conf 2>/dev/null || echo "(none)"
+    echo
+    echo "=== /run/baseos-audio.log ==="
+    cat /run/baseos-audio.log 2>/dev/null || echo "(none)"
+    echo
+
+    CARD=$(card_for)
+    echo "=== rk817 card index: ${CARD:-none} ==="
+    if [ -n "$CARD" ]; then
+        echo "--- mixer controls (values) ---"
+        amixer -c "$CARD" contents 2>&1 | sed -n '1,200p'
+        echo
+        echo "--- Speaker Amp / Headphones / Internal Speakers ---"
+        for n in 'Speaker Amp Switch' 'Internal Speakers Switch' 'Headphones Switch' \
+                 'Playback Volume' 'DAC Playback Volume'; do
+            printf '%s: ' "$n"
+            amixer -c "$CARD" sget "$n" 2>/dev/null | sed -n 's/^ *: values=//p' | head -1 || echo "(absent)"
+        done
+        echo
+        echo "--- speaker amp GPIO (gpio4 PC2) ---"
+        cat /sys/kernel/debug/gpio 2>/dev/null | grep -i "pc2\|speaker\|amp" | head -5 || echo "(no debugfs)"
+    fi
+    echo
+
+    echo "=== dmesg: sound ==="
+    dmesg 2>/dev/null | grep -iE "asoc|snd|rk817|i2s|simple-audio|es8" | tail -40 || echo "(no dmesg)"
+    echo
+    echo "=== modules: snd ==="
+    lsmod 2>/dev/null | grep -i snd || echo "(none; built in)"
+} >"$OUT" 2>&1
+
+echo "written: $OUT"

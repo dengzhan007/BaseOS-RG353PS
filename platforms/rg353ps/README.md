@@ -59,6 +59,30 @@ ssh -o StrictHostKeyChecking=no -i baseos-debug root@192.168.42.1
 Windows 10/11 binds RNDIS without a driver package. If the adapter comes up
 without an address, set `192.168.42.2/24` by hand and the same command works.
 
+### Plug the cable before powering on
+
+A cable inserted after boot only enumerates some of the time. The controller is
+already `dr_mode = "peripheral"` with the usual Rockchip quirks
+(`dis_u2_susphy`, `dis_enblslpm`, `dis-u2-freeclk-exists`,
+`dis-tx-ipgap-linecheck`, gadget LPM disabled), so the remaining failure is in
+the PHY: on insertion `fe8a0000.usb2phy` runs BC1.2 charger detection, which
+holds D+/D- for a few hundred milliseconds. dwc3 sees a device event with
+`speed=0` during that window, drops to `DISCONNECT` 60 ms later, and the UDC
+parks in `not attached`. With the cable already in place at boot, the PHY
+finishes detection before the controller initialises, and enumeration runs from
+the start.
+
+`baseos-usb-debug` supervises this: a 2 s tick, and after 12 s parked in `not
+attached` it rebinds the gadget, then rebuilds the whole stack (unbind dwc3 →
+unbind the PHY → bind the PHY, then the controller → bind the gadget). Attempts
+back off to one per minute and never give up; a plug event resets the ladder.
+Unplugging for five seconds and plugging back in works better than waiting,
+because it gives the PHY a real power cycle.
+
+This is accepted as a usage convention rather than a pending fix. Closing it
+properly means reworking charger detection or the PHY init order in
+`phy-rockchip-inno-usb2`, which needs repeated bench validation on hardware.
+
 The switch is `usb_debug` in `baseos.conf`. The image ships one at the root of
 `BASEOS_BOOT`, but that partition is hidden from file browsers on purpose, so
 first boot also writes a card-side copy to the root of the visible `BASEOS`

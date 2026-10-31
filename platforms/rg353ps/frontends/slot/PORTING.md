@@ -51,6 +51,57 @@
 
 ---
 
+## 2.1 对上游源码的最小改动集（照清单逐条做，不要另行发明）
+
+这一节是**已经验证过、缺一条就有一个功能不对**的清单。换 fork 时按顺序过一遍，
+每条都写了「不改会怎样」，方便判断某个 fork 是否已经自带。
+
+### A. `crates/slot-gfx/src/fbdev.rs` —— 整体替换，不是改几行
+
+**为什么必须换**：上游用 Mali 私有的 `FbdevWindow` 结构体建 EGL native window，
+Mesa/Panfrost 根本不认这个 ABI，结果就是黑屏或 `EGL not initialized`。
+
+**做法**：`cp platforms/rg353ps/frontends/slot/fbdev.rs` 覆盖同名文件。
+只要目标 fork 的 `Surface` trait 签名没变就直接生效；变了才需要按新签名微调。
+
+### B. `crates/slot/src/input/evdev.rs` —— 八处，漏一处坏一个功能
+
+| # | 改动 | 不改的后果 |
+|---|---|---|
+| 1 | `code_to_btn`：`0x130→B`、`0x131→A`、`0x133→X`、`0x134→Y` | ABXY 全错位（按 A 出 B）。Anbernic 用的是任天堂印字，DTS 的位置名和印字是对上的，别按 Xbox 布局映射 |
+| 2 | 肩键：`0x136→L1`、`0x137→R1`、`0x138→L2`、`0x139→R2` | 肩键错位，或者 L2/R2 完全没反应 |
+| 3 | `0x13a→Select`、`0x13b→Start`、`0x13c→Menu`(Function) | 打不开菜单，等于进不去设置 |
+| 4 | 十字键 `0x220~0x223`，并保留 `103/108/105/106`(KEY_↑↓←→) 兜底 | 十字键没反应；不同内核把 D-pad 建成 gpio-keys 数组或 adc-keys，两种编码都要接 |
+| 5 | **删掉 `116`(KEY_POWER) 的映射，并从 `WANTED` 里删掉** | 一次短按被两边同时处理：屏幕只关不睡，唤醒还要再按一次 |
+| 6 | 摇杆：加 `ABS_X(0x00)`/`ABS_Y(0x01)`，`ADC_CENTRE=519`、`ADC_DEADZONE=140`，**X 轴取负** | 摇杆完全没反应（上游死区 2048 会把 0..1023 的采样全部吞掉），或者左右相反 |
+| 7 | `wanted_node()` 用 **ABS 能力位**判定摇杆设备 | 摇杆设备是 `adc-joystick`，**一个按键都不报**，只按 `WANTED` 选设备会直接漏掉它 |
+| 8 | `LEFT_STICK_TARGETS` 里加 `"rg353ps"` | `has_left_stick()` 返回 false，摇杆输入被丢弃 |
+
+关于第 7 条的判据：要求 `ABS_X` + `ABS_Y` + `ABS_LSY` 同时存在（右摇杆的 `ABS_RX`
+和 `ABS_LSY` 是同号），这样鼠标和触摸屏不会混进来。
+
+补丁本体见 `slot-rg353ps.patch`，是这八条的可执行版本 —— 新 fork 直接改文件名后
+`git apply` 大概率能过；如果它的 `evdev.rs` 已经重构过，就照着表逐条手工改。
+
+### C. `launch.sh`
+
+- `SDL_VIDEODRIVER=kmsdrm`、`SDL_AUDIODRIVER=alsa`
+- 二进制 `cp` 到 `/tmp` 再 `exec`（TF/exFAT 不保 exec 位）
+- **不要写** `# baseos: power-owned`
+
+### D. 数据分区的 `Config/slot.state`
+
+`volume=` 和 `volume_hp=` 是 Slot **自己的软件音量**（0..100），和 ALSA mixer 是
+**串联相乘**的两级衰减，不是同一个数字。系统侧怎么配合见 §5「音量键归属」。
+
+### E. 不要做的事
+
+- 不要给 fork 加 `power-owned`（除非它的短按真的能挂起整机）
+- 不要靠调低 mixer 来"修音量"——硬件前提是 0 dB，调低就破坏了 0..100 的整条曲线
+- 不要让前端直接打开 `hw:CARD`，那会绕开 softvol 层
+
+---
+
 ## 3. 标准流程（适配 10 分钟 + 构建时间）
 
 1. **定目标**：fork 仓库 URL + 一个已知能跑的 commit（`SLOT_REV`）。
@@ -93,7 +144,9 @@
 
 - [ ] SDL2 KMSDRM 在 640×480 屏初始化成功（无黑屏、无 "EGL not initialized"）
 - [ ] 输入：方向键 / ABXY / LR / Start / Select 按**物理位置**正确
-- [ ] 音频：ALSA es8388 出声（`SDL_AUDIODRIVER=alsa` 生效）
+- [ ] 音频：RK817 声卡出声（`SDL_AUDIODRIVER=alsa` 生效，日志里有 `audio plug:default at 48000 Hz`）
+- [ ] 音量：按音量键，**前端自己的条**在动，且响度跟着变；`amixer -c <n> cget name='BaseOS Master'` 保持 90 不动
+- [ ] 音量：一次开机到下一次开机，同一格的响度一致（不漂移）
 - [ ] 模拟核心能加载并运行（mGBA / gpSP）
 - [ ] 电池/背光脚本不报错（无 AXP 设备时安全跳过）
 - [ ] 存档 / 退出 / 休眠唤醒正常
@@ -141,9 +194,28 @@
   任何直接对 `hw:CARD,0` 调的代码都会绕开这一层；任何把 `Playback Volume` 调低的
   代码都会破坏"拉满就是满"的前提。音量键（hotkeyd）调的就是 `BaseOS Master`，
   找不到时才回退到硬件控件并用 dB 步进（3 dB），绝不用寄存器百分比。
-  Slot 自己还有一层 `v²` 软件音量（默认 60），两层叠加是客观存在：**建议把前端内
-  音量放在 100%，日常用音量键调**。休眠唤醒和前端启动前都会重新执行初始化，
-  防止 codec 复位后音量"又不一样了"。
+  Slot 自己还有一层 `v²` 软件音量（`Config/slot.state` 的 `volume=` / `volume_hp=`，
+  默认 60），它和上面的 mixer 是**串联相乘**的两级衰减，两个数字互不相干 ——
+  这就是「条显示 50% 却没声」的来源。处理方式见下一条。
+  休眠唤醒和前端启动前都会重新执行初始化，防止 codec 复位后音量"又不一样了"。
+- **音量键归属：前端优先（现行方案，别再按旧结论改）**。原则是**谁有音量条谁管**，
+  这样换前端才能各自匹配皮肤。
+  - `baseos-frontend-session` 在前端启动前把 `BaseOS Master` 钉到 **90/99**
+    （-4.3 dB，满幅 0 dB 推小喇叭会削顶），并把前端 pid 写进
+    `/run/baseos-volume-frontend`
+  - `rg353ps-hotkeyd` 读到这个 marker 且 pid 还活着，就**完全不碰 mixer**
+    （dmesg 里能看到 `volume keys belong to the running frontend; not touching the mixer`）
+  - 前端退出时 mixer 恢复到启动前记在 `/run/baseos-volume-mixer-saved` 的值
+  - `baseos-audio-init` 开机时如果看到 marker 存活，也直接钉 90，不读持久文件 ——
+    否则后台的 restore 会盖掉 pin，出现"开机静音但条显示 30%"
+  - 开关是卡上 `baseos.conf` 的 `volume_owner=auto|frontend|system`
+  - **移植新 fork 必看**：`auto` 只对 `slot` 这个名字生效（`volume_owner=auto` 时
+    只有 `SELECTED=slot` 才认领）。换别的 fork 名字，必须显式写
+    `volume_owner=frontend`，否则音量键仍归 hotkeyd，前端那条 UI 不会动。
+    如果该 fork 根本不处理音量键，就写 `volume_owner=system`。
+  - 一个实测细节：`amixer` 的 `5+` 在这颗控件上不是 5 格而是 **10 格**（按量程百分比换算），
+    而且到顶被 clamp 后回不到原点。所以 hotkeyd 走 `volume_owner=system` 时是
+    "读原值 → 加 5 → 夹到 0..99 → 写绝对值"，不用相对步进。
 
 ---
 
@@ -155,6 +227,8 @@
 - 显示后端：`platforms/rg353ps/frontends/slot/fbdev.rs`
 - 运行环境：`platforms/rg353ps/frontends/slot/launch.sh`
 - 示例按键 patch：`platforms/rg353ps/frontends/slot/slot-rg353ps.patch`
+- 音量/电源归属实现：`platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session`
+  （`claim_volume_for_frontend` / `release_power_owner`）与 `src/rg353ps-hotkeyd.c`
 - 本指南：`platforms/rg353ps/frontends/slot/PORTING.md`
 
 > 持久卷：`rg353ps-slot-cargo`（registry）、`rg353ps-slot-target`（编译产物缓存）。

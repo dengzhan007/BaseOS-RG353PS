@@ -1,0 +1,534 @@
+diff --git a/crates/slot-input/src/raw.rs b/crates/slot-input/src/raw.rs
+index 97d9930..2f1b622 100644
+--- a/crates/slot-input/src/raw.rs
++++ b/crates/slot-input/src/raw.rs
+@@ -19,6 +19,11 @@ pub enum Btn {
+     VolDown,
+     Power,
+     Lid,
++    /* Stick clicks. Boards that wire the sticks through adc-joystick still
++       report BTN_THUMBL/BTN_THUMBR from a gpio-keys array, and a handheld
++       without them simply never produces these. */
++    L3,
++    R3,
+ }
+ 
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+diff --git a/crates/slot-retro/src/core.rs b/crates/slot-retro/src/core.rs
+index bf4332c..b36480e 100644
+--- a/crates/slot-retro/src/core.rs
++++ b/crates/slot-retro/src/core.rs
+@@ -42,9 +42,16 @@ impl ButtonMask {
+     }
+ }
+ 
++/// Stick deflection in libretro's units: -32768 is fully up/left, +32767 is
++/// fully down/right.
++#[derive(Copy, Clone, Default, PartialEq, Eq, Debug)]
++pub struct Axes {
++    pub left: (i16, i16),
++    pub right: (i16, i16),
++}
++
+ #[derive(Copy, Clone, Debug)]
+-pub struct AvInfo {
+-    pub fps: f64,
++pub struct AvInfo {    pub fps: f64,
+     pub sample_rate: f64,
+ }
+ 
+@@ -78,6 +85,9 @@ impl From<std::io::Error> for CoreError {
+ pub trait RetroCore: Send {
+     fn load(&mut self, rom: &Path) -> Result<(), CoreError>;
+     fn run_frame(&mut self, input: ButtonMask);
++    /// Sticks, for cores that ask for RETRO_DEVICE_ANALOG. Cores that only
++    /// want a joypad ignore this.
++    fn set_analog(&mut self, _axes: Axes) {}
+     fn reset(&mut self) {}
+     fn run_frame_linked(&mut self, p1: ButtonMask, _p2: ButtonMask) {
+         self.run_frame(p1);
+diff --git a/crates/slot-retro/src/ffi.rs b/crates/slot-retro/src/ffi.rs
+index d363742..0bbed90 100644
+--- a/crates/slot-retro/src/ffi.rs
++++ b/crates/slot-retro/src/ffi.rs
+@@ -24,6 +24,11 @@ pub const RUMBLE_WEAK: c_uint = 1;
+ pub const PIXEL_FORMAT_XRGB8888: c_uint = 1;
+ pub const PIXEL_FORMAT_RGB565: c_uint = 2;
+ pub const DEVICE_JOYPAD: c_uint = 1;
++pub const DEVICE_ANALOG: c_uint = 5;
++pub const DEVICE_INDEX_ANALOG_LEFT: c_uint = 0;
++pub const DEVICE_INDEX_ANALOG_RIGHT: c_uint = 1;
++pub const DEVICE_ID_ANALOG_X: c_uint = 0;
++pub const DEVICE_ID_ANALOG_Y: c_uint = 1;
+ pub const MEMORY_SAVE_RAM: c_uint = 0;
+ pub const MEMORY_RTC: c_uint = 1;
+ pub const JOYPAD_MASK: c_uint = 256;
+diff --git a/crates/slot-retro/src/lib.rs b/crates/slot-retro/src/lib.rs
+index d5c9de9..7ec57a9 100644
+--- a/crates/slot-retro/src/lib.rs
++++ b/crates/slot-retro/src/lib.rs
+@@ -12,7 +12,7 @@ mod link;
+ mod mock;
+ mod rumble;
+ 
+-pub use core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
++pub use core::{AvInfo, Axes, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
+ pub use ffi::{
+     NETPACKET_BROADCAST, NETPACKET_FLUSH_HINT, NETPACKET_RELIABLE, NETPACKET_UNRELIABLE,
+     NETPACKET_UNSEQUENCED,
+diff --git a/crates/slot-retro/src/libretro.rs b/crates/slot-retro/src/libretro.rs
+index a2eab98..4c23f72 100644
+--- a/crates/slot-retro/src/libretro.rs
++++ b/crates/slot-retro/src/libretro.rs
+@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
+ 
+ use libloading::Library;
+ 
+-use crate::core::{AvInfo, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
++use crate::core::{AvInfo, Axes, ButtonMask, CoreError, RetroCore, GBA_H, GBA_W};
+ use crate::ffi::*;
+ use crate::link::Link;
+ use crate::rumble::Rumble;
+@@ -27,6 +27,9 @@ struct Host {
+     format: PixelFormat,
+     audio: Vec<i16>,
+     inputs: [u16; 2],
++    /* Latest stick deflection. Every core is asked about it; the ones that do
++       not want analog never look. */
++    analog: Axes,
+     system_dir: CString,
+     save_dir: CString,
+     rumble: Rumble,
+@@ -366,14 +369,31 @@ unsafe extern "C" fn audio_batch(data: *const i16, frames: usize) -> usize {
+ 
+ unsafe extern "C" fn input_poll() {}
+ 
+-unsafe extern "C" fn input_state(port: c_uint, device: c_uint, _index: c_uint, id: c_uint) -> i16 {
+-    if device != DEVICE_JOYPAD {
++unsafe extern "C" fn input_state(port: c_uint, device: c_uint, index: c_uint, id: c_uint) -> i16 {
++    if device != DEVICE_JOYPAD && device != DEVICE_ANALOG {
+         return 0;
+     }
+     with_host(|h| {
+         let Some(&input) = h.inputs.get(port as usize) else {
+             return 0;
+         };
++        if device == DEVICE_ANALOG {
++            /* Only port 0 has the sticks, and a core asks for one index per
++               stick. Anything else - a light gun, a mouse - gets nothing. */
++            if port != 0 {
++                return 0;
++            }
++            let pair = match index {
++                DEVICE_INDEX_ANALOG_LEFT => h.analog.left,
++                DEVICE_INDEX_ANALOG_RIGHT => h.analog.right,
++                _ => return 0,
++            };
++            return match id {
++                DEVICE_ID_ANALOG_X => pair.0,
++                DEVICE_ID_ANALOG_Y => pair.1,
++                _ => 0,
++            };
++        }
+         match id {
+             JOYPAD_MASK => input as i16,
+             _ if id < 16 => ((input >> id) & 1) as i16,
+@@ -474,6 +494,7 @@ impl LibretroCore {
+             format: PixelFormat::Xrgb8888,
+             audio: Vec::new(),
+             inputs: [0; 2],
++            analog: Axes::default(),
+             system_dir: cdir(system_dir)?,
+             save_dir: cdir(save_dir)?,
+             rumble: Rumble::default(),
+@@ -594,6 +615,9 @@ impl RetroCore for LibretroCore {
+             fps: av.timing.fps,
+             sample_rate: av.timing.sample_rate,
+         };
++        /* The port stays declared as a joypad, the way MinUI/NextUI do it: the
++           cores that want sticks still ask for RETRO_DEVICE_ANALOG, and the
++           ones that do not keep reading the digital bits unchanged. */
+         unsafe { (self.api.set_controller_port_device)(0, DEVICE_JOYPAD) };
+         Ok(())
+     }
+@@ -602,6 +626,10 @@ impl RetroCore for LibretroCore {
+         self.run_frame_linked(input, ButtonMask::default());
+     }
+ 
++    fn set_analog(&mut self, axes: Axes) {
++        self.host.analog = axes;
++    }
++
+     fn run_frame_linked(&mut self, p1: ButtonMask, p2: ButtonMask) {
+         if !self.loaded {
+             return;
+diff --git a/crates/slot-store/src/bindings.rs b/crates/slot-store/src/bindings.rs
+index c4ce3a6..38f955b 100644
+--- a/crates/slot-store/src/bindings.rs
++++ b/crates/slot-store/src/bindings.rs
+@@ -23,6 +23,8 @@ pub enum Device {
+     R2,
+     Select,
+     Start,
++    L3,
++    R3,
+ }
+ 
+ impl Device {
+@@ -30,7 +32,7 @@ impl Device {
+         matches!(self, Device::Select | Device::Start)
+     }
+ 
+-    pub const ALL: [Device; 14] = [
++    pub const ALL: [Device; 16] = [
+         Device::Up,
+         Device::Down,
+         Device::Left,
+@@ -45,6 +47,8 @@ impl Device {
+         Device::R2,
+         Device::Select,
+         Device::Start,
++        Device::L3,
++        Device::R3,
+     ];
+ 
+     pub fn key(self) -> &'static str {
+@@ -63,6 +67,8 @@ impl Device {
+             Device::R2 => "r2",
+             Device::Select => "select",
+             Device::Start => "start",
++            Device::L3 => "l3",
++            Device::R3 => "r3",
+         }
+     }
+ 
+@@ -82,6 +88,8 @@ impl Device {
+             Device::R2 => "R2",
+             Device::Select => "SELECT",
+             Device::Start => "START",
++            Device::L3 => "L3",
++            Device::R3 => "R3",
+         }
+     }
+ 
+diff --git a/crates/slot/src/device_app.rs b/crates/slot/src/device_app.rs
+index d7ad0ee..380d6a6 100644
+--- a/crates/slot/src/device_app.rs
++++ b/crates/slot/src/device_app.rs
+@@ -155,6 +155,7 @@ pub fn run() {
+         pacer.wait();
+         let began = Instant::now();
+         input.steer_with_stick(frontend.app().left_stick_dpad());
++        frontend.set_analog(input.analog());
+         frontend.advance(&mut input);
+         if frontend.restarting() {
+             frontend.restart();
+diff --git a/crates/slot/src/emu.rs b/crates/slot/src/emu.rs
+index dc965e6..7b9bcd0 100644
+--- a/crates/slot/src/emu.rs
++++ b/crates/slot/src/emu.rs
+@@ -1,5 +1,7 @@
+ use std::path::PathBuf;
+-use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, AtomicU8, Ordering};
++use std::sync::atomic::{
++    AtomicBool, AtomicI32, AtomicU16, AtomicU32, AtomicU64, AtomicU8, Ordering,
++};
+ use std::sync::mpsc::{channel, Receiver, RecvTimeoutError, Sender};
+ use std::sync::{Arc, Condvar, Mutex};
+ use std::thread::JoinHandle;
+@@ -7,7 +9,7 @@ use std::time::{Duration, Instant};
+ 
+ use crate::cable::{self, Cable};
+ use slot_retro::{
+-    ButtonMask, Link, LinkChannel, RetroCore, Rumble, GBA_H, GBA_W, NETPACKET_RELIABLE,
++    Axes, ButtonMask, Link, LinkChannel, RetroCore, Rumble, GBA_H, GBA_W, NETPACKET_RELIABLE,
+ };
+ 
+ use crate::audio::Ring;
+@@ -90,6 +92,8 @@ enum Cmd {
+ 
+ struct Shared {
+     input: AtomicU16,
++    /* Left X/Y then right X/Y, straight from the input thread. */
++    analog: [AtomicI32; 4],
+     speed: AtomicU8,
+     observed: AtomicU8,
+     state: AtomicU8,
+@@ -122,6 +126,16 @@ struct Clock {
+     done: u64,
+ }
+ 
++impl Shared {
++    fn analog(&self) -> Axes {
++        let axis = |i: usize| self.analog[i].load(Ordering::Relaxed) as i16;
++        Axes {
++            left: (axis(0), axis(1)),
++            right: (axis(2), axis(3)),
++        }
++    }
++}
++
+ impl EmuHandle {
+     pub fn spawn(
+         core: Box<dyn RetroCore>,
+@@ -165,6 +179,7 @@ impl EmuHandle {
+         let frames = Frames::new((GBA_W * GBA_H * 4) as usize);
+         let shared = Arc::new(Shared {
+             input: AtomicU16::new(0),
++            analog: Default::default(),
+             speed: AtomicU8::new(Speed::Paused as u8),
+             observed: AtomicU8::new(Speed::Paused as u8),
+             state: AtomicU8::new(CoreState::Loading as u8),
+@@ -303,6 +318,13 @@ impl EmuHandle {
+         }
+     }
+ 
++    pub fn set_analog(&self, axes: Axes) {
++        let pairs = [axes.left.0, axes.left.1, axes.right.0, axes.right.1];
++        for (slot, value) in self.shared.analog.iter().zip(pairs) {
++            slot.store(i32::from(value), Ordering::Relaxed);
++        }
++    }
++
+     pub fn set_input(&self, mask: ButtonMask) {
+         let before = self.shared.input.swap(mask.0, Ordering::Relaxed);
+         crate::latency::applied(before, mask.0);
+@@ -678,6 +700,7 @@ impl Worker {
+                 self.shared.clocked.notify_all();
+             }
+             let input = ButtonMask(self.shared.input.load(Ordering::Relaxed));
++            core.set_analog(self.shared.analog());
+             crate::latency::emu_frame(input.0);
+             let mut span = 1u32;
+             let ceiling = match speed {
+diff --git a/crates/slot/src/frontend.rs b/crates/slot/src/frontend.rs
+index 7f58c2c..100c1eb 100644
+--- a/crates/slot/src/frontend.rs
++++ b/crates/slot/src/frontend.rs
+@@ -826,6 +826,10 @@ impl Frontend {
+         self.session.app_mut().set_update_jobs(jobs);
+     }
+ 
++    pub fn set_analog(&mut self, axes: slot_retro::Axes) {
++        self.session.set_analog(axes);
++    }
++
+     pub fn set_left_stick(&mut self, present: bool) {
+         self.session.app_mut().set_left_stick(present);
+     }
+diff --git a/crates/slot/src/input/bind.rs b/crates/slot/src/input/bind.rs
+index 319a2c7..e9e77f4 100644
+--- a/crates/slot/src/input/bind.rs
++++ b/crates/slot/src/input/bind.rs
+@@ -1,7 +1,7 @@
+ use slot_input::{Action, Btn, Chord, Mod};
+ use slot_store::{Binding, Device, Modifier, Shortcut};
+ 
+-const PAIRS: [(Device, Btn); 14] = [
++const PAIRS: [(Device, Btn); 16] = [
+     (Device::Up, Btn::Up),
+     (Device::Down, Btn::Down),
+     (Device::Left, Btn::Left),
+@@ -16,6 +16,8 @@ const PAIRS: [(Device, Btn); 14] = [
+     (Device::R2, Btn::R2),
+     (Device::Select, Btn::Select),
+     (Device::Start, Btn::Start),
++    (Device::L3, Btn::L3),
++    (Device::R3, Btn::R3),
+ ];
+ 
+ pub fn device_btn(d: Device) -> Btn {
+diff --git a/crates/slot/src/input/device.rs b/crates/slot/src/input/device.rs
+index a658371..3f2a0da 100644
+--- a/crates/slot/src/input/device.rs
++++ b/crates/slot/src/input/device.rs
+@@ -1,15 +1,17 @@
+ use std::fs::File;
+ use std::io::{Read, Write};
+ use std::path::{Path, PathBuf};
+-use std::sync::atomic::{AtomicBool, Ordering};
++use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+ use std::sync::{Arc, Mutex};
+ use std::time::Instant;
+ 
+ use slot_input::{Btn, InputSource, Millis, RawEvent};
+ 
+ use super::evdev::{
+-    decode, device_name, pick_devices, to_raw, Ev, Hat, EVENT_BYTES, EV_ABS, EV_KEY, EV_SYN,
++    decode, device_name, pick_devices, to_raw, AxisSigns, Ev, Hat, EVENT_BYTES, EV_ABS, EV_KEY,
++    EV_SYN,
+ };
++use slot_retro::Axes;
+ use super::trace;
+ 
+ const DEV: &str = "/dev/input";
+@@ -21,6 +23,9 @@ const LID_POLL_MS: Millis = 150;
+ pub struct DeviceInput {
+     pending: Arc<Mutex<Vec<RawEvent>>>,
+     stick: Arc<AtomicBool>,
++    /* Left X/Y then right X/Y, written by the reader threads and read once a
++       frame by the emulator side. */
++    axes: Arc<[AtomicI32; 4]>,
+     hall: Option<PathBuf>,
+     lid_shut: Option<bool>,
+     next_lid_poll: Millis,
+@@ -33,12 +38,18 @@ impl DeviceInput {
+ 
+     pub fn open_in(dev: &Path, sys: &Path, root: &Path, trace: bool) -> Self {
+         let trace = trace.then(|| Trace::start(root, dev, sys)).flatten();
+-        DeviceInput::open_traced(dev, sys, trace)
++        let signs = AxisSigns::load(&root.join("Config"));
++        DeviceInput::open_traced(dev, sys, signs, trace)
+     }
+ 
+-    fn open_traced(dev: &Path, sys: &Path, trace: Option<Arc<Trace>>) -> Self {
++    fn open_traced(dev: &Path, sys: &Path, signs: AxisSigns, trace: Option<Arc<Trace>>) -> Self {
+         let pending: Arc<Mutex<Vec<RawEvent>>> = Arc::new(Mutex::new(Vec::new()));
+         let stick = Arc::new(AtomicBool::new(false));
++        let axes: Arc<[AtomicI32; 4]> = Arc::new(Default::default());
++        eprintln!(
++            "slot: input sticks: left {:?}, right {:?}",
++            signs.left, signs.right
++        );
+         for node in pick_devices(dev, sys) {
+             eprintln!(
+                 "slot: input {} ({})",
+@@ -48,11 +59,12 @@ impl DeviceInput {
+             quicken_poll(sys, &node);
+             let queue = pending.clone();
+             let steers = stick.clone();
++            let axes = axes.clone();
+             let name = node.display().to_string();
+             let trace = trace.clone();
+             let spawned = std::thread::Builder::new()
+                 .name(format!("slot-input-{name}"))
+-                .spawn(move || read_node(&node, &queue, &steers, trace.as_deref()));
++                .spawn(move || read_node(&node, &queue, &steers, &axes, signs, trace.as_deref()));
+             if let Err(e) = spawned {
+                 eprintln!("slot: input {name}: {e}");
+             }
+@@ -60,6 +72,7 @@ impl DeviceInput {
+         DeviceInput {
+             pending,
+             stick,
++            axes,
+             hall: find_hall(Path::new(PSY)),
+             lid_shut: None,
+             next_lid_poll: 0,
+@@ -95,6 +108,8 @@ fn read_node(
+     node: &Path,
+     queue: &Mutex<Vec<RawEvent>>,
+     steers: &AtomicBool,
++    axes: &[AtomicI32; 4],
++    signs: AxisSigns,
+     trace: Option<&Trace>,
+ ) {
+     let label = node
+@@ -102,6 +117,7 @@ fn read_node(
+         .map(|n| n.to_string_lossy().into_owned())
+         .unwrap_or_else(|| node.display().to_string());
+     let mut hat = Hat::default();
++    hat.set_signs(signs);
+     let mut file = match File::open(node) {
+         Ok(f) => f,
+         Err(e) => {
+@@ -136,6 +152,11 @@ fn read_node(
+                 _ => events.extend(to_raw(ev)),
+             }
+         }
++        let sticks = hat.analog();
++        let values = [sticks.left.0, sticks.left.1, sticks.right.0, sticks.right.1];
++        for (axis, value) in axes.iter().zip(values) {
++            axis.store(i32::from(value), Ordering::Relaxed);
++        }
+         if events.is_empty() {
+             continue;
+         }
+@@ -190,6 +211,14 @@ impl DeviceInput {
+         self.stick.store(on, Ordering::Relaxed);
+     }
+ 
++    pub fn analog(&self) -> Axes {
++        let axis = |i: usize| self.axes[i].load(Ordering::Relaxed) as i16;
++        Axes {
++            left: (axis(0), axis(1)),
++            right: (axis(2), axis(3)),
++        }
++    }
++
+     fn read_lid(&self) -> Option<bool> {
+         let raw = std::fs::read_to_string(self.hall.as_ref()?).ok()?;
+         match raw.trim() {
+diff --git a/crates/slot/src/input/keys.rs b/crates/slot/src/input/keys.rs
+index 03d3fe5..eaa24a7 100644
+--- a/crates/slot/src/input/keys.rs
++++ b/crates/slot/src/input/keys.rs
+@@ -15,6 +15,8 @@ pub fn key_to_btn(code: KeyCode) -> Option<Btn> {
+         KeyCode::KeyS => Btn::R1,
+         KeyCode::KeyQ => Btn::L2,
+         KeyCode::KeyW => Btn::R2,
++        KeyCode::KeyE => Btn::L3,
++        KeyCode::KeyR => Btn::R3,
+         KeyCode::Enter => Btn::Start,
+         KeyCode::ShiftRight => Btn::Select,
+         KeyCode::Tab | KeyCode::Backquote => Btn::Menu,
+diff --git a/crates/slot/src/input/pad.rs b/crates/slot/src/input/pad.rs
+index 21108ee..9b3e1bf 100644
+--- a/crates/slot/src/input/pad.rs
++++ b/crates/slot/src/input/pad.rs
+@@ -15,6 +15,8 @@ pub fn pad_to_btn(button: Button) -> Option<Btn> {
+         Button::RightTrigger => Btn::R1,
+         Button::LeftTrigger2 => Btn::L2,
+         Button::RightTrigger2 => Btn::R2,
++        Button::LeftThumb => Btn::L3,
++        Button::RightThumb => Btn::R3,
+         Button::Start => Btn::Start,
+         Button::Select => Btn::Select,
+         Button::Mode => Btn::Menu,
+diff --git a/crates/slot/src/input/trace.rs b/crates/slot/src/input/trace.rs
+index 441315c..2850328 100644
+--- a/crates/slot/src/input/trace.rs
++++ b/crates/slot/src/input/trace.rs
+@@ -1,8 +1,8 @@
+ use std::path::{Path, PathBuf};
+ 
+ use super::evdev::{
+-    code_to_btn, device_name, pick_devices, Ev, ABS_HAT0X, ABS_HAT0Y, ABS_LSX, ABS_LSY, EV_ABS,
+-    EV_KEY, EV_SW, SW_LID,
++    code_to_btn, device_name, pick_devices, Ev, ABS_HAT0X, ABS_HAT0Y, ABS_RX, ABS_RY, ABS_X,
++    ABS_Y, EV_ABS, EV_KEY, EV_SW, SW_LID,
+ };
+ 
+ pub const TRACE_VAR: &str = "SLOT_TRACE_INPUT";
+@@ -60,8 +60,10 @@ pub fn event_line(node: &str, ms: u128, ev: Ev) -> String {
+         EV_SW if ev.code == SW_LID => "Lid".to_string(),
+         EV_ABS if ev.code == ABS_HAT0X => "hat0x".to_string(),
+         EV_ABS if ev.code == ABS_HAT0Y => "hat0y".to_string(),
+-        EV_ABS if ev.code == ABS_LSX => "lsx".to_string(),
+-        EV_ABS if ev.code == ABS_LSY => "lsy".to_string(),
++        EV_ABS if ev.code == ABS_X => "lx".to_string(),
++        EV_ABS if ev.code == ABS_Y => "ly".to_string(),
++        EV_ABS if ev.code == ABS_RX => "rx".to_string(),
++        EV_ABS if ev.code == ABS_RY => "ry".to_string(),
+         _ => "ignored".to_string(),
+     };
+     format!(
+diff --git a/crates/slot/src/session.rs b/crates/slot/src/session.rs
+index 01d4de0..8a92a67 100644
+--- a/crates/slot/src/session.rs
++++ b/crates/slot/src/session.rs
+@@ -241,6 +241,14 @@ impl Session {
+         self.sync_pad();
+     }
+ 
++    /// Hands the sticks to the running core. Cheap enough to call every frame:
++    /// four relaxed stores, and only the cores that ask ever read them.
++    pub fn set_analog(&mut self, axes: slot_retro::Axes) {
++        if let Some(emu) = &self.emu {
++            emu.set_analog(axes);
++        }
++    }
++
+     fn sync_pad(&mut self) {
+         for btn in self.app.taken_buttons() {
+             self.pad.apply(Action::GbaUp(btn));

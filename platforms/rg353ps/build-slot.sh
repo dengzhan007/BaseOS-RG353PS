@@ -2,9 +2,10 @@
 # Build an experimental Slot frontend bundle for RG353PS (SDL2/KMSDRM + Mesa/Panfrost).
 # The output is a ZIP for the frontend SD card; it does not modify the OS image.
 #
-# Quick fork porting: only two inputs are fork-specific -
+# Quick fork porting: only three inputs are fork-specific -
 #   SLOT_REPO / SLOT_REV   -> which Slot fork + commit to build
-#   platforms/rg353ps/frontends/slot/slot-rg353ps.patch -> input mapping
+#   platforms/rg353ps/frontends/slot/slot-rg353ps.patch -> input mapping (per DTS)
+#   platforms/rg353ps/frontends/slot/slot-analog.patch  -> stick support (fork-agnostic)
 # Everything else (fbdev.rs display backend, launch.sh, cores) is reused as-is.
 set -eu
 
@@ -18,7 +19,9 @@ mkdir -p "$OUT"
 
 # ---- configurable forks / pins (override per fork here) ----
 SLOT_REPO="${SLOT_REPO:-BrandonKowalski/slot}"
-SLOT_REV="${SLOT_REV:-e5b12adb2a267bc6658bc80eb50bff9622fb79e4}"
+# ab518c6 is the commit the two patches in frontends/slot were generated against.
+# Moving this pin means regenerating both patches (git apply --check will tell you).
+SLOT_REV="${SLOT_REV:-ab518c6}"
 MGBA_REV="${MGBA_REV:-e31759b24e7a4e3899285ff720d7b573ac328ae7}"
 GPSP_REV="${GPSP_REV:-7b2dd37394e2822110cacef321e9bb291a305b77}"
 
@@ -69,6 +72,11 @@ docker run --rm --network host --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     GPSP_REV="'"$GPSP_REV"'"
     export RUSTFLAGS="-C target-feature=-crt-static"
     export CARGO_HOME=/usr/local/cargo
+    # SLOT_TOOLCHAIN pins the compiler explicitly. Leave it empty to honour the
+    # rust-toolchain.toml of the fork, which makes rustup download that channel.
+    # Set it to e.g. 1.99.1-aarch64-unknown-linux-musl to build offline with the
+    # toolchain already baked into the image.
+    if [ -n "'"${SLOT_TOOLCHAIN:-}"'" ]; then export RUSTUP_TOOLCHAIN="'"${SLOT_TOOLCHAIN:-}"'"; fi
 
     SRC=/tmp/slot-src
     TARGET=/cargo-target
@@ -80,7 +88,13 @@ docker run --rm --network host --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     # Use the host-fetched, network-free copy and patch it in place.
     cp -r /slot-up "$SRC"
     cp /slot-port/fbdev.rs "$SRC/crates/slot-gfx/src/fbdev.rs"
-    git -C "$SRC" apply --ignore-whitespace /slot-port/slot-rg353ps.patch
+    # slot-rg353ps.patch: the DTS-specific button and axis mapping.
+    # slot-analog.patch: sticks reach the cores (RetroCore::set_analog, ANALOG
+    # input_state) and the stick clicks become bindable L3/R3 buttons.
+    for p in /slot-port/slot-rg353ps.patch /slot-port/slot-analog.patch; do
+      echo "applying $(basename "$p")"
+      git -C "$SRC" apply --ignore-whitespace "$p"
+    done
 
     cd "$SRC"
     # The Slot SDL2/GLES surface uses libloading::Library::new, which requires dlopen.
@@ -150,6 +164,9 @@ do not overwrite your original system card.
 EOF
     chmod 0644 "$PKG/README-RG353PS.txt"
     cd "$PKG"
+    # zip updates an existing archive instead of replacing it, so a leftover zip
+    # from an older build silently keeps its stale entries and doubles the size.
+    rm -f /out/baseos-rg353ps-slot.zip
     zip -qry /out/baseos-rg353ps-slot.zip .
     sha256sum /out/baseos-rg353ps-slot.zip > /out/baseos-rg353ps-slot.zip.sha256
     ls -lh /out/baseos-rg353ps-slot.zip /out/baseos-rg353ps-slot.zip.sha256

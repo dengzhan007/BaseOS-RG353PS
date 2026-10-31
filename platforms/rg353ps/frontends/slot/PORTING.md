@@ -30,7 +30,8 @@
 | 构建+打包主脚本 | `platforms/rg353ps/build-slot.sh` | pin 版本、覆盖 fbdev.rs、打 patch、编 slot+cores、出 `baseos-rg353ps-slot.zip` |
 | **显示后端替换** | `platforms/rg353ps/frontends/slot/fbdev.rs` | SDL2 KMSDRM+GLES 版 `fbdev.rs`，**fork 间基本直接复用** |
 | **运行环境** | `platforms/rg353ps/frontends/slot/launch.sh` | `SDL_VIDEODRIVER=kmsdrm` / `SDL_AUDIODRIVER=alsa` / 暂存二进制到 tmpfs / `--init-root` |
-| 示例按键 patch | `platforms/rg353ps/frontends/slot/slot-rg353ps.patch` | 本 fork 专用按键映射（**换 fork 要重做**） |
+| 示例按键 patch | `platforms/rg353ps/frontends/slot/slot-rg353ps.patch` | 本 fork 专用按键/摇杆映射（**换 fork 要重做**） |
+| **摇杆补丁** | `platforms/rg353ps/frontends/slot/slot-analog.patch` | 让摇杆真的成为模拟轴送到 libretro 核心，并把摇杆按压变成可绑定的 L3/R3（**通用，换 fork 一般直接可用**） |
 | 模拟核心 | mGBA / gpSP 的 `.so`（aarch64 musl） | 与前端 fork 无关，通常直接复用 |
 
 ---
@@ -43,7 +44,7 @@
 | 2 | 运行环境 | `launch.sh` | 否 | 直接复用，无需改 |
 | 3 | 模拟核心 | mGBA/gpSP `.so` | 否 | 直接复用（除非 fork 指定不同 core 版本） |
 | 4 | 构建 pin | `build-slot.sh` 顶部 `SLOT_REV`/`SLOT_REPO`（或环境变量） | **是** | 指向目标 fork 的 commit / repo，如 `SLOT_REPO=owner/fork SLOT_REV=abc123 ./build-slot.sh` |
-| 5 | **按键映射** | 新 patch，如 `slot-<fork>-ab.patch` | **是（每个 fork 必做）** | 对该 fork 的 `crates/slot/src/input/evdev.rs` 重写 `code_to_btn` 与 `WANTED` 数组 |
+| 5 | **按键映射** | 新 patch，如 `slot-<fork>-ab.patch` | **是（每个 fork 必做）** | 对该 fork 的 `crates/slot/src/input/evdev.rs` 重写 `code_to_btn`、`WANTED` 与摇杆轴 |
 | 6 | 设备脚本 | `led.sh`/`lid.sh` + `AGS_*` 环境变量 | 否（设备相关） | 提供 RK817 / 无 hall 传感器的版本或 stub |
 | 7 | 分辨率 | `fbdev.rs` 读 `fb0`，fallback 640×480 | 否 | 通常不动；若 fork 硬写分辨率再调 |
 
@@ -73,15 +74,87 @@ Mesa/Panfrost 根本不认这个 ABI，结果就是黑屏或 `EGL not initialize
 | 3 | `0x13a→Select`、`0x13b→Start`、`0x13c→Menu`(Function) | 打不开菜单，等于进不去设置 |
 | 4 | 十字键 `0x220~0x223`，并保留 `103/108/105/106`(KEY_↑↓←→) 兜底 | 十字键没反应；不同内核把 D-pad 建成 gpio-keys 数组或 adc-keys，两种编码都要接 |
 | 5 | **删掉 `116`(KEY_POWER) 的映射，并从 `WANTED` 里删掉** | 一次短按被两边同时处理：屏幕只关不睡，唤醒还要再按一次 |
-| 6 | 摇杆：加 `ABS_X(0x00)`/`ABS_Y(0x01)`，`ADC_CENTRE=519`、`ADC_DEADZONE=140`，**X 轴取负** | 摇杆完全没反应（上游死区 2048 会把 0..1023 的采样全部吞掉），或者左右相反 |
-| 7 | `wanted_node()` 用 **ABS 能力位**判定摇杆设备 | 摇杆设备是 `adc-joystick`，**一个按键都不报**，只按 `WANTED` 选设备会直接漏掉它 |
+| 6 | 摇杆：接 `ABS_X(0x00)`/`ABS_Y(0x01)`（左）与 `ABS_RX(0x03)`/`ABS_RY(0x04)`（右），`ADC_CENTRE=519`、`ADC_DEADZONE=140`，**左摇杆 X/Y 双轴取负** | 摇杆完全没反应（上游死区 2048 会把 0..1023 的采样全部吞掉），或者上下颠倒、左右相反 |
+| 7 | `wanted_node()` 用 **ABS 能力位**判定摇杆设备，要求四轴齐全 | 摇杆设备是 `adc-joystick`，**一个按键都不报**，只按 `WANTED` 选设备会直接漏掉它 |
 | 8 | `LEFT_STICK_TARGETS` 里加 `"rg353ps"` | `has_left_stick()` 返回 false，摇杆输入被丢弃 |
+| 9 | 摇杆按压：`0x13d→Btn::L3`、`0x13e→Btn::R3` | 两个摇杆按下去完全没反应，也绑不到任何功能上 |
 
-关于第 7 条的判据：要求 `ABS_X` + `ABS_Y` + `ABS_LSY` 同时存在（右摇杆的 `ABS_RX`
-和 `ABS_LSY` 是同号），这样鼠标和触摸屏不会混进来。
+**方位约定（踩过两次，务必照抄）**：Slot 的方向约定是「正值 = 右/下」（就是 Linux 惯例：
+`ends[usize::from(v > 0)]`，axis0 是 `[Left, Right]`、axis1 是 `[Up, Down]`）。
+而这块板子的四个 ADC 轴**全部反着来** —— 上报值越大，左摇杆越向左、越向上，
+右摇杆按同一种接线处理。
 
-补丁本体见 `slot-rg353ps.patch`，是这八条的可执行版本 —— 新 fork 直接改文件名后
+所以四个轴都乘 `-1`，而且**数字方向与模拟轴共用同一个符号**，不可能出现「摇杆方向对了、
+模拟轴反了」这种半对半错的状态。符号放在 `AxisSigns` 里：
+
+| 物理轴 | 上报值增大方向 | Slot 数字（正 = 右/下） | libretro 模拟（正 X = 右、正 Y = 下） |
+|---|---|---|---|
+| 左 X `ABS_X` | 左 | 取负 | 取负 |
+| 左 Y `ABS_Y` | 上 | 取负 | 取负 |
+| 右 X `ABS_RX` | 左（同上） | — | 取负 |
+| 右 Y `ABS_RY` | 上（同上） | — | 取负 |
+
+**右摇杆的正负无法靠十字键交叉验证**，所以做成了运行时配置：数据分区
+`Config/sticks.txt`，写 `rx=1` 就是把右摇杆 X 反过来，改完重进前端即可生效，**不用重新编译**。
+文件缺失、键名写错、值为 0 都会退回内置值，不会把摇杆搞死。启动日志里会打印
+`slot: input sticks: left [-1, -1], right [-1, -1]`，一眼能看出实际生效的值。
+
+同一组常量还负责模拟轴归一化：`ADC_TRAVEL=504`（519→1023 与 519→15 都是 504），
+采样减去中心后按 ±504 缩放到 i16，模拟死区比数字倾斜死区小得多（`ADC_ANALOG_DEADZONE=40`），
+否则摇杆要走完四分之一行程才开始有输出，手感是坏的。
+
+关于第 7 条的判据：要求 `ABS_X` + `ABS_Y` + `ABS_RX` + `ABS_RY` 同时存在，
+这样鼠标和触摸屏不会混进来。**注意 `ABS_RX` 的编号就是 0x03**，H700 机型把左摇杆
+Y 轴叫 `ABS_LSY` 也是 0x03 —— RG353PS 上 0x03 属于右摇杆，别照 H700 的写法抄。
+
+补丁本体见 `slot-rg353ps.patch`，是上面九条的可执行版本 —— 新 fork 直接改文件名后
 `git apply` 大概率能过；如果它的 `evdev.rs` 已经重构过，就照着表逐条手工改。
+
+### B2. `slot-analog.patch` —— 摇杆真正变成模拟轴（通用，与 DTS 无关）
+
+**为什么必须加**：上游 Slot **完全没有模拟输入**。全仓 `grep -i analog` 零命中，
+libretro 回调里 `device != RETRO_DEVICE_JOYPAD` 直接返回 0，开场还
+`set_controller_port_device(0, RETRO_DEVICE_JOYPAD)`。所以哪怕官方支持机型里就有
+双摇杆机器（RG35XX H、RG34XXSP），它们的右摇杆在上游也是**纯摆设**。
+上游唯一和摇杆有关的功能是 CHANGELOG #106/#107 那条「左摇杆当十字键」。
+
+**参考实现**：NextUI（`LoveRetro/NextUI`，支持街机，右摇杆能用）的
+`workspace/all/minarch/ma_input.c`：
+
+```c
+if (port==0 && device==RETRO_DEVICE_ANALOG) {
+    if (index==RETRO_DEVICE_INDEX_ANALOG_LEFT)  { X -> pad.laxis.x; Y -> pad.laxis.y; }
+    else if (index==RETRO_DEVICE_INDEX_ANALOG_RIGHT) { X -> pad.raxis.x; Y -> pad.raxis.y; }
+}
+```
+
+三个可照搬的结论：
+1. **端口仍然声明成 JOYPAD**（`Core_load()` 里 `set_controller_port_device(0, RETRO_DEVICE_JOYPAD)`），
+   只在 `input_state` 里回答 ANALOG 查询。想要摇杆的核心照样会问，不想要的核心完全无感。
+2. 模拟轴**只挂 port 0**，左右摇杆用 `index` 区分，值是完整的 i16 量程（±32767）。
+3. 死区不在 libretro 回调里做，放在读设备那一层 —— 我们的 `ADC_ANALOG_DEADZONE` 就在 `Hat::analog()`。
+
+**补丁改了这些文件**（一次改完，换 fork 通常不用动）：
+
+| 文件 | 改动 |
+|---|---|
+| `crates/slot-input/src/raw.rs` | `Btn` 增加 `L3`/`R3` |
+| `crates/slot-store/src/bindings.rs` | `Device` 增加 `L3`/`R3`（`ALL` 从 14 变 16），`key()`/`label()` 补上 `l3`/`r3` |
+| `crates/slot/src/input/bind.rs` | `PAIRS` 补 `(Device::L3, Btn::L3)`、`(Device::R3, Btn::R3)` —— 有了这条，按键设置里按摇杆能被捕获成 L3/R3 |
+| `crates/slot-retro/src/core.rs` | 新增 `Axes { left, right }`，`RetroCore::set_analog()`（默认空实现，不碰任何核心） |
+| `crates/slot-retro/src/ffi.rs` | `DEVICE_ANALOG=5`、`DEVICE_INDEX_ANALOG_LEFT/RIGHT`、`DEVICE_ID_ANALOG_X/Y` |
+| `crates/slot-retro/src/libretro.rs` | `Host` 存 `Axes`；`input_state` 增加 ANALOG 分支；实现 `set_analog` |
+| `crates/slot/src/emu.rs` | `Shared` 增加 4 个 `AtomicI32`；`EmuHandle::set_analog()`；帧循环里每帧喂给核心 |
+| `crates/slot/src/input/device.rs` | 读设备的线程把 `Hat::analog()` 写进共享原子；`DeviceInput::analog()` |
+| `crates/slot/src/session.rs` / `frontend.rs` / `device_app.rs` | 每帧把 `input.analog()` 送进正在跑的核心 |
+
+**设计要点**：模拟量**不进 `RawEvent` 流**。`RawEvent` 只有 `Down/Up` 两个变体，
+再加一个变体要动 app/session/gesture 里所有 `match`，收益为零。摇杆走的是
+「读线程 → 原子量 → 每帧给核心」的旁路，UI 侧一行都不用改。
+
+**没做的事**：`ButtonMask` 仍然是 16 位数字位图（bit14/15 对应 libretro 的 L3/R3），
+但 GBA 核心用不到，所以没有把 L3/R3 塞进 `GameButton`，按键设置界面也不会多出两行空项。
+要让 L3/R3 成为「游戏按键」而不是「快捷键」，才需要改 `GameButton` + 快捷菜单 UI。
 
 ### C. `launch.sh`
 
@@ -125,13 +198,14 @@ Mesa/Panfrost 根本不认这个 ABI，结果就是黑屏或 `EGL not initialize
    | Select / Start | `BTN_SELECT` 0x13a / `BTN_START` 0x13b | `Select` / `Start` |
    | Function | `BTN_MODE` 0x13c | `Menu` |
    | 十字键 | `BTN_DPAD_*` 0x220~0x223（兜底 `KEY_UP/DOWN/LEFT/RIGHT`） | 方向 |
-   | 左摇杆 | `ABS_X`/`ABS_Y`（0..1023，静止 519） | 方向（需 `left_stick_dpad` 打开） |
-   | 右摇杆 | `ABS_RX`/`ABS_RY` | 无对应（Slot 无右摇杆功能） |
-   | 摇杆按压 | `BTN_THUMBL`/`BTN_THUMBR` 0x13d/0x13e | 无对应（`Btn` 枚举没有 L3/R3） |
+   | 左摇杆 | `ABS_X`/`ABS_Y`（0..1023，静止 519） | 模拟轴 + 方向（方向需 `left_stick_dpad` 打开） |
+   | 右摇杆 | `ABS_RX`/`ABS_RY` | 模拟轴（靠 `slot-analog.patch`） |
+   | 摇杆按压 | `BTN_THUMBL`/`BTN_THUMBR` 0x13d/0x13e | `L3`/`R3`（可绑快捷键；靠 `slot-analog.patch` 的 `Btn`/`Device` 扩展） |
 
    两个易错点，写 patch 时务必照做：
-   - **摇杆是 `adc-joystick`**：报送 `ABS_X/ABS_Y`，量程 0..1023、静止约 519，上游的
-     `STICK_DEADZONE = 2048` 会把所有采样吞掉；且 X 轴方向反了（值大 = 左），要取负。
+   - **摇杆是 `adc-joystick`**：报送 `ABS_X/ABS_Y`（左）与 `ABS_RX/ABS_RY`（右），
+     量程 0..1023、静止约 519，上游的 `STICK_DEADZONE = 2048` 会把所有采样吞掉；
+     四个轴的方向约定见 §2.1 的方位表（左 X/Y 都要取负，右 Y 取负）。
    - **摇杆设备没有任何按键**：只靠 `WANTED`（按键位图）选设备会漏掉它，必须在
      `wanted_node()` 里用 `ABS` 能力位判定（同时要求左右摇杆都在，避免误收鼠标/触摸屏）。
 6. **构建**：`SLOT_BUILD_IMAGE=rg353ps-slot-build:latest ./build-slot.sh`
@@ -144,6 +218,9 @@ Mesa/Panfrost 根本不认这个 ABI，结果就是黑屏或 `EGL not initialize
 
 - [ ] SDL2 KMSDRM 在 640×480 屏初始化成功（无黑屏、无 "EGL not initialized"）
 - [ ] 输入：方向键 / ABXY / LR / Start / Select 按**物理位置**正确
+- [ ] 左摇杆：推上下左右**方向正确**（不再上下颠倒），按键设置里能被捕获成方向
+- [ ] 摇杆按压：按下去能在按键设置里捕获成 `L3`/`R3`
+- [ ] 右摇杆：在支持模拟核心的游戏里（街机 / PS1）推右摇杆有反应；GBA 核心本来就不用右摇杆
 - [ ] 音频：RK817 声卡出声（`SDL_AUDIODRIVER=alsa` 生效，日志里有 `audio plug:default at 48000 Hz`）
 - [ ] 音量：按音量键，**前端自己的条**在动，且响度跟着变；`amixer -c <n> cget name='BaseOS Master'` 保持 90 不动
 - [ ] 音量：一次开机到下一次开机，同一格的响度一致（不漂移）

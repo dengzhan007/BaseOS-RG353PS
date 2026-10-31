@@ -1,24 +1,48 @@
 diff --git a/crates/slot/src/input/evdev.rs b/crates/slot/src/input/evdev.rs
-index 7de3178..15a10df 100644
+index 7de3178..0f39462 100644
 --- a/crates/slot/src/input/evdev.rs
 +++ b/crates/slot/src/input/evdev.rs
-@@ -14,16 +14,26 @@ pub const ABS_HAT0X: u16 = 0x10;
+@@ -1,6 +1,7 @@
+ use std::path::{Path, PathBuf};
+ 
+ use slot_input::{Btn, RawEvent};
++use slot_retro::Axes;
+ 
+ pub const EVENT_BYTES: usize = 24;
+ 
+@@ -12,48 +13,192 @@ pub const SW_LID: u16 = 0x00;
+ pub const EV_ABS: u16 = 0x03;
+ pub const ABS_HAT0X: u16 = 0x10;
  pub const ABS_HAT0Y: u16 = 0x11;
- pub const ABS_LSX: u16 = 0x02;
- pub const ABS_LSY: u16 = 0x03;
-+/* RG353PS feeds its sticks from adc-joystick, which reports plain ABS_X/ABS_Y
-+   (left) and ABS_RX/ABS_RY (right) instead of the ABS_Z/ABS_RX pair the H700
-+   handhelds use. */
+-pub const ABS_LSX: u16 = 0x02;
+-pub const ABS_LSY: u16 = 0x03;
++/* 0x03 is ABS_RX on Linux. The H700 handhelds call their left stick's Y axis
++   ABS_LSY, but on the RG353PS that number belongs to the right stick, so the
++   axes are named for what they are here rather than for the H700 pair. */
++pub const ABS_RX: u16 = 0x03;
++pub const ABS_RY: u16 = 0x04;
++/* RG353PS feeds both sticks from one adc-joystick: left is ABS_X/ABS_Y, right
++   is ABS_RX/ABS_RY. */
 +pub const ABS_X: u16 = 0x00;
 +pub const ABS_Y: u16 = 0x01;
  
- pub const STICK_DEADZONE: i32 = 2048;
+-pub const STICK_DEADZONE: i32 = 2048;
 +/* adc-joystick uses abs-range = <15 1023>, so rest sits at 519 rather than 0
-+   and the H700 deadzone would swallow every sample. */
++   and the 0..32767 deadzone the H700 handhelds use would swallow every
++   sample. */
 +pub const ADC_CENTRE: i32 = 519;
 +pub const ADC_DEADZONE: i32 = 140;
++/* Half the ADC span either side of centre; 1023 - 519 and 519 - 15 are both
++   504. Dividing by it maps a full deflection onto the libretro i16 range. */
++pub const ADC_TRAVEL: i32 = 504;
++/* Analog uses a far smaller deadzone than the digital tilt above: a gamepad
++   axis that only starts moving past a quarter of its travel feels broken. */
++pub const ADC_ANALOG_DEADZONE: i32 = 40;
  
 -const LEFT_STICK_TARGETS: [&str; 6] = [
++pub const STICK_LEFT: usize = 0;
++pub const STICK_RIGHT: usize = 1;
++
 +const LEFT_STICK_TARGETS: [&str; 7] = [
      "rg34xxsp",
      "rg35xxh",
@@ -30,29 +54,185 @@ index 7de3178..15a10df 100644
  ];
  
  pub fn has_left_stick(target: &str) -> bool {
-@@ -49,11 +59,21 @@ impl Hat {
-             _ => 0,
-         };
-         let steer = |v: i32| if self.steers { tilt(v) } else { 0 };
+     LEFT_STICK_TARGETS.contains(&target)
+ }
+ 
+-#[derive(Default)]
++/// Which way each ADC axis climbs, per stick, relative to the evdev convention
++/// that a bigger sample means further right / further down.
++///
++/// The RG353PS climbs the other way on every axis, so the built-in table is all
++/// -1. The right stick is the one axis pair that cannot be cross-checked against
++/// the D-pad, so `<SDCARD>/Config/sticks.txt` overrides any of them at runtime:
++///
++/// ```text
++/// # +1 = a bigger sample means further right / further down
++/// rx=1
++/// ```
++///
++/// Missing or unparsable lines keep the built-in value, so a typo cannot leave
++/// a stick dead.
++#[derive(Copy, Clone, PartialEq, Eq, Debug)]
++pub struct AxisSigns {
++    pub left: [i32; 2],
++    pub right: [i32; 2],
++}
++
++impl Default for AxisSigns {
++    fn default() -> Self {
++        AxisSigns {
++            left: [-1, -1],
++            right: [-1, -1],
++        }
++    }
++}
++
++impl AxisSigns {
++    pub const FILE: &'static str = "sticks.txt";
++
++    pub fn load(config_dir: &Path) -> Self {
++        let mut signs = AxisSigns::default();
++        let Ok(text) = std::fs::read_to_string(config_dir.join(Self::FILE)) else {
++            return signs;
++        };
++        for line in text.lines() {
++            let line = line.split('#').next().unwrap_or("");
++            let Some((key, value)) = line.split_once('=') else {
++                continue;
++            };
++            let Ok(value) = value.trim().parse::<i32>() else {
++                continue;
++            };
++            let value = value.signum();
++            if value == 0 {
++                continue;
++            }
++            match key.trim().to_ascii_lowercase().as_str() {
++                "lx" => signs.left[0] = value,
++                "ly" => signs.left[1] = value,
++                "rx" => signs.right[0] = value,
++                "ry" => signs.right[1] = value,
++                _ => {}
++            }
++        }
++        signs
++    }
++
++    fn of(&self, stick: usize) -> &[i32; 2] {
++        if stick == STICK_RIGHT {
++            &self.right
++        } else {
++            &self.left
++        }
++    }
++}
++
+ pub struct Hat {
+     hat: [i32; 2],
+     stick: [i32; 2],
++    /* Raw ADC samples per stick, left then right, X then Y. The right stick has
++       no digital destination: it only ever feeds the analog axes. */
++    raw: [[i32; 2]; 2],
++    signs: AxisSigns,
+     steers: bool,
+ }
+ 
++impl Default for Hat {
++    fn default() -> Self {
++        Hat {
++            hat: [0; 2],
++            stick: [0; 2],
++            raw: [[ADC_CENTRE; 2]; 2],
++            signs: AxisSigns::default(),
++            steers: false,
++        }
++    }
++}
++
+ impl Hat {
+     pub fn steer_with_stick(&mut self, on: bool) {
+         self.steers = on;
+     }
+ 
++    pub fn set_signs(&mut self, signs: AxisSigns) {
++        self.signs = signs;
++    }
++
++    /// Latest stick deflection, already normalised for libretro: +X is right,
++    /// +Y is down, with each axis' wiring sign applied.
++    pub fn analog(&self) -> Axes {
++        let sample = |stick: usize, which: usize| {
++            (self.signs.of(stick)[which] * axis(self.raw[stick][which])) as i16
++        };
++        Axes {
++            left: (sample(STICK_LEFT, 0), sample(STICK_LEFT, 1)),
++            right: (sample(STICK_RIGHT, 0), sample(STICK_RIGHT, 1)),
++        }
++    }
++
+     pub fn feed(&mut self, ev: Ev) -> Vec<RawEvent> {
+-        let tilt = |v: i32| match v {
+-            v if v > STICK_DEADZONE => 1,
+-            v if v < -STICK_DEADZONE => -1,
 +        let tilt_adc = |v: i32| match v {
 +            v if v > ADC_CENTRE + ADC_DEADZONE => 1,
 +            v if v < ADC_CENTRE - ADC_DEADZONE => -1,
-+            _ => 0,
-+        };
-+        let steer_adc = |v: i32| if self.steers { tilt_adc(v) } else { 0 };
+             _ => 0,
+         };
+-        let steer = |v: i32| if self.steers { tilt(v) } else { 0 };
++        /* Copy the flag out: the closure must not hold a borrow of self while
++           feed() records the raw sample below. */
++        let steers = self.steers;
++        let sign = self.signs;
++        let steer_adc = |v: i32| if steers { tilt_adc(v) } else { 0 };
          let (axis, from_stick, value) = match ev.code {
              ABS_HAT0X => (0, false, ev.value.signum()),
              ABS_HAT0Y => (1, false, ev.value.signum()),
-             ABS_LSX => (0, true, steer(ev.value)),
-             ABS_LSY => (1, true, steer(ev.value)),
-+            /* The RG353PS left stick is wired backwards on X: the ADC climbs
-+               towards the left, so the sign has to be flipped. */
-+            ABS_X => (0, true, -steer_adc(ev.value)),
-+            ABS_Y => (1, true, steer_adc(ev.value)),
+-            ABS_LSX => (0, true, steer(ev.value)),
+-            ABS_LSY => (1, true, steer(ev.value)),
++            /* Both left-stick axes climb the wrong way on this board, which is
++               what AxisSigns carries; the same sign drives the digital tilt and
++               the analog axis so the two can never disagree. */
++            ABS_X => {
++                self.raw[STICK_LEFT][0] = ev.value;
++                (0, true, sign.left[0] * steer_adc(ev.value))
++            }
++            ABS_Y => {
++                self.raw[STICK_LEFT][1] = ev.value;
++                (1, true, sign.left[1] * steer_adc(ev.value))
++            }
++            /* The right stick only has analog consumers, so recording the
++               sample is all there is to do. */
++            ABS_RX => {
++                self.raw[STICK_RIGHT][0] = ev.value;
++                return Vec::new();
++            }
++            ABS_RY => {
++                self.raw[STICK_RIGHT][1] = ev.value;
++                return Vec::new();
++            }
              _ => return Vec::new(),
          };
          let was = self.held(axis);
-@@ -116,27 +136,44 @@ pub fn to_raw(ev: Ev) -> Option<RawEvent> {
+@@ -85,6 +230,17 @@ impl Hat {
+     }
+ }
+ 
++/// One ADC sample as a signed axis: negative below centre, positive above, zero
++/// inside the small analog deadzone. `AxisSigns` decides which physical
++/// direction that ends up meaning.
++fn axis(raw: i32) -> i32 {
++    let centred = raw.clamp(0, 1023) - ADC_CENTRE;
++    if centred.abs() <= ADC_ANALOG_DEADZONE {
++        return 0;
++    }
++    (centred * 32767 / ADC_TRAVEL).clamp(i32::from(i16::MIN), i32::from(i16::MAX))
++}
++
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+ pub struct Ev {
+     pub kind: u16,
+@@ -116,27 +272,46 @@ pub fn to_raw(ev: Ev) -> Option<RawEvent> {
  
  pub fn code_to_btn(code: u16) -> Option<Btn> {
      Some(match code {
@@ -82,6 +262,8 @@ index 7de3178..15a10df 100644
 +        0x13a => Btn::Select, // BTN_SELECT
 +        0x13b => Btn::Start,  // BTN_START
 +        0x13c => Btn::Menu,   // BTN_MODE: the physical Function key
++        0x13d => Btn::L3,     // BTN_THUMBL: left stick pressed in
++        0x13e => Btn::R3,     // BTN_THUMBR: right stick pressed in
 +        /* The D-pad is a gpio-keys array on this board. Keep the keyboard
 +           arrow codes too, in case a kernel builds it as KEY_*. */
 +        0x220 => Btn::Up,    // BTN_DPAD_UP
@@ -112,7 +294,7 @@ index 7de3178..15a10df 100644
  ];
  
  pub use slot_power::has_bit;
-@@ -166,8 +203,15 @@ pub fn pick_devices(dev: &Path, sys: &Path) -> Vec<PathBuf> {
+@@ -166,8 +341,17 @@ pub fn pick_devices(dev: &Path, sys: &Path) -> Vec<PathBuf> {
  fn wanted_node(device: &Path) -> bool {
      let cap = |file: &str| std::fs::read_to_string(device.join("capabilities").join(file));
      let keys = cap("key").unwrap_or_default();
@@ -120,12 +302,140 @@ index 7de3178..15a10df 100644
      let lid = cap("sw").is_ok_and(|sw| has_bit(&sw, SW_LID));
 -    lid || WANTED.iter().any(|bit| has_bit(&keys, *bit))
 +    /* adc-joystick exposes no keys at all, so the stick device only shows up
-+       through its axes. Requiring both sticks (ABS_X/ABS_Y plus ABS_RX, which
-+       shares its number with ABS_LSY) keeps mice and touchscreens out. */
-+    let sticks = [ABS_X, ABS_Y, ABS_LSY].iter().all(|bit| has_bit(&abs, *bit));
++       through its axes. Requiring all four axes - both sticks - keeps mice and
++       touchscreens out. */
++    let sticks = [ABS_X, ABS_Y, ABS_RX, ABS_RY]
++        .iter()
++        .all(|bit| has_bit(&abs, *bit));
 +    lid || sticks
 +        || WANTED.iter().any(|bit| has_bit(&keys, *bit))
 +        || [ABS_HAT0X, ABS_HAT0Y].iter().any(|bit| has_bit(&abs, *bit))
  }
  
  pub fn device_name(sys: &Path, node: &Path) -> String {
+@@ -176,3 +360,125 @@ pub fn device_name(sys: &Path, node: &Path) -> String {
+         .map(|n| n.trim().to_string())
+         .unwrap_or_else(|| node.display().to_string())
+ }
++
++#[cfg(test)]
++mod rg353ps {
++    use super::*;
++
++    fn abs(code: u16, value: i32) -> Ev {
++        Ev {
++            kind: EV_ABS,
++            code,
++            value,
++        }
++    }
++
++    /* Slot reads a positive axis value as right/down (the esp. Linux
++       convention), and every ADC axis on this board climbs the other way: a
++       bigger sample is further left and further up. Both the digital tilt and
++       the analog axis therefore take the same sign. */
++    #[test]
++    fn the_left_stick_reads_the_way_the_board_is_wired() {
++        let mut hat = Hat::default();
++        hat.steer_with_stick(true);
++        assert_eq!(hat.feed(abs(ABS_X, 1000)), vec![RawEvent::Down(Btn::Left)]);
++        assert_eq!(hat.feed(abs(ABS_X, 519)), vec![RawEvent::Up(Btn::Left)]);
++        assert_eq!(hat.feed(abs(ABS_X, 15)), vec![RawEvent::Down(Btn::Right)]);
++        assert_eq!(hat.feed(abs(ABS_X, 519)), vec![RawEvent::Up(Btn::Right)]);
++        assert_eq!(hat.feed(abs(ABS_Y, 1000)), vec![RawEvent::Down(Btn::Up)]);
++        assert_eq!(hat.feed(abs(ABS_Y, 519)), vec![RawEvent::Up(Btn::Up)]);
++        assert_eq!(hat.feed(abs(ABS_Y, 15)), vec![RawEvent::Down(Btn::Down)]);
++        assert_eq!(hat.feed(abs(ABS_Y, 519)), vec![RawEvent::Up(Btn::Down)]);
++    }
++
++    #[test]
++    fn the_deadzone_swallows_rest_and_small_wobble() {
++        let mut hat = Hat::default();
++        hat.steer_with_stick(true);
++        assert!(hat.feed(abs(ABS_X, 519 + ADC_DEADZONE)).is_empty());
++        assert!(hat.feed(abs(ABS_X, 519 - ADC_DEADZONE)).is_empty());
++        assert!(hat.feed(abs(ABS_Y, 519 + ADC_DEADZONE)).is_empty());
++    }
++
++    #[test]
++    fn a_wrong_sign_turns_the_stick_around() {
++        let mut hat = Hat::default();
++        hat.steer_with_stick(true);
++        hat.set_signs(AxisSigns {
++            left: [1, 1],
++            right: [1, 1],
++        });
++        assert_eq!(hat.feed(abs(ABS_X, 1000)), vec![RawEvent::Down(Btn::Right)]);
++        assert_eq!(hat.feed(abs(ABS_X, 519)), vec![RawEvent::Up(Btn::Right)]);
++        assert_eq!(hat.feed(abs(ABS_Y, 1000)), vec![RawEvent::Down(Btn::Down)]);
++    }
++
++    #[test]
++    fn the_left_stick_is_analog_even_when_it_does_not_steer() {
++        let mut hat = Hat::default();
++        hat.steer_with_stick(false);
++        assert!(hat.feed(abs(ABS_Y, 1023)).is_empty(), "steering is off");
++        let axes = hat.analog();
++        assert_eq!(axes.left.1, -32767, "up should be negative");
++        hat.feed(abs(ABS_Y, 15));
++        assert_eq!(hat.analog().left.1, 32767, "down should be positive");
++    }
++
++    #[test]
++    fn the_right_stick_only_feeds_the_analog_axes() {
++        let mut hat = Hat::default();
++        hat.steer_with_stick(true);
++        /* Same wiring as the left stick: a big sample is left and up. */
++        assert!(hat.feed(abs(ABS_RX, 1023)).is_empty());
++        assert!(hat.feed(abs(ABS_RY, 1023)).is_empty());
++        let axes = hat.analog();
++        assert_eq!(axes.left, (0, 0), "the left stick moved");
++        assert_eq!(axes.right.0, -32767, "full left");
++        assert_eq!(axes.right.1, -32767, "full up");
++    }
++
++    #[test]
++    fn a_centred_stick_reports_no_deflection() {
++        let hat = Hat::default();
++        assert_eq!(hat.analog(), Axes::default());
++    }
++
++    #[test]
++    fn the_stick_clicks_are_buttons_now() {
++        assert_eq!(code_to_btn(0x13d), Some(Btn::L3));
++        assert_eq!(code_to_btn(0x13e), Some(Btn::R3));
++    }
++
++    #[test]
++    fn the_sign_table_reads_overrides_and_ignores_nonsense() {
++        let d = tempfile::tempdir().unwrap();
++        std::fs::write(
++            d.path().join(AxisSigns::FILE),
++            "# mirror the right stick\nrx = 1\nry=-0\nnope=3\nlx=+1\n",
++        )
++        .unwrap();
++        let signs = AxisSigns::load(d.path());
++        assert_eq!(signs.left, [1, -1], "lx overridden, ly untouched");
++        assert_eq!(signs.right, [1, -1], "zero and unknown keys are ignored");
++    }
++
++    #[test]
++    fn a_missing_sign_file_keeps_the_built_in_table() {
++        let d = tempfile::tempdir().unwrap();
++        assert_eq!(AxisSigns::load(d.path()), AxisSigns::default());
++    }
++
++    #[test]
++    fn the_stick_device_is_picked_by_its_axes_alone() {
++        let d = tempfile::tempdir().unwrap();
++        let dev = d.path().join("dev/input");
++        let sys = d.path().join("sys/class/input");
++        std::fs::create_dir_all(&dev).unwrap();
++        std::fs::create_dir_all(sys.join("event3/device/capabilities")).unwrap();
++        std::fs::write(dev.join("event3"), "").unwrap();
++        std::fs::write(sys.join("event3/device/name"), "adc-joystick\n").unwrap();
++        /* ABS_X | ABS_Y | ABS_RX | ABS_RY - no key bits at all. */
++        std::fs::write(sys.join("event3/device/capabilities/abs"), "1b\n").unwrap();
++        assert_eq!(pick_devices(&dev, &sys), vec![dev.join("event3")]);
++    }
++}

@@ -1,0 +1,4 @@
+# dropbear host keys are raw binary blobs (no newlines to speak of). With
+# core.autocrlf=true a checkout would inject CR bytes and every SSH client
+# would then reject the key. Keep them byte-exact.
+platforms/rg353ps/rootfs/etc/dropbear/dropbear_ed25519_host_key -text -diff

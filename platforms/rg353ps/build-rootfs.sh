@@ -238,6 +238,12 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     chmod 0755 "$R/usr/sbin/rg353ps-sdl2-test"
     chmod 0755 "$R/usr/sbin/rg353ps-control-center"
     chmod 1777 "$R/tmp"
+    # The debug channel ships a fixed dropbear host key. Without one dropbear
+    # mints a fresh key on first boot, so every reflash changes the fingerprint
+    # and the host stops connecting with "REMOTE HOST IDENTIFICATION HAS
+    # CHANGED". Git cannot carry mode 0600, so set it here; dropbear refuses a
+    # group/world-readable host key.
+    chmod 0600 "$R/etc/dropbear/dropbear_ed25519_host_key"
     mkdir -p "$R/mnt/SDCARD" "$R/run" "$R/root" "$R/var/empty"
     ln -sfn /mnt/SDCARD "$R/mnt/sdcard"
     printf "root:x:0:0:root:/root:/bin/sh\n" > "$R/etc/passwd"
@@ -275,6 +281,7 @@ EOF
 
 for file in "$ROOTFS/usr/bin/busybox" "$ROOTFS/usr/bin/baseos-splash" "$ROOTFS/usr/bin/fbsplash" "$ROOTFS/sbin/init" "$ROOTFS/etc/init.d/rcS" "$ROOTFS/usr/sbin/baseos-mount-storage" "$ROOTFS/usr/sbin/baseos-init-userdata" "$ROOTFS/usr/sbin/baseos-usb-storage" "$ROOTFS/usr/sbin/baseos-frontend-session" "$ROOTFS/usr/sbin/baseos-slot-launcher" "$ROOTFS/usr/sbin/rg353ps-hotkeyd" "$ROOTFS/usr/sbin/rg353ps-hardware-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-test" "$ROOTFS/usr/sbin/rg353ps-graphics-stack-test" "$ROOTFS/usr/sbin/rg353ps-sdl2-test" "$ROOTFS/usr/sbin/rg353ps-control-center" "$ROOTFS/etc/baseos.conf" "$ROOTFS/etc/baseos-release" \
   "$ROOTFS/etc/baseos/bootlogo.bmp" "$ROOTFS/etc/baseos/bootlogo-README.txt" \
+  "$ROOTFS/etc/dropbear/dropbear_ed25519_host_key" \
   "$ROOTFS/usr/sbin/baseos-update" "$ROOTFS/usr/sbin/gptslot" \
   "$ROOTFS/usr/sbin/rg353ps-sleep" "$ROOTFS/usr/sbin/rg353ps-wifi-connect" \
   "$ROOTFS/usr/sbin/wpa_supplicant" "$ROOTFS/lib/modules/$KREL/modules.dep"; do

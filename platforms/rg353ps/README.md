@@ -103,6 +103,16 @@ device port again — and still enters mass storage with Function + plug:
 `baseos-usb-storage` releases this gadget first and restarts it from its cleanup
 trap, so the two modes never fight over the controller.
 
+The image also carries a fixed dropbear host key at
+`platforms/rg353ps/rootfs/etc/dropbear/dropbear_ed25519_host_key` (mode 0600, set
+by the build, marked `-text` in `.gitattributes`). Never delete it: without one
+dropbear generates a fresh key on first boot, every reflash changes the host
+fingerprint, and clients then abort with `REMOTE HOST IDENTIFICATION HAS
+CHANGED`. Because it is committed, anyone with the repository can impersonate
+this debug port — acceptable for a private bring-up board, not for a shipped
+device. To rotate it, run `dropbearkey -t ed25519 -f <file>` on the device and
+commit the result.
+
 With a shell available, the diagnostics that used to need a rebuild are one
 line away: `baseos-audio-check`, `baseos-usb-debug status`, `dmesg`, `amixer`.
 

@@ -1,5 +1,5 @@
 diff --git a/crates/slot/src/input/evdev.rs b/crates/slot/src/input/evdev.rs
-index 7de3178..0f39462 100644
+index 7de3178..3db977b 100644
 --- a/crates/slot/src/input/evdev.rs
 +++ b/crates/slot/src/input/evdev.rs
 @@ -1,6 +1,7 @@
@@ -10,7 +10,7 @@ index 7de3178..0f39462 100644
  
  pub const EVENT_BYTES: usize = 24;
  
-@@ -12,48 +13,192 @@ pub const SW_LID: u16 = 0x00;
+@@ -12,48 +13,194 @@ pub const SW_LID: u16 = 0x00;
  pub const EV_ABS: u16 = 0x03;
  pub const ABS_HAT0X: u16 = 0x10;
  pub const ABS_HAT0Y: u16 = 0x11;
@@ -61,13 +61,15 @@ index 7de3178..0f39462 100644
 +/// Which way each ADC axis climbs, per stick, relative to the evdev convention
 +/// that a bigger sample means further right / further down.
 +///
-+/// The RG353PS climbs the other way on every axis, so the built-in table is all
-+/// -1. The right stick is the one axis pair that cannot be cross-checked against
-+/// the D-pad, so `<SDCARD>/Config/sticks.txt` overrides any of them at runtime:
++/// Measured on the hardware: X climbs towards the right and Y climbs upwards,
++/// so the left stick is `[+1, -1]`. Both sticks hang off the same adc-joystick
++/// with the same divider, so the right stick starts from the same pair. Every
++/// axis can be overridden at runtime from `<SDCARD>/Config/sticks.txt`:
 +///
 +/// ```text
 +/// # +1 = a bigger sample means further right / further down
-+/// rx=1
++/// rx=-1
++/// ry=1
 +/// ```
 +///
 +/// Missing or unparsable lines keep the built-in value, so a typo cannot leave
@@ -81,8 +83,8 @@ index 7de3178..0f39462 100644
 +impl Default for AxisSigns {
 +    fn default() -> Self {
 +        AxisSigns {
-+            left: [-1, -1],
-+            right: [-1, -1],
++            left: [1, -1],
++            right: [1, -1],
 +        }
 +    }
 +}
@@ -214,7 +216,7 @@ index 7de3178..0f39462 100644
              _ => return Vec::new(),
          };
          let was = self.held(axis);
-@@ -85,6 +230,17 @@ impl Hat {
+@@ -85,6 +232,17 @@ impl Hat {
      }
  }
  
@@ -232,7 +234,7 @@ index 7de3178..0f39462 100644
  #[derive(Copy, Clone, PartialEq, Eq, Debug)]
  pub struct Ev {
      pub kind: u16,
-@@ -116,27 +272,46 @@ pub fn to_raw(ev: Ev) -> Option<RawEvent> {
+@@ -116,27 +274,46 @@ pub fn to_raw(ev: Ev) -> Option<RawEvent> {
  
  pub fn code_to_btn(code: u16) -> Option<Btn> {
      Some(match code {
@@ -294,7 +296,7 @@ index 7de3178..0f39462 100644
  ];
  
  pub use slot_power::has_bit;
-@@ -166,8 +341,17 @@ pub fn pick_devices(dev: &Path, sys: &Path) -> Vec<PathBuf> {
+@@ -166,8 +343,32 @@ pub fn pick_devices(dev: &Path, sys: &Path) -> Vec<PathBuf> {
  fn wanted_node(device: &Path) -> bool {
      let cap = |file: &str| std::fs::read_to_string(device.join("capabilities").join(file));
      let keys = cap("key").unwrap_or_default();
@@ -310,10 +312,25 @@ index 7de3178..0f39462 100644
 +    lid || sticks
 +        || WANTED.iter().any(|bit| has_bit(&keys, *bit))
 +        || [ABS_HAT0X, ABS_HAT0Y].iter().any(|bit| has_bit(&abs, *bit))
++}
++
++/// True when this event node is the adc-joystick: all four ABS channels, and on
++/// this board no keys at all. Only this node may publish the analog axes - the
++/// gpio-keys node carries none and would otherwise overwrite them with centre
++/// every time a button is pressed.
++pub fn is_stick_node(sys: &Path, node: &Path) -> bool {
++    let Some(name) = node.file_name() else {
++        return false;
++    };
++    let abs = std::fs::read_to_string(sys.join(name).join("device/capabilities/abs"))
++        .unwrap_or_default();
++    [ABS_X, ABS_Y, ABS_RX, ABS_RY]
++        .iter()
++        .all(|bit| has_bit(&abs, *bit))
  }
  
  pub fn device_name(sys: &Path, node: &Path) -> String {
-@@ -176,3 +360,125 @@ pub fn device_name(sys: &Path, node: &Path) -> String {
+@@ -176,3 +377,154 @@ pub fn device_name(sys: &Path, node: &Path) -> String {
          .map(|n| n.trim().to_string())
          .unwrap_or_else(|| node.display().to_string())
  }
@@ -330,22 +347,31 @@ index 7de3178..0f39462 100644
 +        }
 +    }
 +
-+    /* Slot reads a positive axis value as right/down (the esp. Linux
-+       convention), and every ADC axis on this board climbs the other way: a
-+       bigger sample is further left and further up. Both the digital tilt and
-+       the analog axis therefore take the same sign. */
++    /* Slot reads a positive axis value as right/down (the usual Linux
++       convention). Measured on the board: X climbs towards the right and Y
++       climbs upwards, so X keeps its sign and Y is flipped. The digital tilt
++       and the analog axis share that sign table. */
 +    #[test]
 +    fn the_left_stick_reads_the_way_the_board_is_wired() {
 +        let mut hat = Hat::default();
 +        hat.steer_with_stick(true);
-+        assert_eq!(hat.feed(abs(ABS_X, 1000)), vec![RawEvent::Down(Btn::Left)]);
-+        assert_eq!(hat.feed(abs(ABS_X, 519)), vec![RawEvent::Up(Btn::Left)]);
-+        assert_eq!(hat.feed(abs(ABS_X, 15)), vec![RawEvent::Down(Btn::Right)]);
++        assert_eq!(hat.feed(abs(ABS_X, 1023)), vec![RawEvent::Down(Btn::Right)]);
 +        assert_eq!(hat.feed(abs(ABS_X, 519)), vec![RawEvent::Up(Btn::Right)]);
-+        assert_eq!(hat.feed(abs(ABS_Y, 1000)), vec![RawEvent::Down(Btn::Up)]);
++        assert_eq!(hat.feed(abs(ABS_X, 15)), vec![RawEvent::Down(Btn::Left)]);
++        assert_eq!(hat.feed(abs(ABS_X, 519)), vec![RawEvent::Up(Btn::Left)]);
++        assert_eq!(hat.feed(abs(ABS_Y, 1023)), vec![RawEvent::Down(Btn::Up)]);
 +        assert_eq!(hat.feed(abs(ABS_Y, 519)), vec![RawEvent::Up(Btn::Up)]);
 +        assert_eq!(hat.feed(abs(ABS_Y, 15)), vec![RawEvent::Down(Btn::Down)]);
 +        assert_eq!(hat.feed(abs(ABS_Y, 519)), vec![RawEvent::Up(Btn::Down)]);
++    }
++
++    #[test]
++    fn both_axes_together_release_before_pressing_the_diagonal() {
++        let mut hat = Hat::default();
++        hat.steer_with_stick(true);
++        assert_eq!(hat.feed(abs(ABS_X, 1023)), vec![RawEvent::Down(Btn::Right)]);
++        assert_eq!(hat.feed(abs(ABS_Y, 1023)), vec![RawEvent::Down(Btn::Up)]);
++        assert_eq!(hat.feed(abs(ABS_X, 519)), vec![RawEvent::Up(Btn::Right)]);
 +    }
 +
 +    #[test]
@@ -358,16 +384,20 @@ index 7de3178..0f39462 100644
 +    }
 +
 +    #[test]
-+    fn a_wrong_sign_turns_the_stick_around() {
++    fn a_sign_override_turns_the_stick_around() {
 +        let mut hat = Hat::default();
 +        hat.steer_with_stick(true);
 +        hat.set_signs(AxisSigns {
-+            left: [1, 1],
-+            right: [1, 1],
++            left: [-1, 1],
++            right: [-1, 1],
 +        });
-+        assert_eq!(hat.feed(abs(ABS_X, 1000)), vec![RawEvent::Down(Btn::Right)]);
-+        assert_eq!(hat.feed(abs(ABS_X, 519)), vec![RawEvent::Up(Btn::Right)]);
-+        assert_eq!(hat.feed(abs(ABS_Y, 1000)), vec![RawEvent::Down(Btn::Down)]);
++        assert_eq!(hat.feed(abs(ABS_X, 1023)), vec![RawEvent::Down(Btn::Left)]);
++        assert_eq!(hat.feed(abs(ABS_X, 519)), vec![RawEvent::Up(Btn::Left)]);
++        assert_eq!(hat.feed(abs(ABS_Y, 1023)), vec![RawEvent::Down(Btn::Down)]);
++        assert_eq!(
++            hat.feed(abs(ABS_Y, 15)),
++            vec![RawEvent::Up(Btn::Down), RawEvent::Down(Btn::Up)]
++        );
 +    }
 +
 +    #[test]
@@ -385,12 +415,12 @@ index 7de3178..0f39462 100644
 +    fn the_right_stick_only_feeds_the_analog_axes() {
 +        let mut hat = Hat::default();
 +        hat.steer_with_stick(true);
-+        /* Same wiring as the left stick: a big sample is left and up. */
++        /* Same wiring as the left stick: a big sample is right and up. */
 +        assert!(hat.feed(abs(ABS_RX, 1023)).is_empty());
 +        assert!(hat.feed(abs(ABS_RY, 1023)).is_empty());
 +        let axes = hat.analog();
 +        assert_eq!(axes.left, (0, 0), "the left stick moved");
-+        assert_eq!(axes.right.0, -32767, "full left");
++        assert_eq!(axes.right.0, 32767, "full right");
 +        assert_eq!(axes.right.1, -32767, "full up");
 +    }
 +
@@ -409,14 +439,15 @@ index 7de3178..0f39462 100644
 +    #[test]
 +    fn the_sign_table_reads_overrides_and_ignores_nonsense() {
 +        let d = tempfile::tempdir().unwrap();
-+        std::fs::write(
-+            d.path().join(AxisSigns::FILE),
-+            "# mirror the right stick\nrx = 1\nry=-0\nnope=3\nlx=+1\n",
-+        )
-+        .unwrap();
++        let file = d.path().join(AxisSigns::FILE);
++        std::fs::write(&file, "# mirror the right stick\nrx = -1\nry=+1\nnope=3\nlx=-1\n")
++            .unwrap();
 +        let signs = AxisSigns::load(d.path());
-+        assert_eq!(signs.left, [1, -1], "lx overridden, ly untouched");
-+        assert_eq!(signs.right, [1, -1], "zero and unknown keys are ignored");
++        assert_eq!(signs.left, [-1, -1], "lx overridden, ly untouched");
++        assert_eq!(signs.right, [-1, 1], "unknown keys are ignored");
++        /* A zero would mean "drop this axis", so it is rejected outright. */
++        std::fs::write(&file, "ry=0\n").unwrap();
++        assert_eq!(AxisSigns::load(d.path()).right, [1, -1]);
 +    }
 +
 +    #[test]
@@ -426,16 +457,31 @@ index 7de3178..0f39462 100644
 +    }
 +
 +    #[test]
++    fn the_built_in_table_matches_the_measurements() {
++        let signs = AxisSigns::default();
++        assert_eq!(signs.left, [1, -1], "rightwards and upwards");
++        assert_eq!(signs.right, [1, -1]);
++    }
++
++    #[test]
 +    fn the_stick_device_is_picked_by_its_axes_alone() {
 +        let d = tempfile::tempdir().unwrap();
 +        let dev = d.path().join("dev/input");
 +        let sys = d.path().join("sys/class/input");
 +        std::fs::create_dir_all(&dev).unwrap();
 +        std::fs::create_dir_all(sys.join("event3/device/capabilities")).unwrap();
++        std::fs::create_dir_all(sys.join("event4/device/capabilities")).unwrap();
 +        std::fs::write(dev.join("event3"), "").unwrap();
++        std::fs::write(dev.join("event4"), "").unwrap();
 +        std::fs::write(sys.join("event3/device/name"), "adc-joystick\n").unwrap();
++        std::fs::write(sys.join("event4/device/name"), "gpio-keys\n").unwrap();
 +        /* ABS_X | ABS_Y | ABS_RX | ABS_RY - no key bits at all. */
 +        std::fs::write(sys.join("event3/device/capabilities/abs"), "1b\n").unwrap();
-+        assert_eq!(pick_devices(&dev, &sys), vec![dev.join("event3")]);
++        /* A second controller-shaped node: one HAT axis and no stick axes. */
++        std::fs::write(sys.join("event4/device/capabilities/abs"), "10000\n").unwrap();
++        let picked = pick_devices(&dev, &sys);
++        assert_eq!(picked, vec![dev.join("event3"), dev.join("event4")]);
++        assert!(is_stick_node(&sys, &dev.join("event3")));
++        assert!(!is_stick_node(&sys, &dev.join("event4")));
 +    }
 +}

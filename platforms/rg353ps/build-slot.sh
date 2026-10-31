@@ -168,7 +168,8 @@ EOF
     # from an older build silently keeps its stale entries and doubles the size.
     rm -f /out/baseos-rg353ps-slot.zip
     zip -qry /out/baseos-rg353ps-slot.zip .
-    sha256sum /out/baseos-rg353ps-slot.zip > /out/baseos-rg353ps-slot.zip.sha256
+    # Relative name so the checksum file is usable wherever it gets copied to.
+    ( cd /out && sha256sum baseos-rg353ps-slot.zip > baseos-rg353ps-slot.zip.sha256 )
     ls -lh /out/baseos-rg353ps-slot.zip /out/baseos-rg353ps-slot.zip.sha256
   '
 

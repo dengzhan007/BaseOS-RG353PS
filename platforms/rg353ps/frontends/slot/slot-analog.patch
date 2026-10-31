@@ -339,7 +339,7 @@ index 319a2c7..e9e77f4 100644
  
  pub fn device_btn(d: Device) -> Btn {
 diff --git a/crates/slot/src/input/device.rs b/crates/slot/src/input/device.rs
-index a658371..3f2a0da 100644
+index a658371..2915f99 100644
 --- a/crates/slot/src/input/device.rs
 +++ b/crates/slot/src/input/device.rs
 @@ -1,15 +1,17 @@
@@ -355,8 +355,8 @@ index a658371..3f2a0da 100644
  
  use super::evdev::{
 -    decode, device_name, pick_devices, to_raw, Ev, Hat, EVENT_BYTES, EV_ABS, EV_KEY, EV_SYN,
-+    decode, device_name, pick_devices, to_raw, AxisSigns, Ev, Hat, EVENT_BYTES, EV_ABS, EV_KEY,
-+    EV_SYN,
++    decode, device_name, is_stick_node, pick_devices, to_raw, AxisSigns, Ev, Hat, EVENT_BYTES,
++    EV_ABS, EV_KEY, EV_SYN,
  };
 +use slot_retro::Axes;
  use super::trace;
@@ -366,13 +366,13 @@ index a658371..3f2a0da 100644
  pub struct DeviceInput {
      pending: Arc<Mutex<Vec<RawEvent>>>,
      stick: Arc<AtomicBool>,
-+    /* Left X/Y then right X/Y, written by the reader threads and read once a
-+       frame by the emulator side. */
++    /* Left X/Y then right X/Y, written by the stick reader thread alone and
++       read once a frame by the emulator side. */
 +    axes: Arc<[AtomicI32; 4]>,
      hall: Option<PathBuf>,
      lid_shut: Option<bool>,
      next_lid_poll: Millis,
-@@ -33,12 +38,18 @@ impl DeviceInput {
+@@ -33,26 +38,40 @@ impl DeviceInput {
  
      pub fn open_in(dev: &Path, sys: &Path, root: &Path, trace: bool) -> Self {
          let trace = trace.then(|| Trace::start(root, dev, sys)).flatten();
@@ -392,22 +392,33 @@ index a658371..3f2a0da 100644
 +        );
          for node in pick_devices(dev, sys) {
              eprintln!(
-                 "slot: input {} ({})",
-@@ -48,11 +59,12 @@ impl DeviceInput {
+-                "slot: input {} ({})",
++                "slot: input {} ({}){}",
+                 node.display(),
+-                device_name(sys, &node)
++                device_name(sys, &node),
++                if is_stick_node(sys, &node) { " [sticks]" } else { "" }
+             );
              quicken_poll(sys, &node);
              let queue = pending.clone();
              let steers = stick.clone();
 +            let axes = axes.clone();
++            /* Only the adc-joystick node feeds the analog axes. The key node
++               has no axes of its own, so letting it publish would park both
++               sticks at centre every time a button changed. */
++            let owns_axes = is_stick_node(sys, &node);
              let name = node.display().to_string();
              let trace = trace.clone();
              let spawned = std::thread::Builder::new()
                  .name(format!("slot-input-{name}"))
 -                .spawn(move || read_node(&node, &queue, &steers, trace.as_deref()));
-+                .spawn(move || read_node(&node, &queue, &steers, &axes, signs, trace.as_deref()));
++                .spawn(move || {
++                    read_node(&node, &queue, &steers, &axes, owns_axes, signs, trace.as_deref())
++                });
              if let Err(e) = spawned {
                  eprintln!("slot: input {name}: {e}");
              }
-@@ -60,6 +72,7 @@ impl DeviceInput {
+@@ -60,6 +79,7 @@ impl DeviceInput {
          DeviceInput {
              pending,
              stick,
@@ -415,16 +426,17 @@ index a658371..3f2a0da 100644
              hall: find_hall(Path::new(PSY)),
              lid_shut: None,
              next_lid_poll: 0,
-@@ -95,6 +108,8 @@ fn read_node(
+@@ -95,6 +115,9 @@ fn read_node(
      node: &Path,
      queue: &Mutex<Vec<RawEvent>>,
      steers: &AtomicBool,
 +    axes: &[AtomicI32; 4],
++    owns_axes: bool,
 +    signs: AxisSigns,
      trace: Option<&Trace>,
  ) {
      let label = node
-@@ -102,6 +117,7 @@ fn read_node(
+@@ -102,6 +125,7 @@ fn read_node(
          .map(|n| n.to_string_lossy().into_owned())
          .unwrap_or_else(|| node.display().to_string());
      let mut hat = Hat::default();
@@ -432,19 +444,21 @@ index a658371..3f2a0da 100644
      let mut file = match File::open(node) {
          Ok(f) => f,
          Err(e) => {
-@@ -136,6 +152,11 @@ fn read_node(
+@@ -136,6 +160,13 @@ fn read_node(
                  _ => events.extend(to_raw(ev)),
              }
          }
-+        let sticks = hat.analog();
-+        let values = [sticks.left.0, sticks.left.1, sticks.right.0, sticks.right.1];
-+        for (axis, value) in axes.iter().zip(values) {
-+            axis.store(i32::from(value), Ordering::Relaxed);
++        if owns_axes {
++            let sticks = hat.analog();
++            let values = [sticks.left.0, sticks.left.1, sticks.right.0, sticks.right.1];
++            for (axis, value) in axes.iter().zip(values) {
++                axis.store(i32::from(value), Ordering::Relaxed);
++            }
 +        }
          if events.is_empty() {
              continue;
          }
-@@ -190,6 +211,14 @@ impl DeviceInput {
+@@ -190,6 +221,14 @@ impl DeviceInput {
          self.stick.store(on, Ordering::Relaxed);
      }
  

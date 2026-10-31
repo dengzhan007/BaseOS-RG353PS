@@ -2,3 +2,15 @@
 # core.autocrlf=true a checkout would inject CR bytes and every SSH client
 # would then reject the key. Keep them byte-exact.
 platforms/rg353ps/rootfs/etc/dropbear/dropbear_ed25519_host_key -text -diff
+
+# Everything the target executes must keep LF. core.autocrlf=true rewrites these
+# on checkout, and the result is not cosmetic: the kernel-style shebang line
+# makes BusyBox fall back to running the script through a shell that then chokes
+# on the trailing CR, and the build container's `sh -n` rejects it outright.
+# These are all shell scripts, so forcing eol=lf is safe here.
+platforms/*/rootfs/etc/init.d/* text eol=lf
+platforms/*/rootfs/usr/sbin/* text eol=lf
+platforms/*/rootfs/usr/bin/* text eol=lf
+platforms/*/rootfs/etc/profile* text eol=lf
+platforms/*/*.sh text eol=lf
+src/*.c text eol=lf

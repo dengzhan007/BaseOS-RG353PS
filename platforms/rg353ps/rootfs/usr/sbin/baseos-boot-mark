@@ -1,0 +1,17 @@
+#!/bin/sh
+# Record one boot-stage timestamp: "baseos-boot-mark <label...>".
+#
+# The value is the first field of /proc/uptime (CLOCK_BOOTTIME, centiseconds),
+# the same clock the /run/boot-frontend-exec handoff marker has always used, so
+# a mark and that marker can be compared directly. Marks go to tmpfs and are
+# therefore per-boot: nothing to clean up, nothing to write on the card.
+#
+# This is called on the boot critical path, so it must stay cheap: no subshell,
+# no fork beyond this script itself, and a silent exit when /run is not there
+# yet (the very first marks in rcS run after the tmpfs mount for that reason).
+set -u
+[ "$#" -ge 1 ] || exit 1
+[ -d /run ] || exit 0
+read -r up _ < /proc/uptime 2>/dev/null || exit 0
+[ -n "${up:-}" ] || exit 0
+printf '%s %s\n' "$up" "$*" >> /run/boot-marks 2>/dev/null || :

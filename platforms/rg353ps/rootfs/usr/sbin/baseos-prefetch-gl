@@ -1,0 +1,40 @@
+#!/bin/sh
+# Warm the page cache for the GL stack while the boot is doing something else.
+#
+# Measured on the device: the frontend's first SDL/EGL call takes 2.18 s with a
+# cold page cache and 0.31 s once the same libraries are resident, and the cause
+# is size -- Mesa's gallium monolith alone is 33 MB on this build. That ~1.9 s
+# was landing inside the frontend's own startup, in front of the first frame.
+#
+# Nothing about that read has to wait for the frontend: these files are known
+# before anything runs, and the boot already spends 1.5 s sampling startup keys
+# for the storage hotkey. Reading them there costs the boot nothing and turns the
+# frontend's stall into a cache hit.
+#
+# Deliberately plain reads with no memory held: this fills the page cache, it
+# does not load or map anything, so the kernel is free to drop it and a partial
+# run is still useful.
+set -u
+
+# Only the libraries the EGL/GLES path actually pulls in. /usr/lib holds 290 MB
+# of toolchain and V4L/ALSA libraries; reading all of it would be slower than the
+# stall it is meant to hide.
+for f in \
+  /usr/lib/libgallium-*.so \
+  /usr/lib/libEGL.so.1 \
+  /usr/lib/libGLESv2.so.2 \
+  /usr/lib/libgbm.so.1 \
+  /usr/lib/libdrm.so.2
+do
+  [ -f "$f" ] && cat "$f" >/dev/null 2>&1
+done
+
+# The DRI directory is dozens of names for one file. Read the target once rather
+# than following every name into the same 133 KB again.
+dri_target=$(readlink -f /usr/lib/dri/panfrost_dri.so 2>/dev/null || :)
+if [ -z "$dri_target" ]; then
+  dri_target=$(readlink -f /usr/lib/dri/rockchip_dri.so 2>/dev/null || :)
+fi
+[ -n "$dri_target" ] && [ -f "$dri_target" ] && cat "$dri_target" >/dev/null 2>&1
+
+/usr/sbin/baseos-boot-mark "bg: gl prefetch done" 2>/dev/null || :

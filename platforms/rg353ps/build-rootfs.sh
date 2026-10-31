@@ -123,6 +123,12 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     # src/ directory (mounted as /baseos-src), not this platform-owned one.
     gcc -static -O2 -o "$R/usr/sbin/gptslot" /baseos-src/gptslot.c
     strip "$R/usr/sbin/gptslot"
+    # Boot-stage clock. It is the only thing on the image that can see the time
+    # before Linux initialised a clock, which is where the bootloader and the
+    # kernel decompression hide. Small and static like the rest of these.
+    gcc -std=c11 -O2 -Wall -Wextra -Werror -static \
+      -o "$R/usr/sbin/boot-clock" /baseos-src/boot-clock.c
+    strip "$R/usr/sbin/boot-clock"
     # Build upstream BaseOS framebuffer splash statically so the boot and
     # USB-storage UI needs no extra runtime libraries.
     mkdir -p "$R/usr/share/baseos"
@@ -158,6 +164,12 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       exit 1
     }
     test -f "$R/usr/sbin/baseos-init-userdata" || { echo "user data initializer is missing" >&2; exit 1; }
+    # Boot timing. rcS and the frontend supervisor both call these on the boot
+    # path; a missing mark tool is silent by design, so the build is the only
+    # place that can notice it disappeared.
+    for boot_tool in usr/sbin/baseos-boot-mark usr/sbin/baseos-boot-report usr/sbin/boot-clock usr/sbin/baseos-prefetch-gl; do
+      test -x "$R/$boot_tool" || { echo "boot timing tool is missing: $boot_tool" >&2; exit 1; }
+    done
     test -x "$R/usr/bin/sgdisk" || test -x "$R/usr/sbin/sgdisk" || { echo "sgdisk is missing" >&2; exit 1; }
     test -x "$R/usr/bin/partx" || test -x "$R/usr/sbin/partx" || { echo "partx is missing" >&2; exit 1; }
     test -x "$R/usr/bin/blkid" || test -x "$R/usr/sbin/blkid" || { echo "blkid is missing" >&2; exit 1; }
@@ -220,6 +232,9 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     chmod 0755 "$R/usr/sbin/baseos-usb-storage"
     chmod 0755 "$R/usr/sbin/baseos-frontend-session"
     chmod 0755 "$R/usr/sbin/baseos-slot-launcher"
+    chmod 0755 "$R/usr/sbin/baseos-boot-mark"
+    chmod 0755 "$R/usr/sbin/baseos-boot-report"
+    chmod 0755 "$R/usr/sbin/baseos-prefetch-gl"
     chmod 0755 "$R/usr/sbin/rg353ps-hotkeyd"
     chmod 0755 "$R/usr/sbin/baseos-update"
     chmod 0755 "$R/usr/sbin/gptslot"

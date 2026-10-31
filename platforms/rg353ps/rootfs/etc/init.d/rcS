@@ -10,8 +10,36 @@ mkdir -p /dev/pts /run /tmp /mnt/boot /mnt/roms
 mount -t devpts devpts /dev/pts 2>/dev/null || :
 mount -t tmpfs -o mode=0755 tmpfs /run 2>/dev/null || :
 mount -t tmpfs -o mode=1777 tmpfs /tmp 2>/dev/null || :
+
+# Boot-stage marks, defined here because /run only becomes writable at the line
+# above -- earlier, the helper would either have nowhere to write or would write
+# to the card. Each mark is a line in /run/boot-marks, read back by
+# baseos-boot-report and folded into the Startup line the frontend session
+# writes to the card. One fork each, so they only sit on the stages that
+# actually account for the seconds; /proc/uptime cannot see the bootloader at
+# all, that part comes from boot-clock at the handoff.
+mark() { /usr/sbin/baseos-boot-mark "$@" 2>/dev/null || :; }
+# This is the first instant rcS can be observed at. Everything between it and
+# 0.00 is kernel initialisation, the rootfs mount and BusyBox init -- the handoff
+# cannot be understood without knowing how much of it happened before any of
+# this script ran.
+mark "rcS: proc/sys/dev"
+
+# Keep the kernel's own view of this boot, taken at the earliest instant it can
+# be read. It has to happen here: the USB debug gadget later in this script
+# turns every packet on the cable into several dev_info lines, and with a cable
+# attached that traffic pushes the boot messages out of a 1 MB ring buffer
+# within seconds. Without this snapshot the kernel half of the boot - the
+# largest single stage left - is unobservable on a unit you can actually log
+# into. dmesg is a single read of an in-memory buffer, so it costs nothing.
+dmesg > /run/dmesg-boot.txt 2>/dev/null || :
+
 echo /sbin/mdev > /proc/sys/kernel/hotplug 2>/dev/null || :
+# devtmpfs has already created every node the kernel knows about; mdev -s walks
+# /sys and shells out per device, so it costs real time and is worth its own
+# mark rather than hiding inside "rcS: mounts".
 /sbin/mdev -s 2>/dev/null || :
+mark "rcS: mdev done"
 
 # Hide the virtual-terminal cursor; fbsplash writes pixels but does not own
 # the kernel console cursor. The frontend supervisor restores it on exit.
@@ -44,8 +72,10 @@ BOOT_LOGO_DRAWN=0
 # until /mnt/SDCARD is mounted before exporting it.
 i=0
 while [ ! -e /run/rg353ps-hotkeyd.ready ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+mark "hotkeyd ready"
 
 /usr/sbin/baseos-mount-storage
+mark "storage mounted"
 
 # Successful userdata initialization is routine; keep its trace in tmpfs and
 # persist a copy on BASEOS_BOOT only if the initialization loop fails.
@@ -59,17 +89,40 @@ dmesg -n 1 2>/dev/null || :
 
 # Storage and panel support are built into this kernel configuration. Load the
 # mainline RTL8821CS Wi-Fi function; Bluetooth is attached through UART/serdev.
+#
+# Split by who needs it, not by what it is. The GPU is on the path to the first
+# frame, so it loads here and the frontend session is entitled to assume it is
+# ready. Wi-Fi, Bluetooth and the VPU are not: no frontend needs any of them
+# before it draws a menu, and nothing later in this script touches them. On this
+# board they are also the expensive ones - measured cold on the device,
+# hci_uart alone blocks 0.63 s waiting for the serdev probe, rtw88_8821cs 0.16 s
+# and hantro-vpu 0.02 s. Paying that in series delayed the frontend by nearly a
+# second for features the boot does not use. They keep their order (btrtl is a
+# helper for hci_uart) by loading inside one backgrounded shell.
 if [ -x /sbin/modprobe ]; then
-  /sbin/modprobe rtw88_8821cs 2>/dev/null || :
-  /sbin/modprobe hci_uart 2>/dev/null || :
-  /sbin/modprobe btrtl 2>/dev/null || :
-  /sbin/modprobe hantro-vpu 2>/dev/null || log "WARNING: Hantro VPU driver failed to load"
   # The DRM display controller is built in, but 3D rendering and RGA are
   # modular in this kernel config. Load them explicitly in this minimal
   # userspace, which does not run a full udev daemon for modalias autoloading.
   /sbin/modprobe panfrost 2>/dev/null || log "WARNING: Panfrost GPU driver failed to load"
   /sbin/modprobe rockchip_rga 2>/dev/null || log "NOTICE: Rockchip RGA driver unavailable"
+  mark "modules: gpu ready"
+  (
+    /sbin/modprobe rtw88_8821cs 2>/dev/null || :
+    /sbin/modprobe hci_uart 2>/dev/null || :
+    /sbin/modprobe btrtl 2>/dev/null || :
+    /sbin/modprobe hantro-vpu 2>/dev/null || log "WARNING: Hantro VPU driver failed to load"
+    # Prefixed bg: this runs beside the boot, not on it. The report keeps rows in
+    # clock order, so a concurrent row lands mid-table; the prefix is what stops
+    # it from being read as a stage the boot waited for.
+    mark "bg: wifi/bt/vpu ready"
+  ) &
 fi
+
+# The GL stack is 33 MB of shared library and every byte of it is read before the
+# frontend can draw. Reading it here, beside the 1.5 s startup-key sample below,
+# moves that I/O off the frontend's startup: it was measured at 1.87 s there with
+# a cold page cache and 0.01 s once resident.
+[ -x /usr/sbin/baseos-prefetch-gl ] && /usr/sbin/baseos-prefetch-gl >/dev/null 2>&1 &
 
 # One-shot, opt-in suspend/wakeup inventory. Create an empty
 # BASEOS-SUSPEND-AUDIT file on BASEOS_BOOT from a PC to request a report on
@@ -131,6 +184,7 @@ while :; do
     /usr/bin/fbsplash 45 "EXPANDING STORAGE" 2>/dev/null || :
   fi
 done
+mark "userdata ready"
 
 # Earlier builds wrote a few traces on every boot with no way to turn them off:
 # a duplicate baseos.log on the data volume, a boot-key report beside it, and a
@@ -205,6 +259,11 @@ fi
 if [ ! -e "$BOOT_USB_REQUEST" ] && [ -x /usr/sbin/baseos-usb-debug ]; then
   /usr/sbin/baseos-usb-debug start >/dev/null 2>&1 &
 fi
+
+# Marked before the opt-in boot task below, not after it: that task can run for
+# minutes, and stretching this stage over it would hide where the boot actually
+# spends its time.
+mark "rcS done"
 
 # Optional boot-partition task for keyboard-free field diagnostics.
 # This hook is deliberately opt-in: normal boots are unchanged unless the

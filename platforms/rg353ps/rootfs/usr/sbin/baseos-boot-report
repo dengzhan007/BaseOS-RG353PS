@@ -1,0 +1,44 @@
+#!/bin/sh
+# Print this boot's stage timeline.
+#
+# Combines three sources: the marks written by baseos-boot-mark (uptime
+# centiseconds), the counter split from boot-clock (which also covers the
+# bootloader, something uptime cannot see), and the handoff marker written
+# immediately before the frontend's first exec.
+#
+# The final row is the handoff. The gap between it and the last mark above is
+# time spent inside the frontend before its first exec, or waiting on the GPU,
+# which is exactly the part no shell mark can account for.
+set -u
+
+marks=/run/boot-marks
+handoff_marker=/run/boot-frontend-exec
+handoff_file=/run/boot-clock-handoff
+
+pre= post= total=
+if [ -s "$handoff_file" ]; then
+  read -r _legacy pre post total < "$handoff_file" 2>/dev/null || :
+fi
+handoff=
+[ -s "$handoff_marker" ] && read -r handoff _ < "$handoff_marker" 2>/dev/null
+
+if [ -n "${total:-}" ]; then
+  printf 'Startup: %s s before Linux, %s s Linux to menu, %s s total\n' "$pre" "$post" "$total"
+elif [ -n "${handoff:-}" ]; then
+  printf 'Startup: %s s Linux to menu (no counter split; boot-clock unavailable)\n' "$handoff"
+else
+  printf 'Startup: frontend has not been launched yet in this boot\n'
+fi
+
+if [ ! -s "$marks" ]; then
+  echo "no stage marks recorded"
+  exit 0
+fi
+
+printf '%-8s %-9s %s\n' uptime +stage stage
+awk '{ prev = (NR == 1) ? $1 : prev; printf "%8.2f  %+8.2f  %s\n", $1, $1 - prev, substr($0, index($0, $2)); prev = $1 }' "$marks"
+
+if [ -n "${handoff:-}" ]; then
+  last=$(awk 'END { print $1 }' "$marks")
+  awk -v a="$last" -v b="$handoff" 'BEGIN { printf "%8.2f  %+8.2f  frontend exec\n", b, b - a }'
+fi

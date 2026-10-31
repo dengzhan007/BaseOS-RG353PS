@@ -67,6 +67,18 @@ static int stale_report_removed;
 #define BOOT_LOG_STAGE "/run/rg353ps-boot-key.log"
 #define BOOT_LOG_FINAL "/mnt/SDCARD/rg353ps-boot-key.log"
 
+/* How long to keep sampling startup keys before the one-shot boot decision.
+   Every key that is genuinely held from power-on is already down when its
+   evdev node is opened, and the EVIOCGKEY snapshot taken at open catches it -
+   no event is needed, and the 1500 ms this used to wait could not have caught
+   anything the snapshot had not already seen. What the window still covers is
+   a key pressed *after* the node opened, and rcS blocks the whole boot on the
+   ready flag written at the end of it: measured at 1.74 s of an 8.8 s path to
+   the frontend. 400 ms keeps a press-and-hold started during the boot logo
+   working, which is what the documented "hold Function while powering on"
+   flow needs, without paying for a window nothing can land in. */
+#define STARTUP_KEY_WINDOW_MS 400
+
 /* Debug switch, shared with baseos-usb-storage: the card copy of baseos.conf
    wins over the one in /etc. This daemon starts before BASEOS_BOOT is mounted,
    so the answer has to be looked up when a message is written rather than once
@@ -837,12 +849,12 @@ int main(void) {
             }
             if (key_device_found && keys_first_seen_ms < 0) {
                 keys_first_seen_ms = monotonic_ms();
-                log_message("ROLE_KEYS device found; waiting 1500ms to collect startup key events");
+                log_message("ROLE_KEYS device found; sampling startup keys before the boot decision");
             }
             /* adc-keys can register after gpio-keys-control. Keep polling all
                key devices briefly before making the one-shot boot decision. */
             if (key_device_found && keys_first_seen_ms >= 0 &&
-                monotonic_ms() - keys_first_seen_ms >= 1500) {
+                monotonic_ms() - keys_first_seen_ms >= STARTUP_KEY_WINDOW_MS) {
                 char boot_msg[256];
                 startup_checked = 1;
                 startup_key_release_seen = !(function_down || mode_down);

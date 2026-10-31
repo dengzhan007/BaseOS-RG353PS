@@ -45,7 +45,13 @@ SOFTVOL_CTL='BaseOS Master'
 SOFTVOL_MIN_DB=-48.0
 MAX_WAIT=15
 
-say() { printf '%s %s\n' "$(date '+%H:%M:%S' 2>/dev/null)" "$*" >>"$LOG" 2>/dev/null || :; }
+# Wall clock is useless for boot work: it cannot be lined up with the rcS marks
+# or the frontend handoff, and it silently rounds to a whole second. Prefix the
+# kernel's uptime instead, which is the same clock /proc/uptime reports.
+say() {
+    up=$(cut -d' ' -f1 /proc/uptime 2>/dev/null || :)
+    printf '%7s %s\n' "${up:-?}" "$*" >>"$LOG" 2>/dev/null || :
+}
 
 find_card() {
     i=0
@@ -64,9 +70,15 @@ mkdir -p /var/lib/alsa 2>/dev/null || :
 
 CARD=
 n=0
+# Poll fast, then fall back to 1 s. The keypad poll was 1 s flat, so a codec that
+# probed at 8.6 s was not noticed until 9.5 s and the frontend session, which
+# waits for the ready flag below, sat idle for the difference: measured on the
+# device, that alone was most of a second of the boot. The first 5 s are the
+# window where a normal boot's codec appears, so 100 ms there costs nothing; the
+# slow tail keeps 1 s so a missing codec does not spin the CPU for 15 s.
 while [ "$n" -lt "$MAX_WAIT" ]; do
     CARD=$(find_card) && break
-    sleep 1
+    if [ "$n" -lt 5 ]; then sleep 0.1; else sleep 1; fi
     n=$((n + 1))
 done
 if [ -z "$CARD" ]; then
@@ -156,24 +168,34 @@ softvol_present() {
 #    does not exist yet. One second of silence is enough and runs off the boot
 #    path.
 if ! softvol_present; then
-    if aplay -q -D default -t raw -f S16_LE -r 48000 -c 2 -d 1 /dev/zero >/dev/null 2>&1; then
+    # The control appears when the PCM is opened, so what matters is that the
+    # device is opened and one period written - not how long the audio runs.
+    # This used to play a full second of silence (-d 1), which measured 1.02 s
+    # of the boot for no benefit; piping a few hundred bytes into aplay gets
+    # the same registration in 0.14 s. The fallback keeps the old path for a
+    # codec whose first open needs longer than that to settle.
+    if head -c 2048 /dev/zero 2>/dev/null |
+            aplay -q -D default -t raw -f S16_LE -r 48000 -c 2 >/dev/null 2>&1 &&
+            softvol_present; then
         say "softvol control created"
+    elif aplay -q -D default -t raw -f S16_LE -r 48000 -c 2 -d 1 /dev/zero >/dev/null 2>&1; then
+        say "softvol control created (slow path)"
     else
         say "could not open default PCM to create the softvol control"
     fi
 fi
 
-# 4. Restore the user's saved volume (softvol included), then force the
-#    hardware back to 0 dB - a restored state file may well carry an old,
-#    low hardware level from before this model existed.
-if [ -s "$STATE" ]; then
-    if alsactl -f "$STATE" restore >/dev/null 2>&1; then
-        say "restored $STATE"
-    else
-        say "restore from $STATE failed; continuing with defaults"
-    fi
-fi
-
+# 4. Pin the hardware before anything can open the PCM.
+#
+#    The state blob used to be restored here first, because a blob carrying an
+#    old, low hardware gain would otherwise land on top of the pin. That restore
+#    is cheap on a running system (0.02 s) but measured 1.6 s inside a boot -
+#    and it sat directly in front of the ready flag below, so it was the last
+#    large item between rcS and the frontend. Nothing the frontend needs comes
+#    out of it: the pin below is what makes sound audible, and it no longer has
+#    to wait. The restore moved to the deferred pass in 5, which re-pins and
+#    re-applies the user level afterwards, so the ordering still holds - the
+#    frontend just does not sit through it.
 pin_hardware
 
 # The softvol level is also kept in its own file: alsactl restores one state
@@ -241,8 +263,21 @@ elif [ ! -e "$VOLUME_MARKER" ]; then
     : >"$VOLUME_MARKER" 2>/dev/null || :
 fi
 
-# 5. Store, so the hardware gains stay pinned across reboots even if something
-#    else writes the state file.
+# Everything the frontend needs is in place: /etc/asound.conf names the codec,
+# the softvol control exists, the hardware gains are pinned and the user level
+# is applied. Signal that now, before the persistence work below.
+WANT_LEVEL=$(amixer -c "$CARD" cget name="$SOFTVOL_CTL" 2>/dev/null |
+    sed -n 's/^ *: values=\([0-9]*\).*/\1/p' | head -1)
+# The frontend session waits for this file before it paints its volume bar.
+: >/run/baseos-audio-ready 2>/dev/null || :
+
+# 5. Deferred pass: restore the saved state blob, then undo whatever it did to
+#    the two things that decide how loud this unit is.
+#
+#    Runs after the ready flag because none of it can change whether the
+#    frontend works, and it was measured at 1.6 s inside a boot. $WANT_LEVEL is
+#    the level the synchronous path already settled on, so a blob from an older
+#    volume model cannot silently move it.
 #
 #    alsactl locks "<state>.lock" next to the state file with fcntl, and opens
 #    that lock with O_CREAT only when the *state file already exists*. On a
@@ -255,27 +290,37 @@ fi
 #    boot its persisted hardware gains. An empty file is enough for the lock to
 #    have something to open; store overwrites it with real content straight
 #    after.
-mkdir -p "${STATE%/*}" 2>/dev/null || :
-[ -e "$STATE" ] || : >"$STATE" 2>/dev/null || :
-if alsactl -f "$STATE" store >/dev/null 2>&1; then
-    say "saved $STATE"
-else
-    say "could not save $STATE"
-fi
+(
+    if [ -s "$STATE" ] && alsactl -f "$STATE" restore >/dev/null 2>&1; then
+        say "restored $STATE (deferred)"
+        # A blob can carry a low hardware gain and an older softvol level; both
+        # are re-applied, in this order, so the pin is never the loser.
+        pin_hardware
+        case "${WANT_LEVEL:-}" in
+            ''|*[!0-9]*) : ;;
+            *) amixer -c "$CARD" cset name="$SOFTVOL_CTL" "$WANT_LEVEL" >/dev/null 2>&1 || : ;;
+        esac
+    fi
 
-# The user's level is also written back here, so a volume set through the
-# frontend (which never touches the hotkey daemon) is not lost on reboot. It
-# only records a value that is actually readable - a failed cget must not
-# overwrite a good file with garbage.
-cur=$(amixer -c "$CARD" cget name="$SOFTVOL_CTL" 2>/dev/null | sed -n 's/^ *: values=\([0-9]*\).*/\1/p' | head -1)
-case "${cur:-}" in
-    ''|*[!0-9]*) : ;;
-    *) [ -s "$VOLUME_FILE" ] && [ "$(cat "$VOLUME_FILE" 2>/dev/null)" = "$cur" ] || \
-           printf '%s\n' "$cur" >"$VOLUME_FILE" 2>/dev/null || : ;;
-esac
-say "volume model: hardware 0 dB, softvol ${cur:-?}% (-48..0 dB)"
-# The frontend session waits for this before it paints its volume bar: it used
-# to pin the mixer while this script was still restoring the state blob, so the
-# restore won the race and the pin was thrown away.
-: >/run/baseos-audio-ready 2>/dev/null || :
+    mkdir -p "${STATE%/*}" 2>/dev/null || :
+    [ -e "$STATE" ] || : >"$STATE" 2>/dev/null || :
+    if alsactl -f "$STATE" store >/dev/null 2>&1; then
+        say "saved $STATE"
+    else
+        say "could not save $STATE"
+    fi
+
+    # The user's level is also written back here, so a volume set through the
+    # frontend (which never touches the hotkey daemon) is not lost on reboot. It
+    # only records a value that is actually readable - a failed cget must not
+    # overwrite a good file with garbage.
+    cur=$(amixer -c "$CARD" cget name="$SOFTVOL_CTL" 2>/dev/null |
+        sed -n 's/^ *: values=\([0-9]*\).*/\1/p' | head -1)
+    case "${cur:-}" in
+        ''|*[!0-9]*) : ;;
+        *) [ -s "$VOLUME_FILE" ] && [ "$(cat "$VOLUME_FILE" 2>/dev/null)" = "$cur" ] || \
+               printf '%s\n' "$cur" >"$VOLUME_FILE" 2>/dev/null || : ;;
+    esac
+    say "volume model: hardware 0 dB, softvol ${cur:-?}% (-48..0 dB)"
+) >/dev/null 2>&1 &
 exit 0

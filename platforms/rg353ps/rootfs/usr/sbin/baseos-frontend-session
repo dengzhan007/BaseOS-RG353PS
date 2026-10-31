@@ -5,6 +5,17 @@ set -u
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
 export PATH
 
+# Boot-stage marks, same clock as rcS uses (see baseos-boot-report). This
+# supervisor re-execs itself after a USB-storage session, so the entry mark is
+# one-shot: a second "session entry" after the frontend was paused is a
+# respawn, not a boot, and would make the timeline read as if the boot had
+# started twice.
+boot_mark() { /usr/sbin/baseos-boot-mark "$@" 2>/dev/null || :; }
+if [ ! -e /run/baseos-session-entered ]; then
+  : > /run/baseos-session-entered 2>/dev/null || :
+  boot_mark "session entry"
+fi
+
 TF1=/mnt/SDCARD
 TF2=/mnt/TF2
 # The user partition is the only volume a PC shows, so it wins: BASEOS_BOOT is
@@ -438,6 +449,10 @@ fi
 
 # Keep the compatibility alias aligned with the card actually selected.
 ln -sfn "$FRONTEND_ROOT" /mnt/sdcard
+# Splits the blind spot between "rcS done" and the handoff into the part that
+# is frontend discovery and the part that is waiting on audio and the volume
+# handoff below.
+boot_mark "frontend selected: $SELECTED"
 PLATFORM=rg353ps
 BASEOS_FRONTEND_ID=$SELECTED
 BASEOS_SYSTEM_ROOT=/
@@ -448,6 +463,17 @@ BASEOS_USERDATA_DIR="$FRONTEND_ROOT/.baseos/userdata"
 BASEOS_LAUNCHER=$LAUNCHER
 export PLATFORM BASEOS_FRONTEND_ID BASEOS_SYSTEM_ROOT BASEOS_BOOT
 export BASEOS_FRONTEND_ROOT BASEOS_DATA_DIR BASEOS_USERDATA_DIR BASEOS_LAUNCHER
+# Mesa's on-disk program cache keeps GL program compilation out of later starts.
+# It was never enabled on purpose: it follows $XDG_CACHE_HOME, then $HOME, and the
+# launcher sets HOME=/ for the frontend, so the cache ended up in /.cache beside
+# the rootfs. That works until a rootfs update throws it away, and it is invisible
+# to anyone looking for where the space went. Name it, and cap it: Mesa's default
+# limit is 1 GB while this rootfs has ~130 MB free, so an unbounded cache on a
+# long-lived card is a slow way to fill the system partition.
+XDG_CACHE_HOME=/var/cache
+mkdir -p "$XDG_CACHE_HOME" 2>/dev/null || :
+export XDG_CACHE_HOME
+export MESA_SHADER_CACHE_MAX_SIZE=32M
 mkdir -p "$BASEOS_DATA_DIR" "$BASEOS_USERDATA_DIR" 2>/dev/null || :
 # An upstream package brings its own layout and does not want BaseOS's dot-dirs
 # invented on its card; it does need the two paths upstream guarantees.
@@ -536,6 +562,69 @@ release_volume_from_frontend() {
   rm -f "$VOLUME_SAVED" 2>/dev/null || :
 }
 
+# Boot timing at the point the frontend is about to run.
+#
+# Everything after this line is the frontend's own time, so the marker is the
+# boundary that makes every number in the log attributable. It is written once
+# per boot, immediately before the first exec, and kept on tmpfs across
+# respawns. /proc/uptime cannot see the bootloader or the kernel decompression:
+# boot-clock reads the ARM generic counter alongside the monotonic clock to
+# split those out, and when it declines (userspace counter access denied, or a
+# sample that straddled a reschedule) the line falls back to uptime alone rather
+# than print a split it cannot prove.
+BOOT_LOG_SUBDIR=Logs
+
+write_boot_log() {
+  is_mounted "$TF1" || return 0
+  mkdir -p "$TF1/$BOOT_LOG_SUBDIR" 2>/dev/null || :
+  bw_blog=$TF1/$BOOT_LOG_SUBDIR/boot.log
+  {
+    printf '%s\n' "--- boot $(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || echo 'unknown time')  kernel $(cat /proc/sys/kernel/osrelease 2>/dev/null || echo unknown)  frontend $1"
+    if [ -x /usr/sbin/baseos-boot-report ]; then
+      /usr/sbin/baseos-boot-report 2>/dev/null
+    else
+      printf '%s\n' "Startup: $(cat /run/boot-frontend-exec 2>/dev/null) s Linux to menu"
+    fi
+  } >> "$bw_blog" 2>/dev/null || return 0
+  # One block per boot accumulates over months on a card nobody edits, and only
+  # the recent boots are ever read back. Trim in place once the file gets long.
+  bw_lines=$(wc -l < "$bw_blog" 2>/dev/null || echo 0)
+  if [ "${bw_lines:-0}" -gt 600 ] 2>/dev/null; then
+    tail -n 200 "$bw_blog" > "$bw_blog.tmp" 2>/dev/null && mv -f "$bw_blog.tmp" "$bw_blog" 2>/dev/null || :
+    rm -f "$bw_blog.tmp" 2>/dev/null || :
+  fi
+}
+
+record_handoff() {
+  # Keep the first handoff: a respawn after a USB-storage session is not a boot.
+  [ -s /run/boot-frontend-exec ] && return 0
+  # Bracket the clock read: the handoff mark is the uptime embedded in boot-clock
+  # rather than the time this line runs, so a slow path here would otherwise look
+  # like time spent launching the frontend.
+  boot_mark "handoff: entered"
+  ho_handoff= ho_pre= ho_post= ho_total=
+  if [ -x /usr/sbin/boot-clock ] \
+     && /usr/sbin/boot-clock > /run/boot-clock-handoff 2>/dev/null; then
+    read -r ho_handoff ho_pre ho_post ho_total < /run/boot-clock-handoff 2>/dev/null || :
+  else
+    rm -f /run/boot-clock-handoff 2>/dev/null || :
+    read -r ho_handoff _ < /proc/uptime 2>/dev/null || :
+  fi
+  [ -n "${ho_handoff:-}" ] || return 0
+  printf '%s\n' "$ho_handoff" > /run/boot-frontend-exec 2>/dev/null || :
+  if [ -n "${ho_total:-}" ]; then
+    log "Startup: $ho_pre s before Linux, $ho_post s Linux to menu, $ho_total s total ($1)"
+  else
+    log "Startup: $ho_handoff s Linux to menu ($1)"
+  fi
+  # The card copy is a log, not a prerequisite: writing it here cost 0.3-1.4 s
+  # inside the launch path (exFAT on an SD card, first write after mount, plus a
+  # fork of baseos-boot-report), and the frontend has nothing to wait for. The
+  # numbers are already in /run before this point, so the session can start and
+  # the card gets the same block as soon as the write lands.
+  write_boot_log "$1" >/dev/null 2>&1 &
+}
+
 log "launching $SELECTED frontend ($LAUNCH_MODE): $LAUNCHER"
 # Which side owns the volume keys. "frontend" is the default for Slot: it has
 # its own bar, its own step and its own stored level, and matching another
@@ -553,14 +642,19 @@ if [ "$VOLUME_CLAIMED" = yes ]; then
   # restore lands on top of the pin, which is exactly how a unit that played
   # fine before the reboot came up silent with its bar at 30%. Wait for its
   # ready flag, but never block the boot on a broken mixer.
+  boot_mark "session: audio wait begins"
   ac_wait=0
   while [ ! -e /run/baseos-audio-ready ] && [ "$ac_wait" -lt 30 ]; do
     sleep 0.1
     ac_wait=$((ac_wait + 1))
   done
   [ -e /run/baseos-audio-ready ] || log "audio layer never reported ready; pinning the mixer anyway"
+  boot_mark "session: audio ready (waited $((ac_wait * 100)) ms)"
   claim_volume_for_frontend
 fi
+boot_mark "session: prepped"
+# Last thing before the frontend exists: record this boot's handoff time.
+record_handoff "$SELECTED"
 # Pause the frontend before exposing its mounted card to the USB host.
 kill_tree() {
   signal=$1

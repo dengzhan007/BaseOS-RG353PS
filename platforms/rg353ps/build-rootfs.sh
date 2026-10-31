@@ -170,17 +170,6 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     for boot_tool in usr/sbin/baseos-boot-mark usr/sbin/baseos-boot-report usr/sbin/boot-clock usr/sbin/baseos-prefetch-gl; do
       test -x "$R/$boot_tool" || { echo "boot timing tool is missing: $boot_tool" >&2; exit 1; }
     done
-    # The root filesystem is mounted read-only and stays that way, so anything a
-    # boot writes has to be RAM or a link into it. These links are what makes
-    # that true for mount state, DNS and the ALSA softvol definition; if one of
-    # them silently disappears the write fails with EROFS and the failure is
-    # easy to miss - no sound, or no DNS, with a clean boot log.
-    for writable in etc/mtab etc/resolv.conf etc/asound.conf; do
-      test -L "$R/$writable" || {
-        echo "$writable must be a symlink into RAM for the read-only root" >&2
-        exit 1
-      }
-    done
     test -x "$R/usr/bin/sgdisk" || test -x "$R/usr/sbin/sgdisk" || { echo "sgdisk is missing" >&2; exit 1; }
     test -x "$R/usr/bin/partx" || test -x "$R/usr/sbin/partx" || { echo "partx is missing" >&2; exit 1; }
     test -x "$R/usr/bin/blkid" || test -x "$R/usr/sbin/blkid" || { echo "blkid is missing" >&2; exit 1; }
@@ -283,6 +272,18 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     # dangling link is harmless: alsa-lib treats ENOENT as "no config", which is
     # the state the image shipped in anyway.
     ln -sfn /run/asound.conf "$R/etc/asound.conf"
+    # The root filesystem is mounted read-only and stays that way, so anything a
+    # boot writes has to be RAM or a link into it. The three links above are
+    # what makes that true for mount state, DNS and the ALSA softvol
+    # definition; if one of them silently disappears the write fails with EROFS
+    # and the failure is easy to miss - no sound, or no DNS, with a clean boot
+    # log. Checked here, after they are made.
+    for writable in etc/mtab etc/resolv.conf etc/asound.conf; do
+      test -L "$R/$writable" || {
+        echo "$writable must be a symlink into RAM for the read-only root" >&2
+        exit 1
+      }
+    done
     printf "BaseOS RG353PS rootfs\n" > "$R/etc/motd"
     printf "%s\n" "$KREL" > "$R/etc/baseos-kernel-release"
 

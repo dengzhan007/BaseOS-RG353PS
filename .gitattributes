@@ -17,3 +17,8 @@ platforms/*/*.sh text eol=lf
 # do not trim CR, so a "0\r" would quietly not be a 0.
 platforms/*/uboot.config text eol=lf
 src/*.c text eol=lf
+
+# The version file is read with `tr -d ' \n'` and compared against the release
+# stamp inside the image. A CR left in it makes the device see "1.0.4\r" and
+# refuse every update payload, with no error anywhere near the cause.
+VERSION text eol=lf

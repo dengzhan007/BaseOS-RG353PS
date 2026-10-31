@@ -137,7 +137,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
     # `ro`, not `rw`. Nothing on this image writes to the root filesystem: the
     # slots are written as raw regions by the updater, state lives on BASEOS and
     # everything else a boot writes goes to tmpfs (see the top of rcS). Mounting
-    # it read-only is what removes ext4's journal replay from every boot - the
+    # it read-only is what removes the ext4 journal replay from every boot - the
     # journal is only dirty because the previous boot never unmounted, and the
     # replay alone measured 2.8 s of a 4.2 s kernel-side handoff. It also means a
     # yanked card or a dead battery cannot corrupt it.

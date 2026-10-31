@@ -18,10 +18,22 @@ same-card frontend installation. The boot partition remains a small maintenance
 partition and is still visible to a PC; the Linux root partition is separate
 from user files. A read-only root and A/B updater remain future work.
 
-The RG353PS global hotkey service is independent of the UI process. It handles
-volume +/- by moving the `BaseOS Master` softvol control on whichever card sysfs
-reports as `rk817` (not a hard-coded index), and a 2-second power-key hold as a
+The RG353PS global hotkey service is independent of the UI process. It moves the
+`BaseOS Master` softvol control on whichever card sysfs reports as `rk817` (not
+a hard-coded index) for volume +/-, and turns a 2-second power-key hold into a
 clean shutdown. The diagnostic UI only displays those input events.
+
+Volume ownership follows the UI, not the daemon. A frontend draws the bar in its
+own style, so its bar has to be the thing the keys move: while such a frontend
+runs, `baseos-frontend-session` pins `BaseOS Master` at a fixed level
+(`FRONTEND_MIXER_LEVEL`, 90/99) and writes the frontend pid to
+`/run/baseos-volume-frontend`. `rg353ps-hotkeyd` reads that marker and leaves the
+mixer alone, so one press changes exactly one control and the on-screen
+percentage is the loudness. The previous mixer level is kept in
+`/run/baseos-volume-mixer-saved` and restored when the frontend exits, so the
+diagnostic UI and a plain shell still have a working volume. Frontends that do
+not handle volume themselves (nextui, custom adapters) keep the daemon in
+charge; `volume_owner=system` in `baseos.conf` forces that for Slot as well.
 
 The codec gain itself is never used as the user volume: RK817 maps its 0..255
 register linearly onto -95.5 dB..0 dB, so ALSA's percent of that register is

@@ -1,5 +1,6 @@
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 200809L
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -420,29 +421,121 @@ static void discover_inputs(void) {
     }
     (void)closedir(dir);
 }
-static int adjust_playback_volume(int up) {
-    pid_t child=fork();
+/* The codec is not always card 1: HDMI can probe first and take card 0. Ask
+   sysfs which card carries the rk817 id instead of hard-coding an index, which
+   used to send every volume key press to whatever card happened to be there. */
+static int find_audio_card(void) {
+    char path[64];
+    char buf[64];
+    int i;
+    for(i=0;i<8;i++) {
+        int fd;
+        ssize_t n;
+        char *p;
+        (void)snprintf(path,sizeof(path),"/sys/class/sound/card%d/id",i);
+        fd=open(path,O_RDONLY|O_CLOEXEC);
+        if(fd<0) continue;
+        n=read(fd,buf,sizeof(buf)-1);
+        (void)close(fd);
+        if(n<=0) continue;
+        buf[n]='\0';
+        for(p=buf;*p;p++) *p=(char)tolower((unsigned char)*p);
+        if(strstr(buf,"rk817")) return i;
+    }
+    return -1;
+}
+
+/* One amixer call, argument by argument so a control name with a space stays a
+   single argument. Returns the exit status, or -1 if the call never ran. */
+static int run_amixer(int card, const char *control, const char *adjust) {
+    char cardarg[8];
+    pid_t child;
     int status;
-    if(child<0) { log_message("fork failed while adjusting volume"); return 0; }
+    (void)snprintf(cardarg,sizeof(cardarg),"%d",card);
+    child=fork();
+    if(child<0) return -1;
     if(child==0) {
         int nullfd=open("/dev/null",O_WRONLY);
         if(nullfd>=0) {
             (void)dup2(nullfd,STDOUT_FILENO); (void)dup2(nullfd,STDERR_FILENO);
             if(nullfd>STDERR_FILENO) (void)close(nullfd);
         }
-        execl("/usr/bin/amixer","amixer","-c","1","set","Master","playback",up?"5%+":"5%-",(char *)NULL);
-        execl("/bin/amixer","amixer","-c","1","set","Master","playback",up?"5%+":"5%-",(char *)NULL);
+        execl("/usr/bin/amixer","amixer","-c",cardarg,"sset",control,adjust,(char *)NULL);
+        execl("/bin/amixer","amixer","-c",cardarg,"sset",control,adjust,(char *)NULL);
         _exit(127);
     }
     while(waitpid(child,&status,0)<0) {
         if(errno==EINTR) continue;
-        log_message("waitpid failed while adjusting volume"); return 0;
+        return -1;
     }
-    if(WIFEXITED(status)&&WEXITSTATUS(status)==0) {
-        log_message(up?"volume up: playback changed by 5%":"volume down: playback changed by 5%");
+    if(!WIFEXITED(status)) return -1;
+    return WEXITSTATUS(status);
+}
+
+/* Remember the softvol level outside alsactl: baseos-audio-init prefers this
+   file because a single mismatched control can make alsactl give up on the
+   whole restore, and the user's volume should not depend on that. */
+static void save_softvol(int card) {
+    char cmd[256];
+    pid_t child;
+    int status;
+    (void)snprintf(cmd,sizeof(cmd),
+        "mkdir -p /var/lib/alsa 2>/dev/null; "
+        "amixer -c %d cget name='BaseOS Master' 2>/dev/null | "
+        "sed -n 's/^ *: values=\\([0-9][0-9]*\\).*/\\1/p' | head -1 "
+        "> /var/lib/alsa/baseos-volume",
+        card);
+    child=fork();
+    if(child<0) return;
+    if(child==0) {
+        int nullfd=open("/dev/null",O_WRONLY);
+        if(nullfd>=0) {
+            (void)dup2(nullfd,STDOUT_FILENO); (void)dup2(nullfd,STDERR_FILENO);
+            if(nullfd>STDERR_FILENO) (void)close(nullfd);
+        }
+        execl("/bin/sh","sh","-c",cmd,(char *)NULL);
+        _exit(127);
+    }
+    while(waitpid(child,&status,0)<0) {
+        if(errno==EINTR) continue;
+        return;
+    }
+}
+
+/* Volume model (see baseos-audio-init): the hardware DAC stays at 0 dB and the
+   user-facing level is the "BaseOS Master" softvol control, whose 0..100 maps
+   onto -48 dB..0 dB. If that layer is missing - an old rootfs slot, a card that
+   came up before the config existed - fall back to the raw codec control, but
+   step it in dB rather than in register percent: 5% of the register is 4.8 dB,
+   and ten of those drop the codec below the point where this speaker is
+   audible at all. */
+static int adjust_playback_volume(int up) {
+    static const char *fallbacks[] = { "Playback Volume", "Master", "DAC Playback Volume" };
+    int card=find_audio_card();
+    const char *used=NULL;
+    int rc;
+    size_t i;
+    char msg[200];
+    if(card<0) { log_message("volume: no rk817 sound card found"); return 0; }
+    rc=run_amixer(card,"BaseOS Master",up?"5%+":"5%-");
+    if(rc==0) {
+        used="BaseOS Master";
+    } else {
+        for(i=0;i<sizeof(fallbacks)/sizeof(fallbacks[0]);i++) {
+            if(run_amixer(card,fallbacks[i],up?"3dB+":"3dB-")==0) {
+                used=fallbacks[i];
+                break;
+            }
+        }
+    }
+    if(used) {
+        if(strcmp(used,"BaseOS Master")==0) save_softvol(card);
+        (void)snprintf(msg,sizeof(msg),"volume %s: %s on card %d",up?"up":"down",used,card);
+        log_message(msg);
         return 1;
     }
-    log_message(up?"volume up failed: amixer returned an error":"volume down failed: amixer returned an error");
+    (void)snprintf(msg,sizeof(msg),"volume %s failed: no usable mixer control on card %d",up?"up":"down",card);
+    log_message(msg);
     return 0;
 }
 /* Deep sleep is delegated to /usr/sbin/rg353ps-sleep, which owns the

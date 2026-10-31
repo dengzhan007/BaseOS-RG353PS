@@ -455,6 +455,23 @@ if [ "$LAUNCH_MODE" = "exec" ]; then
   ensure_baseos_paths "$FRONTEND_ROOT"
 fi
 cd "$FRONTEND_ROOT" || diagnostic
+# rcS starts baseos-audio-init in the background, so a fast boot can reach this
+# point before the softvol volume layer exists. A frontend that opens ALSA in
+# that window picks whatever control the codec happens to expose and gets the
+# old, unusable register-percent curve. Re-run the init only when the layer is
+# actually missing: on a normal boot this costs one stat and no delay.
+if [ -x /usr/sbin/baseos-audio-init ]; then
+  AUDIO_CARD=
+  for _i in 0 1 2 3 4 5 6 7; do
+    case "$(cat "/sys/class/sound/card$_i/id" 2>/dev/null)" in
+      *rk817*) AUDIO_CARD=$_i; break ;;
+    esac
+  done
+  if [ -z "$AUDIO_CARD" ] || ! amixer -c "$AUDIO_CARD" sget 'BaseOS Master' >/dev/null 2>&1; then
+    log "volume layer missing; running baseos-audio-init before launch"
+    /usr/sbin/baseos-audio-init >/dev/null 2>&1 || :
+  fi
+fi
 log "launching $SELECTED frontend ($LAUNCH_MODE): $LAUNCHER"
 # Pause the frontend before exposing its mounted card to the USB host.
 kill_tree() {

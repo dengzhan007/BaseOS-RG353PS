@@ -243,8 +243,9 @@ static void render_audio(void)
     ++row;
     printf("\033[%d;3HPCM devices:\n", row++);
     print_file("/proc/asound/pcm", 6, &row);
-    printf("\n  Volume +/- keys adjust RK817 Master Playback Volume by 5%%.\n");
-    printf("  Serial shell: amixer -c 1 get Master\n");
+    printf("\n  Volume +/- keys move the 'BaseOS Master' softvol control by 5%%.\n");
+    printf("  The hardware DAC stays at 0 dB; 0..100 maps to -48..0 dB.\n");
+    printf("  Serial shell: amixer sget 'BaseOS Master'\n");
     printf("  No sound is played automatically.\n");
     printf("\n  B (bottom / BTN_SOUTH) returns to menu.\n");
 }

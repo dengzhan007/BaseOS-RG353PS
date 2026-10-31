@@ -152,6 +152,12 @@ log "suspend returned rc=$RC at $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 # The panel is off until we say otherwise; restore the brightness the user had.
 [ -n "$BACKLIGHT" ] && printf '%s\n' "$BACKLIGHT_OLD" > "$BACKLIGHT" 2>/dev/null
 
+# RK817 gains can come back from suspend at their reset values, which is the
+# class of drift that made the volume feel different after every wake. Re-assert
+# the pin-hardware-plus-softvol model in the background; it does not touch an
+# already-correct mixer.
+[ -x /usr/sbin/baseos-audio-init ] && /usr/sbin/baseos-audio-init >/dev/null 2>&1 &
+
 # Fallback: if the write failed, the DTB still requests MMC_PM_KEEP_POWER while
 # the function is unbound and the PM core rejected the transition. Sleep in
 # s2idle so the button press still does something useful.

@@ -64,6 +64,23 @@ card_for() {
         echo
         echo "--- speaker amp GPIO (gpio4 PC2) ---"
         cat /sys/kernel/debug/gpio 2>/dev/null | grep -i "pc2\|speaker\|amp" | head -5 || echo "(no debugfs)"
+        echo
+        echo "--- volume model ---"
+        echo "hardware DAC must read 100% (0 dB); the user level is 'BaseOS Master'"
+        printf 'BaseOS Master: '
+        lvl=$(amixer -c "$CARD" sget 'BaseOS Master' 2>/dev/null | grep -o '\[[0-9]*%\]' | head -1)
+        echo "${lvl:-(absent - baseos-audio-init did not run)}"
+        for n in 'Playback Volume' 'DAC Playback Volume' 'Master'; do
+            printf '%s: ' "$n"
+            v=$(amixer -c "$CARD" sget "$n" 2>/dev/null | grep -o '\[[0-9]*%\]' | head -1)
+            echo "${v:-(absent)}"
+        done
+        echo "--- hardware control dB scale (why register percent is not volume) ---"
+        amixer -c "$CARD" contents 2>/dev/null |
+            grep -E "name='(Playback Volume|DAC Playback Volume)'|dBscale" |
+            sed -n '1,6p' || echo "(none)"
+        echo "--- saved softvol value ---"
+        cat /var/lib/alsa/baseos-volume 2>/dev/null || echo "(none yet)"
     fi
     echo
 

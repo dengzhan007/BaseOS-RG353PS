@@ -133,6 +133,17 @@
 - **音频**：不要指望前端自己设混音器。`baseos-audio-init` 在开机时、前端之前把
   `rk817_ext` 声卡的 ALSA `default`、DAC 音量和 Speaker Amp 开关都设好并存进
   `alsactl`；Slot 只会打开 ALSA 播放，从不碰控件。排查用 `baseos-audio-check`。
+- **音量模型（重要，移植时别重复踩）**：RK817 的 DAC 增益是 0..255 寄存器线性映射到
+  -95.5 dB..0 dB，ALSA 的百分号是**寄存器百分比**，50% = -47 dB、20% = -76 dB，
+  在这颗喇叭上等于没声。所以底座把**硬件音量钉死在 0 dB**，用户音量交给
+  `/etc/asound.conf` 里的 `softvol` 控件 `BaseOS Master`（0..100 → -48 dB..0 dB）。
+  也就是说 `default` 的链路是 `plug -> baseos_vol(softvol) -> baseos_hw`。
+  任何直接对 `hw:CARD,0` 调的代码都会绕开这一层；任何把 `Playback Volume` 调低的
+  代码都会破坏"拉满就是满"的前提。音量键（hotkeyd）调的就是 `BaseOS Master`，
+  找不到时才回退到硬件控件并用 dB 步进（3 dB），绝不用寄存器百分比。
+  Slot 自己还有一层 `v²` 软件音量（默认 60），两层叠加是客观存在：**建议把前端内
+  音量放在 100%，日常用音量键调**。休眠唤醒和前端启动前都会重新执行初始化，
+  防止 codec 复位后音量"又不一样了"。
 
 ---
 

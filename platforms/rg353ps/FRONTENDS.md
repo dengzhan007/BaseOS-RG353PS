@@ -19,8 +19,17 @@ partition and is still visible to a PC; the Linux root partition is separate
 from user files. A read-only root and A/B updater remain future work.
 
 The RG353PS global hotkey service is independent of the UI process. It handles
-volume +/- as RK817 playback-only mixer adjustments, and a 2-second power-key
-hold as a clean shutdown. The diagnostic UI only displays those input events.
+volume +/- by moving the `BaseOS Master` softvol control on whichever card sysfs
+reports as `rk817` (not a hard-coded index), and a 2-second power-key hold as a
+clean shutdown. The diagnostic UI only displays those input events.
+
+The codec gain itself is never used as the user volume: RK817 maps its 0..255
+register linearly onto -95.5 dB..0 dB, so ALSA's percent of that register is
+unusable as a volume scale (50% is -47 dB). `baseos-audio-init` pins the hardware
+at 0 dB and exposes `pcm.!default` as `plug -> baseos_vol (softvol) -> baseos_hw`,
+giving every frontend one predictable 0..100 = -48 dB..0 dB curve. The layer is
+re-asserted after resume and before a frontend launches, so a codec re-probe
+cannot silently change the level.
 
 
 ## First frontend target: Slot (experimental)

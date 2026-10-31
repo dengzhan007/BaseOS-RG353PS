@@ -589,6 +589,14 @@ start_dhcp() {
         #   - no /var/lib/misc for the default lease file.
         # Naming root and /run up front turns both into a first-try success
         # instead of a failure the log has to explain away.
+        #
+        # --dhcp-broadcast is not optional on an RNDIS link. A host that leaves
+        # the broadcast flag clear gets its reply unicast to the address being
+        # offered, and dnsmasq reaches that address by injecting an ARP entry
+        # first. On usb0 that fails ("ARP-cache injection failed: Invalid
+        # argument"), so every DHCPOFFER was logged as sent and never reached
+        # Windows, which kept retrying DISCOVER until it fell back to 169.254.
+        # Answering by broadcast needs no ARP entry at all.
         dnsmasq_run() {
             dnsmasq --conf-file=/dev/null --port=0 --no-resolv --log-queries=no \
                 --bind-interfaces \
@@ -596,6 +604,7 @@ start_dhcp() {
                 --dhcp-range="$DHCP_FIRST,$DHCP_LAST,12h" \
                 --dhcp-leasefile=/run/baseos-dnsmasq.leases \
                 --dhcp-option=3,"$ADDR" \
+                --dhcp-broadcast \
                 --dhcp-authoritative \
                 --user=root --group=root \
                 --pid-file=/run/baseos-dnsmasq.pid \

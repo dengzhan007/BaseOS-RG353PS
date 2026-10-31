@@ -501,6 +501,13 @@ audio_card_index() {
 }
 
 claim_volume_for_frontend() {
+  # Declared first and unconditionally: the marker is what tells
+  # rg353ps-hotkeyd and baseos-audio-init to keep their hands off this control,
+  # and it matters most in the case where the softvol control is not up yet
+  # (the sget below would bail out and, with the write after it, leave the
+  # daemon still moving the mixer). It carries this session's pid, and a pid
+  # that no longer exists means the marker can be ignored.
+  printf '%s\n' "$$" > "$VOLUME_MARKER" 2>/dev/null || :
   ac_card=$(audio_card_index) || return 0
   amixer -c "$ac_card" sget 'BaseOS Master' >/dev/null 2>&1 || return 0
   ac_cur=$(amixer -c "$ac_card" cget name='BaseOS Master' 2>/dev/null |
@@ -521,6 +528,9 @@ release_volume_from_frontend() {
   case "$ac_back" in
     ''|*[!0-9]*) return 0 ;;
   esac
+  # Handing back a level that was itself a leftover would drop the diagnostic UI
+  # and any shell into silence with nothing on screen to explain it.
+  [ "$ac_back" -lt 5 ] && ac_back=60
   amixer -c "$ac_card" cset name='BaseOS Master' "$ac_back" >/dev/null 2>&1 &&
     log "mixer restored to $ac_back after the frontend exited"
   rm -f "$VOLUME_SAVED" 2>/dev/null || :
@@ -538,6 +548,17 @@ case "$(setting volume_owner auto)" in
   *) [ "$SELECTED" = "slot" ] && VOLUME_CLAIMED=yes ;;
 esac
 if [ "$VOLUME_CLAIMED" = yes ]; then
+  # baseos-audio-init runs in the background from rcS and restores the state
+  # blob plus the saved softvol level. Pinning before it finishes means the
+  # restore lands on top of the pin, which is exactly how a unit that played
+  # fine before the reboot came up silent with its bar at 30%. Wait for its
+  # ready flag, but never block the boot on a broken mixer.
+  ac_wait=0
+  while [ ! -e /run/baseos-audio-ready ] && [ "$ac_wait" -lt 30 ]; do
+    sleep 0.1
+    ac_wait=$((ac_wait + 1))
+  done
+  [ -e /run/baseos-audio-ready ] || log "audio layer never reported ready; pinning the mixer anyway"
   claim_volume_for_frontend
 fi
 # Pause the frontend before exposing its mounted card to the USB host.

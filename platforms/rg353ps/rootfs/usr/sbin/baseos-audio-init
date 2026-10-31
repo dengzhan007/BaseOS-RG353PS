@@ -71,6 +71,7 @@ while [ "$n" -lt "$MAX_WAIT" ]; do
 done
 if [ -z "$CARD" ]; then
     say "no rk817 sound card after ${MAX_WAIT}s; leaving the mixer alone"
+    : >/run/baseos-audio-ready 2>/dev/null || :
     exit 0
 fi
 say "rk817 codec is card$CARD ($(cat "/sys/class/sound/card$CARD/id" 2>/dev/null))"
@@ -185,11 +186,40 @@ pin_hardware
 # lands on 98, so a unit would lose one step of volume on every boot. cset
 # writes the value through untouched.
 VOLUME_FILE=/var/lib/alsa/baseos-volume
-if [ -s "$VOLUME_FILE" ]; then
+# A frontend that runs its own volume bar (Slot, and anything else that answers
+# the volume keys itself) does not use this control as a fader - it uses it as a
+# fixed gain stage and draws its own percentage. When one owns the keys, the
+# mixer level is a constant, and restoring the file's value over it is what left
+# the unit silent on boot with the frontend's bar sitting at "30%".
+FRONTEND_MARKER=/run/baseos-volume-frontend
+FRONTEND_LEVEL=90
+frontend_owns_volume() {
+    [ -s "$FRONTEND_MARKER" ] || return 1
+    fp=$(cat "$FRONTEND_MARKER" 2>/dev/null)
+    case "$fp" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ -d "/proc/$fp" ] || return 1
+    return 0
+}
+
+# The file's 0 is not a user preference more often than it is a leftover from a
+# test or a key held down to the bottom; booting silently and leaving the user to
+# find the keys again is a worse failure than starting at a usable level.
+VOLUME_DEFAULT=60
+if frontend_owns_volume; then
+    if amixer -c "$CARD" cset name="$SOFTVOL_CTL" "$FRONTEND_LEVEL" >/dev/null 2>&1; then
+        say "softvol '$SOFTVOL_CTL' -> $FRONTEND_LEVEL (a frontend owns the keys via $FRONTEND_MARKER)"
+    fi
+elif [ -s "$VOLUME_FILE" ]; then
     saved=$(cat "$VOLUME_FILE" 2>/dev/null)
     case "$saved" in
         ''|*[!0-9]*) say "ignoring malformed $VOLUME_FILE ('$saved')" ;;
         *)
+            if [ "$saved" -lt 5 ]; then
+                say "$VOLUME_FILE held $saved; treating that as leftover rather than a level"
+                saved=$VOLUME_DEFAULT
+            fi
             if amixer -c "$CARD" cset name="$SOFTVOL_CTL" "$saved" >/dev/null 2>&1; then
                 say "softvol '$SOFTVOL_CTL' -> value $saved from $VOLUME_FILE"
             fi
@@ -244,4 +274,8 @@ case "${cur:-}" in
            printf '%s\n' "$cur" >"$VOLUME_FILE" 2>/dev/null || : ;;
 esac
 say "volume model: hardware 0 dB, softvol ${cur:-?}% (-48..0 dB)"
+# The frontend session waits for this before it paints its volume bar: it used
+# to pin the mixer while this script was still restoring the state blob, so the
+# restore won the race and the pin was thrown away.
+: >/run/baseos-audio-ready 2>/dev/null || :
 exit 0

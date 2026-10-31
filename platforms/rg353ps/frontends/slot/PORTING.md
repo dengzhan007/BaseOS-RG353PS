@@ -380,7 +380,7 @@ RG353PS 实测参考值：`adc-joystick` 是 **event4**（`event1` 是电源键�
 
 ### 6.2 实测时间线（uptime，单位秒）
 
-只读根之前（第一轮优化的结果）：
+第一轮优化后（可写根，每次启动重放 ext4 日志）：
 
 ```
  4.17  rcS 开始
@@ -395,30 +395,41 @@ RG353PS 实测参考值：`adc-joystick` 是 **event4**（`event1` 是电源键�
  +2.06 Slot 进程内首帧
 ```
 
-只读根之后（`baseos-boot-report` 原样输出）：
+第二轮（只读根 + U-Boot 不再空等按键），刷成 1.0.4 之后的冷启动实测：
 
 ```
-Startup: 6.186 s before Linux, 3.978 s Linux to menu, 10.165 s total
-    1.26     +0.00  rcS: proc/sys/dev
-    1.32     +0.06  rcS: mdev done
-    1.93     +0.61  hotkeyd ready
-    1.95     +0.02  storage mounted
-    2.00     +0.05  modules: gpu ready
-    2.45     +0.45  userdata ready
-    2.80     +0.35  bg: gl prefetch done
-    2.93     +0.13  rcS done
-    2.94     +0.01  session entry
-    3.07     +0.13  frontend selected: slot
-    3.10     +0.03  session: audio wait begins
-    3.31     +0.21  session: audio ready (waited 200 ms)
-    3.35     +0.04  session: prepped
-    3.35     +0.00  handoff: entered
-    3.97     +0.62  frontend exec
+Startup: 4.184 s before Linux, 4.896 s Linux to menu, 9.080 s total
+    1.21     +0.00  rcS: proc/sys/dev
+    1.27     +0.06  rcS: mdev done
+    1.99     +0.72  hotkeyd ready
+    2.02     +0.03  storage mounted
+    2.06     +0.04  modules: gpu ready
+    2.53     +0.47  userdata ready
+    2.89     +0.36  bg: gl prefetch done
+    2.99     +0.10  rcS done
+    3.00     +0.01  session entry
+    3.03     +0.10  bg: wifi/bt/vpu ready
+    3.13     +0.10  frontend selected: slot
+    3.17     +0.04  session: audio wait begins
+    4.70     +1.53  session: audio ready (waited 1500 ms)
+    4.74     +0.04  session: prepped
+    4.74     +0.00  handoff: entered
+    4.89     +0.15  frontend exec
 ```
 
-**通电到前端进程启动 14.2 s → 10.2 s**，其中 2.9 s 全部来自 ext4 不再重放日志
-（1.25 s 就能进 rcS，之前是 4.17 s）。`boot-clock` 的开机前段仍是 6.19 s ——
-它现在是整条链上最大的一块，占 61%。
+**通电到前端进程启动 14.2 s → 9.1 s**，三笔账分别是：
+
+| 改动 | 省下 |
+|---|---|
+| ext4 不再重放日志（只读根） | 2.9 s（rcS 从 4.17 s 提到 1.21 s） |
+| U-Boot 不再空等按键（`CONFIG_BOOTDELAY=0`） | 2.0 s（开机前 6.19 s → 4.18 s） |
+| 第一轮的四项白等（hotkeyd / aplay / alsactl / 写日志） | 3.4 s |
+
+现在开机前那 4.18 s 仍是最大的一块，占 44%。剩下的两块大头都在 SD 卡上：内核 `Image`
+29 MB 要从 FAT 读进内存，还有 SD 卡初始化本身（§6.7）。
+
+**这个数字现在不再依赖关机是否干净。** 只读根之前，每次拔卡断电都会让下次启动多花
+2.9 s；现在拔卡和正常关机启动一样快。这是这一轮最实用的副产品。
 
 ### 6.3 量出来才发现的四个坑
 
@@ -471,6 +482,15 @@ Startup: 6.186 s before Linux, 3.978 s Linux to menu, 10.165 s total
 这个复古掌机最经典的故障一起去掉了。日志恢复仍在（内核会在只读挂载时照样重放），
 所以真有特殊情况也不会带着坏账跑。
 
+**刷成 1.0.4 之后的实测**：`grep EXT4-fs /run/dmesg-boot.txt` 只有一行
+
+```
+[    1.147590] EXT4-fs (mmcblk0p3): mounted filesystem c295601d-... ro with ordered data mode.
+```
+
+没有 `recovery required`，没有 `recovery complete`。rcS 开始时间从 4.17 s 降到 1.21 s，
+省下的 2.9 s 与日志重放的实测耗时一致。
+
 三个坑，都在"可写目录"这件事上：
 
 1. **`/etc/asound.conf` 是 audio-init 每次都重写的**（softvol 定义里要写声卡序号）。
@@ -483,16 +503,26 @@ Startup: 6.186 s before Linux, 3.978 s Linux to menu, 10.165 s total
 3. **`/root` 也要 tmpfs**：dropbear 的 `authorized_keys` 是由 `baseos-usb-debug`
    从镜像或用户分区拷进去的，`/root` 里没有任何需要跨启动保留的东西。
 
+**代价：状态必须搬家。** 只读根让所有 `/var` 下的东西随启动消失，包括音量记忆和
+Mesa 着色器缓存（后者值 2 s）。所以这两个连同 ALSA mixer 状态一起搬到了用户卷的
+`/mnt/SDCARD/.baseos/` 下：`state/`（音量 + mixer state）和 `cache/`（Mesa 缓存）。
+设备上没有卡时自动退回 tmpfs，只是丢记忆不影响使用。
+
+实测确认：`baseos-volume` 里是 99，`baseos-alsa-state` 更新于本次启动，
+`cache/mesa_shader_cache_db` 里 52 条还在，音量跨重启保留。
+
 排查时先看这两条，能省一小时：`grep EXT4-fs /run/dmesg-boot.txt` 应该只有一行
 `mounted ... ro`；`grep -c EROFS /run/dmesg-boot.txt` 应该是 0（真出错时去看是谁在写，
 而不是去把根分区改回 rw）。
 
-### 6.5 第二轮：开机前 6.19 s
+### 6.5 第二轮：开机前 6.19 s → 4.18 s
 
 `boot-clock` 说 6.19 s，而 `bootflow`/U-Boot 的串口没人接，所以这一层只能靠"改一项、
 量一次"来逼近。第一刀是最便宜的：**`CONFIG_BOOTDELAY` 板级默认是 2**，每次启动白等
 两秒按键——这台机器没有串口，U-Boot 也不轮询手柄。`platforms/rg353ps/uboot.config`
 把它设成 0（构建脚本用 `merge_config.sh` 合进去，并 grep 校验真的生效）。
+
+刷进卡里实测：开机前 6.186 s → 4.184 s，正好省掉 2 s。
 
 剩下的大头是内核本身：`Image` 有 29 MB，U-Boot 要把每一字节从 FAT 读进内存。可选方向
 （都需要重刷验证）：U-Boot 里把 SD 时钟提到 UHS、内核存成压缩的 FIT 让 U-Boot 解压、
@@ -518,15 +548,22 @@ echo "file ep0.c +p"    > /sys/kernel/debug/dynamic_debug/control
 在十处注入点各改一遍：格式串统一以 `RG353PS` 开头，所以锚点稳定，且改写是幂等的
 （源码树有缓存，同一棵树会被处理两次）。
 
+刷进卡里的实测：`grep -c REQMAP /run/dmesg-boot.txt` 从 635（全是它）变成 **0**，
+快照现在 552 行，全是正常的内核消息。mass-storage 那批 `baseos-msdiag:` 前缀的
+`pr_info` 故意留在 info 级——它们只在用户主动按 Function 进 USB 存储模式时才跑，
+不在启动路径上。
+
 ### 6.7 还没做的
 
 - **softvol 控件第一次真正打开 PCM 要 ~1.4 s**（aplay 刚关掉 PCM，控件赋值又要重开，
   触发 DAPM 上电）。这笔钱目前由 `audio-init` 先付、前端等它；理想做法是并进前端那次
-  PCM 会话里，让这 1.4 s 和 Slot 自己的启动重叠。
+  PCM 会话里，让这 1.4 s 和 Slot 自己的启动重叠。实测里 `session: audio ready` 这一步
+  在 0.2~1.5 s 之间波动，就是它。
 - **SD 卡初始化在 Linux 里要 0.7 s**，其中 0.53 s 是 SDR104 的调谐，而且第一次调谐
   会失败（`tuning execution failed: -5`）再整体重来一次。改 `sd-uhs-sdr50` 可以省掉
   调谐，代价是读速从 ~79 MB/s 掉到 ~40 MB/s —— 那 33 MB 的 `libgallium` 预读会慢
   0.35 s 左右（目前预取有 0.35 s 余量）。要不要换是个取舍，没量透之前不动。
+- **开机前还剩 4.18 s**（§6.5），其中内核 `Image` 29 MB 从 FAT 读入是大头。
 
 ### 6.8 量启动时的注意事项
 
@@ -540,6 +577,22 @@ echo "file ep0.c +p"    > /sys/kernel/debug/dynamic_debug/control
   `usb_debug=no` 下复核一次。
 - rcS 首行的 dmesg 快照现在不再是"救命"的（探针已收进动态调试），但它便宜到没有理由
   去掉：它同时是只读根是否生效的第一手证据。
+
+### 6.9 这一轮在构建里踩的三个坑（都不是设备的坑，是仓库的）
+
+1. **注释里的撇号会关掉 docker 的单引号块。** `build-image.sh` 把容器脚本写成
+   `docker run ... sh -euc '...'`，所以那一段里的任何 `'` 都会提前闭合字符串。
+   注释里的 `ext4's journal replay` 就这么把后半段脚本甩到了宿主 shell 上，
+   报错是 `BOOTFS: parameter not set` —— 指向变量，完全不指向真正的原因。
+   **写这类脚本时，注释里别用撇号。**（`build-rootfs.sh` / `build-kernel.sh` /
+   `build-uboot.sh` 同理。）
+2. **校验要放在它检查的东西被创建之后。** 只读根那三个符号链接的检查一度写在了
+   创建它们的代码前面两百里，于是构建永远失败在一个马上就要变对的文件系统上。
+3. **版本号要跟着设备走。** 卡上跑的是 1.0.3（上一轮交付脚本里手工打的号，从未进
+   仓库），仓库 `VERSION` 还写着 1.0.2。更新器拒绝不比运行中新的包，所以 1.0.2 的包
+   会在卡上被静默挡掉。**每次交付都要把 `VERSION` 一起提上去。**
+   另外 `VERSION` 已加进 `.gitattributes` 的 `eol=lf`：`core.autocrlf=true` 会在文件里
+   塞一个 CR，设备读到 `1.0.4\r` 就再也对不上任何版本了。
 
 ---
 

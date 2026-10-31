@@ -1,6 +1,9 @@
 #!/bin/sh
 # BaseOS-bundled fallback launcher for Slot on RG353PS.
 # Used when the frontend package's .baseos adapter was omitted during extraction.
+#
+# baseos: power-owned
+# Same contract as the packaged adapter: Slot owns the power key while it runs.
 set -eu
 
 SDCARD="${BASEOS_FRONTEND_ROOT:-/mnt/SDCARD}"

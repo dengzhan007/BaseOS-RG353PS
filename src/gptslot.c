@@ -32,7 +32,9 @@
 // boot and rootfs take part in a flip.
 static const char *NAMES[NSLOTS] = {"BASEOS_UBOOT", "BASEOS_BOOT", "BASEOS_ROOT"};
 static const char *UPPER[NSLOTS] = {"UBOOT", "BOOT", "ROOTFS"};
-#define DATA_NAME "BASEOS_DATA"
+#define DATA_NAME "BASEOS"
+/* Cards flashed before the rename still carry the old GPT name. */
+#define LEGACY_DATA_NAME "BASEOS_DATA"
 
 struct slot {
 	int idx;            // entry index
@@ -89,6 +91,7 @@ static int derive(struct gpt *g, struct slot *s) {
 		}
 	}
 	int data = gpt_find(g, DATA_NAME);
+	if (data < 0) data = gpt_find(g, LEGACY_DATA_NAME);
 	if (data < 0 || gpt_rd64(gpt_entry(g, data) + GPT_START) != base) return -1;
 	return 0;
 }

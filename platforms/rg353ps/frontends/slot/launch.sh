@@ -1,5 +1,11 @@
 #!/bin/sh
 # BaseOS RG353PS launcher for the SDL2/KMSDRM Slot build.
+#
+# baseos: power-owned
+# Slot dozes on a short power tap and flushes resume state before a long-press
+# shutdown, so it handles the key itself and rg353ps-hotkeyd stands down while
+# this frontend runs. Remove the marker line above to hand the key back to the
+# daemon instead.
 set -eu
 
 SDCARD="${BASEOS_FRONTEND_ROOT:-/mnt/SDCARD}"

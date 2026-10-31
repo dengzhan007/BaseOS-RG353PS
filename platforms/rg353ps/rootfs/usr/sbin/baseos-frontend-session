@@ -7,7 +7,10 @@ export PATH
 
 TF1=/mnt/SDCARD
 TF2=/mnt/TF2
-CONFIG=/mnt/boot/baseos.conf
+# The user partition is the only volume a PC shows, so it wins: BASEOS_BOOT is
+# hidden from file managers now and cannot be edited without a Linux host.
+CONFIG=/mnt/SDCARD/baseos.conf
+[ -r "$CONFIG" ] || CONFIG=/mnt/boot/baseos.conf
 [ -r "$CONFIG" ] || CONFIG=/etc/baseos.conf
 
 # A boot-time Function request has priority over frontend launch. hotkeyd
@@ -15,6 +18,16 @@ CONFIG=/mnt/boot/baseos.conf
 # only after the USB-storage helper has returned.
 BOOT_STORAGE_REQUEST=/run/baseos-usb-storage.boot-request
 while [ -e "$BOOT_STORAGE_REQUEST" ]; do sleep 0.1; done
+
+# Power-key ownership. rg353ps-hotkeyd handles a short tap (deep sleep) and a
+# two-second hold (power off) unless a frontend claims the key for itself. A
+# frontend claims it by carrying the marker line "baseos: power-owned" in its
+# launch script: such a frontend can flush its own state before it sleeps or
+# exits, and having both act on one tap suspended the unit twice. When no
+# frontend claims it, or the frontend exits or is paused, the daemon takes over.
+POWER_OWNER_FILE=/run/baseos-power-frontend
+POWER_OWNED=0
+release_power_owner() { rm -f "$POWER_OWNER_FILE" 2>/dev/null || :; }
 
 # Reaching a frontend session is what ends an update's trial: the slots that
 # booted are proven to work, so the payload is removed and the trial state
@@ -70,6 +83,8 @@ setting() {
 
 diagnostic() {
   persist_detection_log
+  # No frontend is running, so the power key belongs to rg353ps-hotkeyd again.
+  release_power_owner
   log "starting built-in diagnostic UI"
   # Keep this supervisor alive in diagnostic mode too, so the Function/Mode
   # USB-storage hotkey can safely stop the UI and unmount the data card.
@@ -460,9 +475,20 @@ if [ "$LAUNCH_MODE" = "exec" ]; then
   [ -x "$LAUNCHER" ] || chmod 0755 "$LAUNCHER" 2>/dev/null || :
   "$LAUNCHER" &
 else
+  # A script adapter opts into owning the power key with one marker line. Read
+  # it before launch: the child cannot tell us once it is running.
+  if grep -q 'baseos: power-owned' "$LAUNCHER" 2>/dev/null; then
+    POWER_OWNED=1
+  fi
   /bin/sh "$LAUNCHER" &
 fi
 FRONTEND_PID=$!
+if [ "$POWER_OWNED" -eq 1 ]; then
+  printf '%s\n' "$FRONTEND_PID" > "$POWER_OWNER_FILE" 2>/dev/null || :
+  log "frontend $SELECTED owns the power key while it runs"
+else
+  log "frontend $SELECTED does not claim the power key; rg353ps-hotkeyd keeps it"
+fi
 while kill -0 "$FRONTEND_PID" 2>/dev/null; do
   # One-shot, opt-in first-stage suspend test. This runs only after a frontend
   # has launched, so its process tree can be checked after resume. Never run
@@ -482,6 +508,7 @@ while kill -0 "$FRONTEND_PID" 2>/dev/null; do
   if [ -e /run/baseos-usb-storage.request ]; then
     log "USB storage requested; stopping frontend before unmount"
     kill_tree TERM "$FRONTEND_PID"
+    release_power_owner
     i=0
     while kill -0 "$FRONTEND_PID" 2>/dev/null && [ "$i" -lt 15 ]; do sleep 0.1; i=$((i+1)); done
     if kill -0 "$FRONTEND_PID" 2>/dev/null; then kill_tree KILL "$FRONTEND_PID"; fi
@@ -497,6 +524,7 @@ while kill -0 "$FRONTEND_PID" 2>/dev/null; do
 done
 wait "$FRONTEND_PID"
 rc=$?
+release_power_owner
 persist_detection_log
 log "frontend '$SELECTED' exited with status $rc; returning to diagnostics"
 printf '\033[0m\033[?25h\033[2J\033[H' > /dev/tty1 2>/dev/null || :

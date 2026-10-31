@@ -1,0 +1,142 @@
+# RG353PS · Slot 系前端快速移植指南
+
+适用：把任意 **Slot 家族 fork**（基于 https://github.com/BrandonKowalski/slot 的衍生前端）
+移植到 RG353PS（RK3566，640×480，BaseOS A/B 布局）。
+
+目标不是"把某一个 fork 编出来"，而是沉淀一套**换 fork 只改极少文件**的方法论。
+
+---
+
+## 0. 为什么能快速复用（先建立心智模型）
+
+- **显示走 Option A：SDL2 KMSDRM + Mesa/Panfrost**，与上游的 Mali fbdev EGL ABI 解耦。
+  上游 `fbdev.rs` 用 Mali 私有的 `FbdevWindow` 结构体建 EGL native window，Mesa/Panfrost 不支持；
+  我们的 `fbdev.rs` 改用 SDL2 的 KMSDRM 后端 + GLES 上下文，运行时 `dlopen` libSDL2。
+- **内核已就绪**：`CONFIG_DRM_PANFROST=m`（GPU 用开源 Panfrost），rootfs 已带
+  SDL2(KMSDRM) + Mesa(GBM/EGL) + ALSA，无需塞闭源 libMali（那需要私有 `mali.ko`，
+  与 Panfrost 互斥，还会搞挂依赖 Mesa 的其他前端）。
+- **音频走 ALSA 直连**，无 pulse / 无 dbus 依赖 —— 正好契合我们无 dbus 的 rootfs。
+- **结论**：fork 之间真正会变的是「源码仓库 + 按键映射 + 可能多几个 Rust 依赖」；
+  显示后端、运行环境、构建/打包、模拟核心都是可复用的，换 fork 不用重做。
+
+---
+
+## 1. 已沉淀的可复用资产（换 fork 不重做）
+
+| 资产 | 路径 | 作用 |
+|---|---|---|
+| 构建镜像定义 | `platforms/rg353ps/frontends/slot/Dockerfile.slot-build` | 生成 `rg353ps-slot-build:latest`（arm64，预装 git/build-base/cmake/SDL2/Mesa 等依赖） |
+| 暖缓存脚本 | `diag/warm-slot-cache.sh` | 把 slot 依赖 + crates.io registry 固化进持久卷，避免每次全量编译 |
+| 构建+打包主脚本 | `platforms/rg353ps/build-slot.sh` | pin 版本、覆盖 fbdev.rs、打 patch、编 slot+cores、出 `baseos-rg353ps-slot.zip` |
+| **显示后端替换** | `platforms/rg353ps/frontends/slot/fbdev.rs` | SDL2 KMSDRM+GLES 版 `fbdev.rs`，**fork 间基本直接复用** |
+| **运行环境** | `platforms/rg353ps/frontends/slot/launch.sh` | `SDL_VIDEODRIVER=kmsdrm` / `SDL_AUDIODRIVER=alsa` / 暂存二进制到 tmpfs / `--init-root` |
+| 示例按键 patch | `platforms/rg353ps/frontends/slot/slot-rg353ps.patch` | 本 fork 专用按键映射（**换 fork 要重做**） |
+| 模拟核心 | mGBA / gpSP 的 `.so`（aarch64 musl） | 与前端 fork 无关，通常直接复用 |
+
+---
+
+## 2. 移植一个新 fork 时要动的东西（按改动量升序）
+
+| # | 改动点 | 触及文件 | 是否 fork 相关 | 做法 |
+|---|---|---|---|---|
+| 1 | 显示后端 | 覆盖 `crates/slot-gfx/src/fbdev.rs` 为我们版 | **否**（只要该 fork 的 `slot-gfx` 的 `Surface` trait 接口没变） | 直接 `cp frontends/slot/fbdev.rs` 覆盖 |
+| 2 | 运行环境 | `launch.sh` | 否 | 直接复用，无需改 |
+| 3 | 模拟核心 | mGBA/gpSP `.so` | 否 | 直接复用（除非 fork 指定不同 core 版本） |
+| 4 | 构建 pin | `build-slot.sh` 顶部 `SLOT_REV`/`SLOT_REPO`（或环境变量） | **是** | 指向目标 fork 的 commit / repo，如 `SLOT_REPO=owner/fork SLOT_REV=abc123 ./build-slot.sh` |
+| 5 | **按键映射** | 新 patch，如 `slot-<fork>-ab.patch` | **是（每个 fork 必做）** | 对该 fork 的 `crates/slot/src/input/evdev.rs` 重写 `code_to_btn` 与 `WANTED` 数组 |
+| 6 | 设备脚本 | `led.sh`/`lid.sh` + `AGS_*` 环境变量 | 否（设备相关） | 提供 RK817 / 无 hall 传感器的版本或 stub |
+| 7 | 分辨率 | `fbdev.rs` 读 `fb0`，fallback 640×480 | 否 | 通常不动；若 fork 硬写分辨率再调 |
+
+> 经验值：**第 4、5 项是每个 fork 真正要写的东西**，其余都是复制粘贴。
+
+---
+
+## 3. 标准流程（适配 10 分钟 + 构建时间）
+
+1. **定目标**：fork 仓库 URL + 一个已知能跑的 commit（`SLOT_REV`）。
+2. **构建镜像**（首次/换 Rust 版本时）：
+   `docker build --platform linux/arm64 -t rg353ps-slot-build:latest -f platforms/rg353ps/frontends/slot/Dockerfile.slot-build platforms/rg353ps/frontends/slot`
+3. **暖缓存**（首次/换 fork 导致依赖树变化时）：`bash diag/warm-slot-cache.sh`
+   （取码已在宿主完成，容器无需联网；cargo registry/依赖产物固化进命名卷）。
+4. **改 `build-slot.sh`**：把 `SLOT_REV`（仓库不同则也改 clone URL）指向新 fork；
+   把要 `git apply` 的 patch 文件名换成新的。
+5. **为新 fork 生成按键 patch**：基于该 fork 的 `evdev.rs`，按 RG353PS 的 DTS
+   （`rk3566-anbernic-rg353x.dtsi` + `rk3566-anbernic-rg353ps.dts`）映射：
+
+   | 物理键 | Linux 码 | Slot 按钮 |
+   |---|---|---|
+   | A（右） | `BTN_EAST` 0x131 | `A` |
+   | B（下） | `BTN_SOUTH` 0x130 | `B` |
+   | X（上） | `BTN_NORTH` 0x133 | `X` |
+   | Y（左） | `BTN_WEST` 0x134 | `Y` |
+   | L1 / R1 | `BTN_TL` 0x136 / `BTN_TR` 0x137 | `L1` / `R1` |
+   | L2 / R2 | `BTN_TL2` 0x138 / `BTN_TR2` 0x139 | `L2` / `R2` |
+   | Select / Start | `BTN_SELECT` 0x13a / `BTN_START` 0x13b | `Select` / `Start` |
+   | Function | `BTN_MODE` 0x13c | `Menu` |
+   | 十字键 | `BTN_DPAD_*` 0x220~0x223（兜底 `KEY_UP/DOWN/LEFT/RIGHT`） | 方向 |
+   | 左摇杆 | `ABS_X`/`ABS_Y`（0..1023，静止 519） | 方向（需 `left_stick_dpad` 打开） |
+   | 右摇杆 | `ABS_RX`/`ABS_RY` | 无对应（Slot 无右摇杆功能） |
+   | 摇杆按压 | `BTN_THUMBL`/`BTN_THUMBR` 0x13d/0x13e | 无对应（`Btn` 枚举没有 L3/R3） |
+
+   两个易错点，写 patch 时务必照做：
+   - **摇杆是 `adc-joystick`**：报送 `ABS_X/ABS_Y`，量程 0..1023、静止约 519，上游的
+     `STICK_DEADZONE = 2048` 会把所有采样吞掉；且 X 轴方向反了（值大 = 左），要取负。
+   - **摇杆设备没有任何按键**：只靠 `WANTED`（按键位图）选设备会漏掉它，必须在
+     `wanted_node()` 里用 `ABS` 能力位判定（同时要求左右摇杆都在，避免误收鼠标/触摸屏）。
+6. **构建**：`SLOT_BUILD_IMAGE=rg353ps-slot-build:latest ./build-slot.sh`
+   → 产出 `baseos-rg353ps-slot.zip`（含 `System/slot` + `launch.sh` + cores + 源码留证）。
+7. **上机验证**（见 §4）。
+
+---
+
+## 4. 上机验证清单（每次必过）
+
+- [ ] SDL2 KMSDRM 在 640×480 屏初始化成功（无黑屏、无 "EGL not initialized"）
+- [ ] 输入：方向键 / ABXY / LR / Start / Select 按**物理位置**正确
+- [ ] 音频：ALSA es8388 出声（`SDL_AUDIODRIVER=alsa` 生效）
+- [ ] 模拟核心能加载并运行（mGBA / gpSP）
+- [ ] 电池/背光脚本不报错（无 AXP 设备时安全跳过）
+- [ ] 存档 / 退出 / 休眠唤醒正常
+
+---
+
+## 5. 已知坑（写进方法论，免得每次重踩）
+
+- **容器里绝对取不到源码（已踩坑两次）**：WSL 下容器内 `git clone`/`curl` 全量拉 GitHub
+  会 TLS 断流（`OpenSSL/3.x: error:0A000126:SSL routines::unexpected eof while reading`），
+  **即使加 `--network host` 也不行**（小请求如 `ls-remote` 能过、全量 `clone` 仍被重置）。
+  **正确做法：所有源码在宿主（WSL）取好，只读挂载进容器，容器内复制可写副本再打补丁/编译。**
+  `build-slot.sh` 与 `warm-slot-cache.sh` 已把取码移到宿主侧（STEP 0），换 fork 只改
+  脚本顶部的 `SLOT_REPO` / `SLOT_REV`（或环境变量）即可，容器无需联网。
+- **musl 动态链接**：slot 用 `libloading::Library::new` 运行时 dlopen libSDL2，
+  静态链接的 musl 二进制会报 "Dynamic loading not supported" 并退出。
+  必须 `RUSTFLAGS="-C target-feature=-crt-static"`（脚本已带）。
+  **cargo 指纹含 RUSTFLAGS** —— 暖缓存时用的 RUSTFLAGS 必须与生产完全一致，否则缓存不命中。
+- **fat LTO 很慢**：`[profile.device]` 开 `lto="fat"` + `codegen-units=1`，干净编译在 QEMU arm64
+  模拟下极慢；靠 `warm-slot-cache.sh` 把依赖固化进命名卷，之后只重编 slot 自身一个 crate。
+- **exec 位**：TF/exFAT 不保 Unix exec 位，`launch.sh` 把二进制 `cp` 到 `/tmp` 再 `exec`；
+  ROM/存档/core 留在用户分区。
+- **无 dbus**：rootfs 无 `dbus-daemon`，依赖系统总线的前端特性（如某些 audiomon）起不来；
+  Slot 走 ALSA 直连，不受影响。
+- **内核驱动**：坚持 Panfrost，**不要**试图塞闭源 libMali（需私有 `mali.ko`，与 Panfrost 互斥）。
+- **电源键归属**：系统里有两个角色能处理电源键——常驻的 `rg353ps-hotkeyd`（短按 `echo mem`
+  深睡、长按 2 秒关机）和前端自己（Slot 短按 doze、长按 flush 存档后关机）。两者同时响应
+  会让一次短按休眠两次、唤醒还要再按一次。约定是**前台优先**：前端在 `launch.sh` 里写一行
+  `# baseos: power-owned`，`baseos-frontend-session` 就会在前端运行期间把 pid 写进
+  `/run/baseos-power-frontend`，hotkeyd 据此让位；前端退出/暂停/崩溃时该文件被清掉，
+  电源键自动回到 hotkeyd。新 frontend 若不写这一行，则始终由 hotkeyd 负责。
+
+---
+
+## 6. 资产清单（文件位置）
+
+- 构建镜像定义：`platforms/rg353ps/frontends/slot/Dockerfile.slot-build`
+- 暖缓存脚本：`diag/warm-slot-cache.sh`
+- 构建+打包：`platforms/rg353ps/build-slot.sh`
+- 显示后端：`platforms/rg353ps/frontends/slot/fbdev.rs`
+- 运行环境：`platforms/rg353ps/frontends/slot/launch.sh`
+- 示例按键 patch：`platforms/rg353ps/frontends/slot/slot-rg353ps.patch`
+- 本指南：`platforms/rg353ps/frontends/slot/PORTING.md`
+
+> 持久卷：`rg353ps-slot-cargo`（registry）、`rg353ps-slot-target`（编译产物缓存）。
+> 镜像：`rg353ps-slot-build:latest`（arm64）。

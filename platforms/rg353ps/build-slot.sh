@@ -1,6 +1,11 @@
 #!/bin/sh
 # Build an experimental Slot frontend bundle for RG353PS (SDL2/KMSDRM + Mesa/Panfrost).
 # The output is a ZIP for the frontend SD card; it does not modify the OS image.
+#
+# Quick fork porting: only two inputs are fork-specific -
+#   SLOT_REPO / SLOT_REV   -> which Slot fork + commit to build
+#   platforms/rg353ps/frontends/slot/slot-rg353ps.patch -> input mapping
+# Everything else (fbdev.rs display backend, launch.sh, cores) is reused as-is.
 set -eu
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -11,37 +16,76 @@ WORK="${RG353PS_WORK:-$REPO_ROOT/work/rg353ps}"
 OUT="$WORK/frontends"
 mkdir -p "$OUT"
 
-for cmd in docker; do
+# ---- configurable forks / pins (override per fork here) ----
+SLOT_REPO="${SLOT_REPO:-BrandonKowalski/slot}"
+SLOT_REV="${SLOT_REV:-e5b12adb2a267bc6658bc80eb50bff9622fb79e4}"
+MGBA_REV="${MGBA_REV:-e31759b24e7a4e3899285ff720d7b573ac328ae7}"
+GPSP_REV="${GPSP_REV:-7b2dd37394e2822110cacef321e9bb291a305b77}"
+
+for cmd in docker git; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "missing required command: $cmd" >&2; exit 1; }
 done
 
+# ---- STEP 0: fetch sources on the HOST (container cannot reach GitHub reliably) ----
+# Reused across runs; set SLOT_REFRESH=1 to force re-fetch. Cores are fork-agnostic
+# and built once, so they are cached and not re-fetched on every fork port.
+SRC_HOST="$WORK/slot-src"
+MGBA_HOST="$WORK/mgba-src"
+GPSP_TARBALL_HOST="$WORK/gpsp-$GPSP_REV.tar.gz"
+
+if [ -n "${SLOT_SRC:-}" ]; then
+  SRC_HOST="$SLOT_SRC"
+elif [ "${SLOT_REFRESH:-}" = 1 ] || [ ! -d "$SRC_HOST/.git" ]; then
+  rm -rf "$SRC_HOST"
+  git clone "https://github.com/$SLOT_REPO.git" "$SRC_HOST"
+fi
+git -C "$SRC_HOST" fetch origin "$SLOT_REV" 2>/dev/null || true
+git -C "$SRC_HOST" checkout --detach "$SLOT_REV"
+
+if [ "${SLOT_REFRESH:-}" = 1 ] || [ ! -d "$MGBA_HOST/.git" ]; then
+  rm -rf "$MGBA_HOST"
+  git clone "https://github.com/libretro/mgba.git" "$MGBA_HOST"
+fi
+git -C "$MGBA_HOST" fetch origin "$MGBA_REV" 2>/dev/null || true
+git -C "$MGBA_HOST" checkout --detach "$MGBA_REV"
+
+if [ ! -f "$GPSP_TARBALL_HOST" ]; then
+  curl -fsSL -o "$GPSP_TARBALL_HOST" "https://github.com/libretro/gpsp/archive/$GPSP_REV.tar.gz"
+fi
+
 echo "== building experimental RG353PS Slot bundle =="
-docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
+echo "   slot: $SLOT_REPO @ $SLOT_REV"
+docker run --rm --network host --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
   -v "$HERE/frontends/slot":/slot-port:ro \
   -v "$OUT":/out \
-  rust:1-alpine3.22 sh -euc '
-    apk add --no-cache git build-base cmake curl zip pkgconf musl-utils linux-headers \
-      zlib-dev libpng-dev libzip-dev
+  -v rg353ps-slot-cargo:/usr/local/cargo \
+  -v rg353ps-slot-target:/cargo-target \
+  -v "$SRC_HOST":/slot-up:ro \
+  -v "$MGBA_HOST":/mgba-up:ro \
+  -v "$GPSP_TARBALL_HOST":/gpsp.tar.gz:ro \
+  "${SLOT_BUILD_IMAGE:-rg353ps-slot-build:latest}" sh -euc '
+    SLOT_REV="'"$SLOT_REV"'"
+    MGBA_REV="'"$MGBA_REV"'"
+    GPSP_REV="'"$GPSP_REV"'"
+    export RUSTFLAGS="-C target-feature=-crt-static"
+    export CARGO_HOME=/usr/local/cargo
 
-    SLOT_REV=e5b12adb2a267bc6658bc80eb50bff9622fb79e4
-    MGBA_REV=e31759b24e7a4e3899285ff720d7b573ac328ae7
-    GPSP_REV=7b2dd37394e2822110cacef321e9bb291a305b77
     SRC=/tmp/slot-src
-    TARGET=/tmp/slot-target
+    TARGET=/cargo-target
     PKG=/out/baseos-rg353ps-slot
-    rm -rf "$SRC" "$TARGET" "$PKG"
-    git clone --filter=blob:none https://github.com/BrandonKowalski/slot.git "$SRC"
-    git -C "$SRC" checkout --detach "$SLOT_REV"
+    # Do NOT rm the cargo target cache: it is a persistent named volume warmed by
+    # diag/warm-slot-cache.sh so dependency compilation (fat LTO) is skipped.
+    rm -rf "$SRC" "$PKG"
 
-    # Switch Slot from its device-specific native EGL window to the already
-    # verified SDL2 KMSDRM + EGL/GLES path, then map RG353PS A/B by Nintendo layout.
+    # Use the host-fetched, network-free copy and patch it in place.
+    cp -r /slot-up "$SRC"
     cp /slot-port/fbdev.rs "$SRC/crates/slot-gfx/src/fbdev.rs"
-    git -C "$SRC" apply /slot-port/slot-nintendo-ab.patch
+    git -C "$SRC" apply --ignore-whitespace /slot-port/slot-rg353ps.patch
 
     cd "$SRC"
     # The Slot SDL2/GLES surface uses libloading::Library::new, which requires dlopen.
     # Static musl binaries return "Dynamic loading not supported" and exit before SDL init.
-    RUSTFLAGS="-C target-feature=-crt-static" cargo build --profile device --target-dir "$TARGET" -p slot --no-default-features --features device
+    cargo build --profile device --target-dir "$TARGET" -p slot --no-default-features --features device
     test -x "$TARGET/device/slot"
     readelf -l "$TARGET/device/slot" | grep -q "ld-musl-aarch64.so.1" || {
       echo "Slot executable is not dynamically linked; SDL2/GLES dlopen will fail" >&2
@@ -60,15 +104,17 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     tar --exclude=.git -czf "$PKG/System/licenses/slot-rg353ps-$SLOT_REV-source.tar.gz" -C "$SRC" .
     "$PKG/System/slot" --init-root "$PKG"
 
-    # Build both upstream Slot libretro cores with the same musl/aarch64 ABI
-    # as this experimental BaseOS userspace.
+    # mGBA: host-fetched copy so build.sh skips network entirely.
+    rm -rf /tmp/mgba-work
+    mkdir -p /tmp/mgba-work
+    cp -r /mgba-up /tmp/mgba-work/mgba
     sh cores/mgba/build.sh build "$MGBA_REV" /tmp/mgba-work "$PKG/System/mgba_libretro.so"
     # mGBA is dynamically linked; include the patched corresponding source and metadata.
     tar --exclude=.git -czf "$PKG/System/licenses/mgba-$MGBA_REV-source.tar.gz" -C /tmp/mgba-work/mgba .
 
+    # gpSP: host-fetched tarball, network-free.
+    cp /gpsp.tar.gz /tmp/gpsp-src.tar.gz
     GPSP_TARBALL=/tmp/gpsp-src.tar.gz
-    curl -fsSL -o "$GPSP_TARBALL" "https://github.com/libretro/gpsp/archive/$GPSP_REV.tar.gz"
-    tar -tzf "$GPSP_TARBALL" | grep "^gpsp-$GPSP_REV/Makefile$" >/dev/null
     sh cores/gpsp/build.sh build "$GPSP_REV" "$GPSP_TARBALL" /tmp/gpsp-work "$PKG/System/gpsp_libretro.so"
     # Include the exact patched source tree corresponding to the output core.
     tar --exclude=.git -czf "$PKG/System/licenses/gpsp-$GPSP_REV-source.tar.gz" -C "/tmp/gpsp-work/gpsp-$GPSP_REV" .

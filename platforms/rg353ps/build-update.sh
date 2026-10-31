@@ -30,7 +30,7 @@ OUT="$WORK/baseos-rg353ps-$VERSION.bosupd"
 
 python3 "$REPO_ROOT/tools/mkupdate.py" "$IMAGE" rg353ps "$VERSION" "$BUILD" "$OUT" \
   --regions boot=BASEOS_BOOT,rootfs=BASEOS_ROOT \
-  --data-partition BASEOS_DATA
+  --data-partition BASEOS
 
 echo
 echo "Copy $(basename "$OUT") to the root of either card volume and power on."

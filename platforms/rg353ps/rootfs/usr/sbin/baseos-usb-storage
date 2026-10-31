@@ -78,7 +78,7 @@ rotate_diag_logs() {
 # The card copy wins over /etc/baseos.conf, which ships the default (no), so
 # the switch can be flipped without rebuilding or updating anything.
 read_debug_setting() {
-  for dbg_conf in /mnt/boot/baseos.conf /etc/baseos.conf; do
+  for dbg_conf in /mnt/SDCARD/baseos.conf /mnt/boot/baseos.conf /etc/baseos.conf; do
     [ -r "$dbg_conf" ] || continue
     while IFS='=' read -r dbg_key dbg_value; do
       case "$dbg_key" in
@@ -705,9 +705,9 @@ DEV_PARTNAME=$(sed -n 's/^PARTNAME=//p' "/sys/class/block/$PART_NAME/uevent" 2>/
 case "$MOUNTPOINT:$DEVICE" in
   /mnt/SDCARD:/dev/mmcblk*p[0-9]*)
     case "$DEV_PARTNAME" in
-      BASEOS_DATA) ;;
-      "") log "WARNING: $DEVICE has no PARTNAME; assuming BASEOS_DATA by mount point" ;;
-      *) log "refusing to export $DEVICE (PARTNAME=$DEV_PARTNAME); only BASEOS_DATA may be shared"; exit 1 ;;
+      BASEOS|BASEOS_DATA) ;;
+      "") log "WARNING: $DEVICE has no PARTNAME; assuming the user partition by mount point" ;;
+      *) log "refusing to export $DEVICE (PARTNAME=$DEV_PARTNAME); only the user partition may be shared"; exit 1 ;;
     esac
     ;;
   /mnt/TF2:/dev/mmcblk*p[0-9]*) ;;

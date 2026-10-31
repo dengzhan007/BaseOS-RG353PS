@@ -1,0 +1,24 @@
+# Prebaked build image for the RG353PS Slot frontend port (Option A:
+# SDL2 KMSDRM + Mesa/Panfrost, built natively under QEMU arm64 emulation).
+#
+# Everything here is the dependency layer that build-slot.sh would otherwise
+# reinstall every run. Baking it in turns a 1-2 minute `apk add` plus a full
+# re-download of the crates.io index into a no-op, and lets the cargo target
+# cache + registry live in a named volume that survives `docker run --rm`.
+FROM rust:1-alpine3.22
+
+# Build-time dependencies the upstream Slot bundle script installs each run.
+# SDL2/Mesa dev headers are added too: the ported fbdev.rs dlopen()s libSDL2 at
+# runtime (no build-time link), but having the headers around costs nothing and
+# helps if we later verify against the system SDL2.
+RUN apk add --no-cache \
+        git build-base cmake curl zip pkgconf musl-utils linux-headers \
+        zlib-dev libpng-dev libzip-dev \
+        sdl2-dev mesa-dev
+
+# rust:1-alpine already sets CARGO_HOME=/usr/local/cargo; keep it explicit so
+# the volume mount point is unambiguous.
+ENV CARGO_HOME=/usr/local/cargo
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV CARGO_NET_RETRY=10
+ENV CARGO_TERM_COLOR=always

@@ -28,6 +28,9 @@
    otherwise be seen as a fresh press. */
 #define RESUME_GUARD_MS 3000
 #define SLEEP_SCRIPT "/usr/sbin/rg353ps-sleep"
+/* Written by baseos-frontend-session once a frontend that claims the power key
+   has started; it holds that frontend's pid. */
+#define POWER_OWNER_FILE "/run/baseos-power-frontend"
 
 enum device_role { ROLE_NONE = 0, ROLE_VOLUME, ROLE_POWER, ROLE_KEYS };
 struct input_device { int fd; enum device_role role; char path[PATH_LEN]; char name[NAME_LEN]; };
@@ -158,10 +161,13 @@ static int debug_logging_enabled(void) {
     static long long checked_ms = -1;
     long long now = monotonic_ms();
     int r;
-    /* BASEOS_BOOT is not mounted for the first few seconds of every boot, so a
-       value cached from /etc alone would outlive the card's own answer. */
+    /* Neither the user partition nor BASEOS_BOOT is mounted for the first few
+       seconds of every boot, so a value cached from /etc alone would outlive
+       the card's own answer. The user partition wins because it is the only
+       volume a PC still shows. */
     if (cached >= 0 && checked_ms >= 0 && now - checked_ms < 2000) return cached;
-    r = config_flag_yes("/mnt/boot/baseos.conf", "debug");
+    r = config_flag_yes("/mnt/SDCARD/baseos.conf", "debug");
+    if (r < 0) r = config_flag_yes("/mnt/boot/baseos.conf", "debug");
     if (r < 0) r = config_flag_yes("/etc/baseos.conf", "debug");
     cached = (r > 0) ? 1 : 0;
     checked_ms = now;
@@ -443,8 +449,25 @@ static int adjust_playback_volume(int up) {
    unbind -> mem -> rebind sequence. Staying in waitpid() while the script runs
    is deliberate: the event loop must not process power events during the
    sleep, and the daemon has nothing else to do until the unit wakes. */
-static void enter_deep_sleep(void) {
-    pid_t child;
+/* A frontend that declares "baseos: power-owned" in its launch script handles
+   the power key itself while it runs, because only it knows how to flush its
+   own state. The supervisor publishes that frontend's pid here and removes the
+   file when the frontend exits or is paused, so a crashed or finished frontend
+   hands the key straight back to this daemon. */
+static int frontend_owns_power(void) {
+    char buf[32];
+    long pid = 0;
+    int fd = open(POWER_OWNER_FILE, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return 0;
+    ssize_t n = read(fd, buf, sizeof(buf) - 1);
+    (void)close(fd);
+    if (n <= 0) return 0;
+    buf[n] = '\0';
+    if (sscanf(buf, "%ld", &pid) != 1 || pid <= 0) return 0;
+    return kill((pid_t)pid, 0) == 0;
+}
+
+static void enter_deep_sleep(void) {    pid_t child;
     int status = 0;
     if (access(SLEEP_SCRIPT, X_OK) != 0) {
         log_message("sleep script missing or not executable; ignoring short press");
@@ -493,6 +516,13 @@ static void handle_input(struct input_device *dev) {
                 (void)adjust_playback_volume(ev.code==KEY_VOLUMEUP);
         } else if(dev->role==ROLE_POWER&&ev.code==KEY_POWER) {
             long long now = monotonic_ms();
+            if (frontend_owns_power()) {
+                /* The running frontend owns short taps and the hold. Clear the
+                   press state so the first press after it hands the key back is
+                   not read as a continuation of this one. */
+                power_press_start_ms = -1;
+                continue;
+            }
             if(now < power_ignore_until_ms) {
                 /* Still inside the post-resume guard window. Drop whatever the
                    kernel queued while we were asleep. */

@@ -32,7 +32,7 @@ mark() {
 # over /etc, so it can be turned on without rebuilding anything.
 config_debug_flag() {
 	_cfg=""
-	for _c in /mnt/boot/baseos.conf /etc/baseos.conf; do
+	for _c in /mnt/SDCARD/baseos.conf /mnt/boot/baseos.conf /etc/baseos.conf; do
 		[ -r "$_c" ] || continue
 		while IFS='=' read -r _k _v; do
 			case "$_k" in debug) _cfg="$_v"; break ;; esac

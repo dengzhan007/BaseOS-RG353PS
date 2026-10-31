@@ -87,9 +87,18 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
       --new=1:${IMG_UBOOT_START}:+${IMG_UBOOT_SECTORS} --typecode=1:8300 --change-name=1:BASEOS_UBOOT \
       --new=2:${IMG_BOOT_START}:+${IMG_BOOT_SECTORS} --typecode=2:0700 --change-name=2:BASEOS_BOOT \
       --new=3:${IMG_ROOT_START}:+${IMG_ROOT_SECTORS} --typecode=3:8300 --change-name=3:BASEOS_ROOT \
-      --new=4:${IMG_DATA_START}:0 --typecode=4:0700 --change-name=4:BASEOS_DATA \
+      --new=4:${IMG_DATA_START}:0 --typecode=4:0700 --change-name=4:BASEOS \
       --partition-guid=3:"$ROOT_PARTUUID" \
-      --attributes=2:set:2 "$IMG"
+      --attributes=2:set:2 \
+      --attributes=2:set:62 --attributes=2:set:63 "$IMG"
+
+    # The card is a console, not a two-volume USB disk. BASEOS_BOOT carries the
+    # kernel and extlinux.conf and nothing a user needs to edit, so it is marked
+    # hidden (bit 62) and no-automount (bit 63): Windows and macOS stop handing
+    # it a drive letter, and only the user partition shows up. Linux mounts both
+    # by PARTNAME and ignores these bits, so boot, the updater and BASEOS_ROOT
+    # are unaffected. The user partition is named BASEOS to match upstream
+    # BaseOS; every lookup still accepts the older BASEOS_DATA name.
 
     # This build boots through Standard Boot (CONFIG_BOOTCOMMAND="bootflow
     # scan -lb"), which walks every partition looking for extlinux.conf and

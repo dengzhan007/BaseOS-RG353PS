@@ -1,5 +1,5 @@
 #!/bin/sh
-# First-boot initializer for the dedicated BASEOS_DATA user partition.
+# First-boot initializer for the dedicated user-data partition.
 # Only a blank, signature-free data partition may be formatted. Existing
 # recognized FAT/exFAT data is mounted without formatting.
 set -u
@@ -35,6 +35,15 @@ parent_disk_name() {
     *p[0-9]*) printf '%s' "${1%p[0-9]*}" ;;
     *) return 1 ;;
   esac
+}
+
+DATA_PARTNAME=BASEOS
+LEGACY_DATA_PARTNAME=BASEOS_DATA
+
+# The user partition answers to either name: new cards take the upstream name,
+# cards flashed before the rename keep theirs and are never relabelled.
+find_data_partition() {
+  find_partition "$DATA_PARTNAME" "$1" || find_partition "$LEGACY_DATA_PARTNAME" "$1"
 }
 
 find_partition() {
@@ -174,9 +183,10 @@ DISK="/dev/$DISK_NAME"
   exit 0
 }
 
-# Locate BASEOS_DATA. Older smoke images had only BOOT and ROOT; on a larger
-# physical card create partition 3 in the unused space after the 2 GiB image.
-if ! find_partition BASEOS_DATA "$DISK_NAME"; then
+# Locate the user partition: BASEOS on new cards, BASEOS_DATA on older ones.
+# Older smoke images had only BOOT and ROOT; on a larger physical card create
+# partition 3 in the unused space after the 2 GiB image.
+if ! find_data_partition "$DISK_NAME"; then
   # Recover an existing p4 first, which may have been formatted on a PC before
   # its GPT partition name was recognized by BaseOS.
   if find_partition_number 4 "$DISK_NAME"; then
@@ -186,23 +196,23 @@ if ! find_partition BASEOS_DATA "$DISK_NAME"; then
       "")
         EXISTING_SIG=$(wipefs -n --noheadings --output TYPE "$FOUND_DEV" 2>/dev/null || :)
         if [ -n "$(printf '%s' "$EXISTING_SIG" | tr -d '[:space:]')" ]; then
-          log "$FOUND_DEV has an unknown signature and no BASEOS_DATA label; refusing to rename or format it"
+          log "$FOUND_DEV has an unknown signature and no $DATA_PARTNAME label; refusing to rename or format it"
           exit 0
         fi
         ;;
       *)
-        log "$FOUND_DEV has filesystem '$EXISTING_TYPE' and no BASEOS_DATA label; refusing to rename or format it"
+        log "$FOUND_DEV has filesystem '$EXISTING_TYPE' and no $DATA_PARTNAME label; refusing to rename or format it"
         exit 0
         ;;
     esac
-    if ! sgdisk --typecode=4:0700 --change-name=4:BASEOS_DATA "$DISK" >/dev/null 2>&1; then
-      log "could not restore BASEOS_DATA GPT name on $FOUND_DEV"
+    if ! sgdisk --typecode=4:0700 --change-name=4:"$DATA_PARTNAME" "$DISK" >/dev/null 2>&1; then
+      log "could not restore $DATA_PARTNAME GPT name on $FOUND_DEV"
       exit 0
     fi
     partx -u -n 4 "$DISK" >/dev/null 2>&1 || :
     /sbin/mdev -s 2>/dev/null || :
     sleep 1
-    find_partition BASEOS_DATA "$DISK_NAME" || {
+    find_data_partition "$DISK_NAME" || {
       # Keep the already identified numbered device usable if only PARTNAME
       # metadata refresh is delayed; no new partition was created.
       FOUND_DEV="/dev/${DISK_NAME}p4"
@@ -215,25 +225,25 @@ if ! find_partition BASEOS_DATA "$DISK_NAME"; then
     log "recovered user-data partition $FOUND_DEV by partition number"
   else
     if [ -e "$MARKER" ]; then
-      log "storage marker exists but BASEOS_DATA is missing; refusing to repartition"
+      log "storage marker exists but $DATA_PARTNAME is missing; refusing to repartition"
       exit 0
     fi
-    log "BASEOS_DATA absent; checking for free space after system partitions on $DISK"
+    log "$DATA_PARTNAME absent; checking for free space after system partitions on $DISK"
     if ! sgdisk --move-second-header --new=4:0:0 --typecode=4:0700 \
-        --change-name=4:BASEOS_DATA "$DISK" >/dev/null 2>&1; then
-      log "could not create BASEOS_DATA (card may be no larger than the old 2 GiB smoke image)"
+        --change-name=4:"$DATA_PARTNAME" "$DISK" >/dev/null 2>&1; then
+      log "could not create $DATA_PARTNAME (card may be no larger than the old 2 GiB smoke image)"
       exit 0
     fi
     if ! partx -u -n 4 "$DISK" >/dev/null 2>&1; then
-      log "partx could not refresh partition 3 after creating BASEOS_DATA"
+      log "partx could not refresh partition 3 after creating $DATA_PARTNAME"
     fi
     /sbin/mdev -s 2>/dev/null || :
     sleep 1
-    if ! find_partition BASEOS_DATA "$DISK_NAME"; then
+    if ! find_data_partition "$DISK_NAME"; then
       # PARTNAME in sysfs can lag behind GPT changes even when the kernel block
       # device exists. Fall back to the expected mmcblkXp4 node before failing.
       if ! find_partition_number 4 "$DISK_NAME"; then
-        log "BASEOS_DATA was added to GPT but /dev/${DISK_NAME}p4 is not available yet; power off and reboot"
+        log "$DATA_PARTNAME was added to GPT but /dev/${DISK_NAME}p4 is not available yet; power off and reboot"
         exit 3
       fi
       log "using numbered partition node $FOUND_DEV while GPT partition name refreshes"
@@ -267,16 +277,16 @@ if [ -z "$FS_TYPE" ] && [ ! -e "$MARKER" ]; then
   # Move the backup GPT to the actual end of the card and extend partition 3
   # while it is still blank. Formatting happens only after this succeeds.
   if ! sgdisk --move-second-header --delete=4 --new="4:$START:0" \
-      --typecode=4:0700 --change-name=4:BASEOS_DATA "$DISK" >/dev/null 2>&1; then
-    log "failed to extend blank BASEOS_DATA to the end of $DISK"
+      --typecode=4:0700 --change-name=4:"$DATA_PARTNAME" "$DISK" >/dev/null 2>&1; then
+    log "failed to extend blank $DATA_PARTNAME to the end of $DISK"
     exit 0
   fi
   if ! partx -u -n 4 "$DISK" >/dev/null 2>&1; then
-    log "partx could not refresh partition 3 after extending BASEOS_DATA"
+    log "partx could not refresh partition 3 after extending $DATA_PARTNAME"
   fi
   /sbin/mdev -s 2>/dev/null || :
   sleep 1
-  if ! find_partition BASEOS_DATA "$DISK_NAME"; then
+  if ! find_data_partition "$DISK_NAME"; then
     # Do not confuse a stale sysfs PARTNAME with a missing block node.
     if ! find_partition_number 4 "$DISK_NAME"; then
       log "extended partition 3 is not available as /dev/${DISK_NAME}p4 yet; power off and reboot"
@@ -313,14 +323,14 @@ if [ -z "$FS_TYPE" ] && [ ! -e "$MARKER" ]; then
     exit 0
   fi
 
-  if ! mkfs.exfat -L BASEOS_DATA "$DATA_DEV" >/dev/null 2>&1; then
+  if ! mkfs.exfat -L "$DATA_PARTNAME" "$DATA_DEV" >/dev/null 2>&1; then
     log "formatting $DATA_DEV as exFAT failed; no user data was mounted"
     exit 0
   fi
   FS_TYPE=exfat
   log "formatted new user partition $DATA_DEV as exFAT"
 elif [ -z "$FS_TYPE" ]; then
-  log "BASEOS_DATA has no recognizable filesystem but the initialization marker exists; refusing to format"
+  log "$DATA_PARTNAME has no recognizable filesystem but the initialization marker exists; refusing to format"
   exit 0
 else
   case "$FS_TYPE" in

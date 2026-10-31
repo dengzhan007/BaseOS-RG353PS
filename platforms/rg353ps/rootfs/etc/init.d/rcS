@@ -140,7 +140,7 @@ done
 # once per boot here, after both volumes are mounted and before anything that
 # might still want to write one. The card's own baseos.conf wins over /etc.
 debug_setting() {
-  for _cfg in /mnt/boot/baseos.conf /etc/baseos.conf; do
+  for _cfg in /mnt/SDCARD/baseos.conf /mnt/boot/baseos.conf /etc/baseos.conf; do
     [ -r "$_cfg" ] || continue
     _val="$(sed -n 's/^debug=//p' "$_cfg" 2>/dev/null | tail -1 | tr -d ' \t\r')"
     if [ -n "$_val" ]; then printf '%s' "$_val"; return 0; fi

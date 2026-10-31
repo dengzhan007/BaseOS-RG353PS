@@ -12,10 +12,12 @@
 # calls "stop" before it takes the UDC and "start" again from its cleanup trap,
 # so Function + Mode storage requests keep working with this enabled.
 #
-# Off unless baseos.conf carries usb_debug=yes. Nothing listens on Wi-Fi; the
-# sshd binds the RNDIS address only.
+# On by default on this bring-up build; baseos.conf can turn it off. Nothing
+# listens on Wi-Fi, the sshd binds the USB address only. The wire protocol is
+# RNDIS unless baseos.conf sets usb_debug_mode=ncm, which is what a Windows 11
+# host that no longer ships the RNDIS driver needs.
 #
-# Usage: baseos-usb-debug start|stop|restart|status [--force]
+# Usage: baseos-usb-debug start|stop|restart|status
 
 set -u
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
@@ -221,7 +223,21 @@ find_iface() {
 }
 
 build_gadget() {
-    mkdir -p "$G" 2>/dev/null || { say "cannot create $G (configfs not mounted?)"; return 1; }
+    # Nothing mounts configfs during a normal boot: baseos-usb-storage is the
+    # only thing that ever needed it and it mounts configfs on entry, so a boot
+    # that stays in the frontend reaches this point with /sys/kernel/config
+    # present but empty. mkdir then fails with ENOENT, which is what the first
+    # field log showed ("configfs not mounted?").
+    if ! grep -q " /sys/kernel/config " /proc/mounts 2>/dev/null; then
+        mkdir -p /sys/kernel/config 2>/dev/null || :
+        if mount -t configfs none /sys/kernel/config 2>/dev/null; then
+            say "mounted configfs at /sys/kernel/config"
+        else
+            say "cannot mount configfs; the UDC cannot be driven"
+            return 1
+        fi
+    fi
+    mkdir -p "$G" 2>/dev/null || { say "cannot create $G"; return 1; }
     printf '0x2207' >"$G/idVendor" 2>/dev/null || :
     # 0x0007 keeps this apart from the storage gadget's 0x0006, so Windows caches
     # a network device and a disk device instead of reusing one identity.
@@ -234,10 +250,29 @@ build_gadget() {
     mkdir -p "$G/configs/c.1/strings/0x409" 2>/dev/null || :
     printf 'debug' >"$G/configs/c.1/strings/0x409/configuration" 2>/dev/null || :
     printf '500' >"$G/configs/c.1/MaxPower" 2>/dev/null || :
-    mkdir -p "$G/functions/rndis.usb0" 2>/dev/null || :
-    printf '02:1a:11:00:42:01' >"$G/functions/rndis.usb0/dev_addr" 2>/dev/null || :
-    printf '02:1a:11:00:42:02' >"$G/functions/rndis.usb0/host_addr" 2>/dev/null || :
-    [ -e "$G/configs/c.1/rndis.usb0" ] || ln -sf "$G/functions/rndis.usb0" "$G/configs/c.1/rndis.usb0" 2>/dev/null || :
+    # Windows 11 has been dropping RNDIS, so the wire protocol is a switch:
+    # usb_debug_mode=ncm in baseos.conf builds a CDC-NCM function instead, which
+    # Windows 10/11 bind natively, and Linux/macOS have always had. The rest of
+    # the channel - address, DHCP, dropbear - is protocol agnostic.
+    fname=
+    case "$(config_value usb_debug_mode)" in
+        ncm) fname=ncm.usb0 ;;
+        ecm) fname=ecm.usb0 ;;
+        *)   fname=rndis.usb0 ;;
+    esac
+    FUNC=$fname
+    mkdir -p "$G/functions/$fname" 2>/dev/null || {
+        say "cannot create function $fname (kernel support missing?)"
+        return 1
+    }
+    # dev_addr is the device side, host_addr what the peer is told to use;
+    # neither is meaningful for NCM, which takes its address from the host.
+    [ -w "$G/functions/$fname/dev_addr" ] &&
+        printf '02:1a:11:00:42:01' >"$G/functions/$fname/dev_addr" 2>/dev/null || :
+    [ -w "$G/functions/$fname/host_addr" ] &&
+        printf '02:1a:11:00:42:02' >"$G/functions/$fname/host_addr" 2>/dev/null || :
+    [ -e "$G/configs/c.1/$fname" ] || ln -sf "$G/functions/$fname" "$G/configs/c.1/$fname" 2>/dev/null || :
+    say "function $fname linked into c.1"
 }
 
 configure_iface() {
@@ -342,7 +377,7 @@ do_start() {
         if ! printf '%s' "$UDC" >"$G/UDC" 2>/dev/null; then
             say "cannot bind $UDC (another gadget holds it?)"; persist_log; exit 1
         fi
-        say "rndis bound to $UDC"
+        say "gadget ${FUNC:-rndis.usb0} bound to $UDC"
     fi
     configure_iface || :
     iface=$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)
@@ -370,6 +405,7 @@ do_status() {
     UDC=$(find_udc)
     printf 'usb_debug: %s\n' "$(config_value usb_debug || echo unset)"
     printf 'gadget:    %s\n' "$([ -d "$G" ] && echo present || echo absent)"
+    printf 'function:  %s\n' "$(config_value usb_debug_mode || echo rndis)"
     printf 'udc bound: %s\n' "$(cat "$G/UDC" 2>/dev/null || echo none)"
     printf 'udc state: %s\n' "$(udc_state)"
     printf 'cable:     %s\n' "$(cable_present && echo present || echo absent)"

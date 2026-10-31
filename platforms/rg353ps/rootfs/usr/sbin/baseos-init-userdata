@@ -165,6 +165,10 @@ usb_debug=yes
 
 # Uncomment to change the frontend order. The default is shown.
 # frontends_order=nextui,slot,custom,baseos
+
+# Uncomment if the PC shows an unknown device instead of a network adapter:
+# newer Windows no longer ships the RNDIS driver, NCM is the one it binds.
+# usb_debug_mode=ncm
 EOF
   if [ -s "$USERDATA/baseos.conf" ]; then
     sync 2>/dev/null || :

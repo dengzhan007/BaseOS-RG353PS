@@ -55,6 +55,161 @@ enabled() {
 
 find_udc() { ls /sys/class/udc 2>/dev/null | head -1; }
 
+# dwc3 probes later than rcS on this board, and a first boot can reach here
+# before /sys/class/udc is populated. Ten seconds costs nothing at boot and
+# turns "no UDC" from a permanent failure into a short wait.
+wait_udc() {
+    i=0
+    while [ "$i" -lt 20 ]; do
+        found=$(find_udc)
+        [ -n "$found" ] && { printf '%s' "$found"; return 0; }
+        i=$((i + 1))
+        sleep 0.5
+    done
+    return 1
+}
+
+# "Is a PC on the other end?" - same two signals the storage helper settled on:
+# the PHY's SDP/CDP cable bits, and a UDC state above "not attached". "attached"
+# alone is reported as soon as a gadget is bound, with or without a cable, so it
+# is deliberately not part of this.
+cable_present() {
+    for cable in /sys/devices/platform/"$UDC"/supplier:platform:*usb2phy/extcon/*/cable.*; do
+        [ -r "$cable/name" ] && [ -r "$cable/state" ] || continue
+        case "$(cat "$cable/name" 2>/dev/null)" in
+            SDP|CDP) [ "$(cat "$cable/state" 2>/dev/null)" = "1" ] && return 0 ;;
+        esac
+    done
+    for extcon in /sys/class/extcon/*; do
+        [ -r "$extcon/name" ] && [ -r "$extcon/state" ] || continue
+        case "$(cat "$extcon/name" 2>/dev/null)" in *usb2phy*) ;; *) continue ;; esac
+        if cat "$extcon/state" 2>/dev/null |
+             grep -Eq '(^|[[:space:]])(SDP|CDP)=1([[:space:]]|$)'; then
+            return 0
+        fi
+    done
+    case "$(udc_state)" in
+        powered|configured) return 0 ;;
+    esac
+    return 1
+}
+
+udc_state() { cat "/sys/class/udc/$UDC/state" 2>/dev/null || :; }
+
+# Hold the controller and its PHYs out of autosuspend for the life of the
+# channel. The storage helper does this because a suspended PHY never reports
+# the VBUS interrupt that starts an enumeration; the debug channel has the same
+# exposure and, unlike storage, it is entered *before* the cable exists - which
+# is exactly the case where the PHY is idle and free to autosuspend.
+disable_usb_runtime_pm() {
+    for pm in /sys/bus/platform/devices/"$UDC" /sys/bus/platform/devices/*usb2phy*; do
+        [ -w "$pm/power/control" ] || continue
+        printf 'on' >"$pm/power/control" 2>/dev/null && say "runtime PM pinned on: $pm"
+    done
+}
+
+# A gadget bound before the cable arrives can leave the PHY's cable bit
+# unasserted even after the controller attaches, and then no enumeration ever
+# starts: the host shows nothing at all. Storage mode sidesteps this by being
+# entered with the cable already plugging; this channel cannot ask for that, so
+# the two escalating actions from the storage ladder are used here instead,
+# triggered by a cable transition rather than a timeout.
+pulse_soft_connect() {
+    [ -w "$G/soft_connect" ] || return 1
+    say "enumeration recovery: soft_connect pulse"
+    printf 'disconnect' >"$G/soft_connect" 2>/dev/null || :
+    sleep 0.3
+    printf 'connect' >"$G/soft_connect" 2>/dev/null || :
+    sleep 0.5
+    say "enumeration recovery: pulse done state=$(udc_state)"
+}
+
+rebind_gadget() {
+    say "enumeration recovery: unbinding and rebinding $UDC"
+    printf '\n' >"$G/UDC" 2>/dev/null || :
+    sleep 0.5
+    if printf '%s' "$UDC" >"$G/UDC" 2>/dev/null; then
+        sleep 1
+        say "enumeration recovery: rebind done state=$(udc_state)"
+        configure_iface || :
+        start_dhcp "$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)"
+    else
+        say "enumeration recovery: rebind failed"
+    fi
+}
+
+# One watcher for the whole session: report every cable transition and make a
+# late plug actually enumerate. Runs at two-second intervals, which is far
+# cheaper than a poll loop per second and still feels immediate to a person
+# reaching for the cable.
+WATCH_PID=/run/baseos-usb-debug.watch.pid
+watch_cable() {
+    pulses=0
+    rebinds=0
+    last_present=no
+    last_state=
+    while :; do
+        sleep 2
+        [ -e "$G/UDC" ] || { say "watch: gadget gone; watcher exits"; exit 0; }
+        present=no
+        cable_present && present=yes
+        state=$(udc_state)
+        if [ "$present" != "$last_present" ]; then
+            if [ "$present" = yes ]; then
+                say "watch: cable inserted (state=$state)"
+                pulses=0
+                rebinds=0
+            else
+                say "watch: cable removed (state=$state)"
+            fi
+            last_present=$present
+            persist_log
+        fi
+        if [ "$state" != "$last_state" ]; then
+            say "watch: udc state $state"
+            last_state=$state
+            [ "$state" = configured ] && persist_log
+        fi
+        # Cable in, controller not configured a few seconds later: escalate. Two
+        # rounds are enough on this hardware; after that the host is the problem
+        # and the log says so instead of looping forever.
+        if [ "$present" = yes ] && [ "$state" != configured ]; then
+            if [ "$pulses" -lt 2 ]; then
+                pulses=$((pulses + 1))
+                pulse_soft_connect
+            elif [ "$rebinds" -lt 2 ]; then
+                rebinds=$((rebinds + 1))
+                rebind_gadget
+            fi
+        fi
+    done
+}
+
+start_watch() {
+    if [ -f "$WATCH_PID" ] && kill -0 "$(cat "$WATCH_PID" 2>/dev/null)" 2>/dev/null; then
+        return 0
+    fi
+    ( watch_cable ) >/dev/null 2>&1 &
+    printf '%s\n' "$!" >"$WATCH_PID" 2>/dev/null || :
+}
+
+stop_watch() {
+    if [ -f "$WATCH_PID" ]; then
+        kill "$(cat "$WATCH_PID" 2>/dev/null)" 2>/dev/null || :
+        rm -f "$WATCH_PID" 2>/dev/null || :
+    fi
+}
+
+# The channel exists to be inspected before a shell does, so its log has to be
+# readable from a PC: the card is the only place that survives the reboot
+# someone reaches for when nothing came up. Only the tail is kept, only on
+# events, and it is written even with debug=no.
+persist_log() {
+    [ -d /mnt/SDCARD ] || return 0
+    tail -n 120 "$LOG" 2>/dev/null >/mnt/SDCARD/rg353ps-usb-debug.txt 2>/dev/null || :
+    sync 2>/dev/null || :
+}
+
 # The netdev only exists while the RNDIS function is instantiated. Its name is
 # usb0 unless something else already claimed that slot, so ask the kernel which
 # interface appeared instead of assuming.
@@ -174,46 +329,57 @@ stop_services() {
 do_start() {
     if ! enabled; then
         say "usb_debug is not enabled in baseos.conf; nothing to do"
+        persist_log
         exit 0
     fi
-    udc=$(find_udc)
-    [ -n "$udc" ] || { say "no UDC; cannot bring the network up"; exit 1; }
-    build_gadget || exit 1
+    UDC=$(wait_udc) || { say "no UDC after 10s; cannot bring the network up"; persist_log; exit 1; }
+    say "starting on UDC $UDC"
+    disable_usb_runtime_pm
+    build_gadget || { persist_log; exit 1; }
     current=$(cat "$G/UDC" 2>/dev/null || :)
-    if [ "$current" != "$udc" ]; then
+    if [ "$current" != "$UDC" ]; then
         [ -n "$current" ] && printf '\n' >"$G/UDC" 2>/dev/null || :
-        if ! printf '%s' "$udc" >"$G/UDC" 2>/dev/null; then
-            say "cannot bind $udc (another gadget holds it?)"; exit 1
+        if ! printf '%s' "$UDC" >"$G/UDC" 2>/dev/null; then
+            say "cannot bind $UDC (another gadget holds it?)"; persist_log; exit 1
         fi
-        say "rndis bound to $udc"
+        say "rndis bound to $UDC"
     fi
     configure_iface || :
     iface=$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)
     start_dhcp "$iface"
     start_sshd
-    if [ "$(config_value debug)" = "yes" ]; then
-        cp "$LOG" /mnt/SDCARD/rg353ps-usb-debug.txt 2>/dev/null || :
-    fi
+    # Cable may already be in, and may arrive later; either way the watcher owns
+    # the transitions from here.
+    say "cable status at start: $(cable_present && echo present || echo absent)"
+    start_watch
+    persist_log
 }
 
 do_stop() {
+    stop_watch
     stop_services
     if [ -e "$G/UDC" ]; then
         printf '\n' >"$G/UDC" 2>/dev/null || :
     fi
     say "debug channel stopped; UDC released"
+    persist_log
 }
 
 do_status() {
     iface=$(cat /run/baseos-usb-debug.iface 2>/dev/null || find_iface || echo none)
+    UDC=$(find_udc)
     printf 'usb_debug: %s\n' "$(config_value usb_debug || echo unset)"
     printf 'gadget:    %s\n' "$([ -d "$G" ] && echo present || echo absent)"
     printf 'udc bound: %s\n' "$(cat "$G/UDC" 2>/dev/null || echo none)"
+    printf 'udc state: %s\n' "$(udc_state)"
+    printf 'cable:     %s\n' "$(cable_present && echo present || echo absent)"
     printf 'interface: %s\n' "$iface"
     [ "$iface" != none ] && ip -4 addr show "$iface" 2>/dev/null | sed -n 's/^ *inet /address:   /p'
     printf 'dropbear:  %s\n' "$(pidof dropbear >/dev/null 2>&1 && echo running || echo stopped)"
     printf 'dhcp:      %s\n' "$(pidof dnsmasq >/dev/null 2>&1 && echo "dnsmasq running" || (pidof udhcpd >/dev/null 2>&1 && echo "udhcpd running" || echo stopped))"
+    printf 'watcher:   %s\n' "$([ -f "$WATCH_PID" ] && kill -0 "$(cat "$WATCH_PID" 2>/dev/null)" 2>/dev/null && echo running || echo stopped)"
     printf 'log:       %s\n' "$LOG"
+    printf 'card log:  %s\n' "$([ -r /mnt/SDCARD/rg353ps-usb-debug.txt ] && echo /mnt/SDCARD/rg353ps-usb-debug.txt || echo none)"
 }
 
 case "${1:-status}" in

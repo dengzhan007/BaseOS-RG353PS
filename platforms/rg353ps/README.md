@@ -42,6 +42,35 @@ and a failure there is indistinguishable from a real fault in the logs.
 The card appears as a single removable `BASEOS` exFAT volume. Unplugging does
 not need an eject first: pending writes are flushed after two idle seconds.
 
+## USB debug channel: a shell without pulling the card
+
+The rootfs has no `adbd` — ADB needs the Android daemon, and its libraries do
+not exist on Alpine. Instead the port can present itself as an RNDIS network
+device with a dropbear listener, which gives the same practical result: a shell
+on the unit over the cable.
+
+Set `usb_debug=yes` in `baseos.conf` (the copy at the root of the `BASEOS`
+partition wins, so no rebuild is needed). The unit takes `192.168.42.1`, hands
+the PC `192.168.42.100` over DHCP, and listens on port 22 with key-only root
+login:
+
+```sh
+ssh -o StrictHostKeyChecking=no -i baseos-debug root@192.168.42.1
+```
+
+Windows 10/11 binds RNDIS without a driver package. If the adapter comes up
+without an address, set `192.168.42.2/24` by hand and the same command works.
+
+The key baked into the image is only reachable while the switch is on. Replace
+it by dropping your own at `BASEOS/baseos-ssh/authorized_keys`. `usb_debug=no`
+is the default: nothing is bound to the UDC and the port behaves as before.
+Function + plug still enters mass storage — `baseos-usb-storage` releases this
+gadget first and restarts it from its cleanup trap, so the two modes never fight
+over the controller.
+
+With a shell available, the diagnostics that used to need a rebuild are one
+line away: `baseos-audio-check`, `baseos-usb-debug status`, `dmesg`, `amixer`.
+
 
 ## Graphics userspace and first render test
 

@@ -197,6 +197,12 @@ fi
 # waits for the card to probe, and nothing after this needs its result.
 [ -x /usr/sbin/baseos-audio-init ] && /usr/sbin/baseos-audio-init >/dev/null 2>&1 &
 
+# USB debug channel: RNDIS network plus a key-only dropbear, reachable over the
+# cable on 192.168.42.1. Off unless baseos.conf says usb_debug=yes. Started in
+# the background because it waits for the UDC; baseos-usb-storage releases and
+# re-takes this gadget around a mass-storage session.
+[ -x /usr/sbin/baseos-usb-debug ] && /usr/sbin/baseos-usb-debug start >/dev/null 2>&1 &
+
 # Optional boot-partition task for keyboard-free field diagnostics.
 # This hook is deliberately opt-in: normal boots are unchanged unless the
 # user places /mnt/boot/BASEOS-RUN.SH on BASEOS_BOOT. Run after BASEOS_DATA is

@@ -104,9 +104,13 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     mkdir -p "$R/etc/apk/keys"
     cp -a /etc/apk/keys/. "$R/etc/apk/keys/"
     cp /etc/apk/repositories "$R/etc/apk/repositories"
+    # dropbear + dnsmasq carry the USB debug channel: RNDIS gives the host a
+    # network, dnsmasq hands it an address, dropbear answers on 22. It is off
+    # unless baseos.conf says usb_debug=yes, and it costs ~700 KB. busybox here
+    # has no udhcpd applet, which is why the DHCP side is dnsmasq.
     apk --root "$R" --arch aarch64 --initdb --no-scripts --no-cache add \
       v4l-utils evtest alsa-utils iw libzip libgcc \
-      wpa_supplicant \
+      wpa_supplicant dropbear dnsmasq \
       mesa-egl mesa-gles mesa-gbm mesa-dri-gallium \
       libdrm-tests mesa-utils kmscube sdl2 sdl2_image sdl2_ttf \
       sgdisk partx blkid wipefs exfatprogs
@@ -221,6 +225,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     chmod 0755 "$R/usr/sbin/gptslot"
     chmod 0755 "$R/usr/sbin/baseos-audio-init"
     chmod 0755 "$R/usr/sbin/baseos-audio-check"
+    chmod 0755 "$R/usr/sbin/baseos-usb-debug"
     chmod 0755 "$R/usr/sbin/rg353ps-sleep"
     chmod 0755 "$R/usr/sbin/rg353ps-wifi-connect"
     chmod 0755 "$R/usr/sbin/rg353ps-wifi-cycle"

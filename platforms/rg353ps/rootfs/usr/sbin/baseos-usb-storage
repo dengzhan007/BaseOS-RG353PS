@@ -671,6 +671,12 @@ cleanup() {
   if [ -d /mnt/boot ] && grep -q ' /mnt/boot ' /proc/mounts 2>/dev/null; then
     cp "$DIAG_LOG" "$BOOT_LOG" 2>/dev/null || :
   fi
+
+  # Hand the controller back to the debug network when that mode is enabled.
+  # Backgrounded: rebinding takes a moment and nothing here waits for it.
+  if [ -x /usr/sbin/baseos-usb-debug ]; then
+    /usr/sbin/baseos-usb-debug start >/dev/null 2>&1 &
+  fi
 }
 CLEANUP_TRIGGER=EXIT
 trap 'CLEANUP_TRIGGER=INT; exit 130' INT
@@ -779,6 +785,13 @@ grep -q " $CONFIGFS " /proc/mounts 2>/dev/null || mount -t configfs none "$CONFI
 log "available UDCs: $(ls /sys/class/udc 2>/dev/null | tr '\n' ' ')"
 UDC=$(ls /sys/class/udc 2>/dev/null | head -1)
 [ -n "$UDC" ] || { log "no USB device controller found"; exit 1; }
+# The debug network gadget (baseos-usb-debug) may be holding the UDC. Only one
+# gadget can bind a controller, so release it before this helper binds its own;
+# the cleanup trap hands the controller back afterwards.
+if [ -x /usr/sbin/baseos-usb-debug ]; then
+  log "releasing the USB debug channel so storage can take the UDC"
+  /usr/sbin/baseos-usb-debug stop >/dev/null 2>&1 || :
+fi
 # Hold the controller and its PHY out of runtime power management.
 #
 # Storage mode entered right after boot has never failed; the same request made

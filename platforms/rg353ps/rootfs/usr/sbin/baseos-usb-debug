@@ -1,0 +1,225 @@
+#!/bin/sh
+# USB debug channel for a unit that has no adbd: an RNDIS network plus a
+# dropbear listener, reachable only over the USB cable.
+#
+# Why not ADB: ADB is FunctionFS plus the Android adbd daemon, and adbd needs
+# libbase/libcutils/libselinux/liblog, none of which exist in Alpine. An RNDIS
+# gadget uses the same configfs machinery the storage helper already relies on,
+# Windows 10/11 binds it without a driver package, and `ssh root@192.168.42.1`
+# runs anything a local shell could. It costs about 400 KB of rootfs.
+#
+# The port is a network by default and mass storage on demand: baseos-usb-storage
+# calls "stop" before it takes the UDC and "start" again from its cleanup trap,
+# so Function + Mode storage requests keep working with this enabled.
+#
+# Off unless baseos.conf carries usb_debug=yes. Nothing listens on Wi-Fi; the
+# sshd binds the RNDIS address only.
+#
+# Usage: baseos-usb-debug start|stop|restart|status [--force]
+
+set -u
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH
+
+G=/sys/kernel/config/usb_gadget/baseos_debug
+LOG=/run/baseos-usb-debug.log
+CONF=/run/baseos-udhcpd.conf
+LEASES=/run/baseos-udhcpd.leases
+PIDFILE_DROPBEAR=/run/dropbear.pid
+PIDFILE_DHCP=/run/baseos-udhcpd.pid
+ADDR=192.168.42.1
+CIDR=192.168.42.1/24
+DHCP_FIRST=192.168.42.100
+DHCP_LAST=192.168.42.120
+
+say() { printf '%s %s\n' "$(date '+%H:%M:%S' 2>/dev/null)" "$*" >>"$LOG" 2>/dev/null || :; }
+
+# The card copy of baseos.conf wins, so the switch can be flipped without a
+# rebuild or an update file.
+config_value() {
+    key=$1
+    for cfg in /mnt/SDCARD/baseos.conf /mnt/boot/baseos.conf /etc/baseos.conf; do
+        [ -r "$cfg" ] || continue
+        val=$(sed -n "s/^${key}=//p" "$cfg" 2>/dev/null | tail -1 | tr -d ' \t\r')
+        [ -n "$val" ] && { printf '%s' "$val"; return 0; }
+    done
+    return 1
+}
+
+enabled() {
+    case "$(config_value usb_debug)" in
+        yes|YES|Yes|1|on|true) return 0 ;;
+    esac
+    return 1
+}
+
+find_udc() { ls /sys/class/udc 2>/dev/null | head -1; }
+
+# The netdev only exists while the RNDIS function is instantiated. Its name is
+# usb0 unless something else already claimed that slot, so ask the kernel which
+# interface appeared instead of assuming.
+find_iface() {
+    for n in usb0 usb1 usb2 usb3; do
+        [ -e "/sys/class/net/$n" ] && { printf '%s' "$n"; return 0; }
+    done
+    return 1
+}
+
+build_gadget() {
+    mkdir -p "$G" 2>/dev/null || { say "cannot create $G (configfs not mounted?)"; return 1; }
+    printf '0x2207' >"$G/idVendor" 2>/dev/null || :
+    # 0x0007 keeps this apart from the storage gadget's 0x0006, so Windows caches
+    # a network device and a disk device instead of reusing one identity.
+    printf '0x0007' >"$G/idProduct" 2>/dev/null || :
+    printf '0x0200' >"$G/bcdUSB" 2>/dev/null || :
+    mkdir -p "$G/strings/0x409" 2>/dev/null || :
+    printf 'BaseOS' >"$G/strings/0x409/manufacturer" 2>/dev/null || :
+    printf 'RG353PS Debug Network' >"$G/strings/0x409/product" 2>/dev/null || :
+    printf 'baseos-rg353ps' >"$G/strings/0x409/serialnumber" 2>/dev/null || :
+    mkdir -p "$G/configs/c.1/strings/0x409" 2>/dev/null || :
+    printf 'debug' >"$G/configs/c.1/strings/0x409/configuration" 2>/dev/null || :
+    printf '500' >"$G/configs/c.1/MaxPower" 2>/dev/null || :
+    mkdir -p "$G/functions/rndis.usb0" 2>/dev/null || :
+    printf '02:1a:11:00:42:01' >"$G/functions/rndis.usb0/dev_addr" 2>/dev/null || :
+    printf '02:1a:11:00:42:02' >"$G/functions/rndis.usb0/host_addr" 2>/dev/null || :
+    [ -e "$G/configs/c.1/rndis.usb0" ] || ln -sf "$G/functions/rndis.usb0" "$G/configs/c.1/rndis.usb0" 2>/dev/null || :
+}
+
+configure_iface() {
+    iface=$(find_iface) || { say "RNDIS netdev did not appear"; return 1; }
+    ip addr add "$CIDR" dev "$iface" 2>/dev/null || :
+    ip link set "$iface" up 2>/dev/null || :
+    printf '%s\n' "$iface" >/run/baseos-usb-debug.iface 2>/dev/null || :
+    say "usb network up: $iface $ADDR/24"
+}
+
+start_dhcp() {
+    iface=$1
+    pidof dnsmasq >/dev/null 2>&1 && return 0
+    pidof udhcpd >/dev/null 2>&1 && return 0
+    # busybox on Alpine ships no udhcpd applet, so dnsmasq is the one that is
+    # actually present. port=0 keeps it from answering DNS; only DHCP is wanted.
+    if command -v dnsmasq >/dev/null 2>&1; then
+        if dnsmasq --conf-file=/dev/null --port=0 --no-resolv --log-queries=no \
+             --bind-interfaces \
+             --interface="$iface" \
+             --dhcp-range="$DHCP_FIRST,$DHCP_LAST,12h" \
+             --dhcp-option=3,"$ADDR" \
+             --dhcp-authoritative \
+             --pid-file=/run/baseos-dnsmasq.pid \
+             --log-facility=/run/baseos-dnsmasq.log >/dev/null 2>&1; then
+            say "dhcp: $DHCP_FIRST-$DHCP_LAST on $iface (dnsmasq)"
+            return 0
+        fi
+        say "dnsmasq failed to start; the host will need a static address"
+        return 0
+    fi
+    command -v udhcpd >/dev/null 2>&1 || { say "no dhcp server; set 192.168.42.2/24 on the host"; return 0; }
+    {
+        echo "start $DHCP_FIRST"
+        echo "end $DHCP_LAST"
+        echo "interface $iface"
+        echo "lease_file $LEASES"
+        echo "opt subnet 255.255.255.0"
+        echo "opt router $ADDR"
+        echo "opt lease 86400"
+    } >"$CONF" 2>/dev/null || return 0
+    : >"$LEASES" 2>/dev/null || :
+    if udhcpd "$CONF" >/dev/null 2>&1; then
+        say "dhcp: $DHCP_FIRST-$DHCP_LAST on $iface (udhcpd)"
+    else
+        say "udhcpd failed; the host will need a static address"
+    fi
+}
+
+start_sshd() {
+    pidof dropbear >/dev/null 2>&1 && return 0
+    command -v dropbear >/dev/null 2>&1 || { say "dropbear missing"; return 1; }
+    mkdir -p /etc/dropbear /root/.ssh 2>/dev/null || :
+    chmod 700 /root/.ssh 2>/dev/null || :
+    # A key dropped on the user partition beats the one baked into the rootfs,
+    # so access can be rotated without shipping a new image.
+    if [ -r /mnt/SDCARD/baseos-ssh/authorized_keys ]; then
+        cp /mnt/SDCARD/baseos-ssh/authorized_keys /root/.ssh/authorized_keys 2>/dev/null && \
+            say "authorized_keys taken from the user partition"
+    elif [ ! -s /root/.ssh/authorized_keys ] && [ -r /etc/dropbear/authorized_keys ]; then
+        cp /etc/dropbear/authorized_keys /root/.ssh/authorized_keys 2>/dev/null || :
+    fi
+    chmod 600 /root/.ssh/authorized_keys 2>/dev/null || :
+    [ -s /root/.ssh/authorized_keys ] || say "WARNING: no authorized_keys; ssh logins will be refused"
+    # -R generates host keys on first run, -s refuses password auth outright.
+    if dropbear -R -s -p "$ADDR:22" -P "$PIDFILE_DROPBEAR" >/dev/null 2>&1; then
+        say "sshd listening on $ADDR:22"
+    else
+        say "dropbear failed to start"
+        return 1
+    fi
+}
+
+stop_services() {
+    if [ -f "$PIDFILE_DROPBEAR" ]; then
+        kill "$(cat "$PIDFILE_DROPBEAR" 2>/dev/null)" 2>/dev/null || :
+        rm -f "$PIDFILE_DROPBEAR" 2>/dev/null || :
+    fi
+    pidof dropbear >/dev/null 2>&1 && killall dropbear 2>/dev/null || :
+    pidof udhcpd >/dev/null 2>&1 && killall udhcpd 2>/dev/null || :
+    if [ -f /run/baseos-dnsmasq.pid ]; then
+        kill "$(cat /run/baseos-dnsmasq.pid 2>/dev/null)" 2>/dev/null || :
+        rm -f /run/baseos-dnsmasq.pid 2>/dev/null || :
+    fi
+    pidof dnsmasq >/dev/null 2>&1 && killall dnsmasq 2>/dev/null || :
+    rm -f "$PIDFILE_DHCP" 2>/dev/null || :
+}
+
+do_start() {
+    if ! enabled; then
+        say "usb_debug is not enabled in baseos.conf; nothing to do"
+        exit 0
+    fi
+    udc=$(find_udc)
+    [ -n "$udc" ] || { say "no UDC; cannot bring the network up"; exit 1; }
+    build_gadget || exit 1
+    current=$(cat "$G/UDC" 2>/dev/null || :)
+    if [ "$current" != "$udc" ]; then
+        [ -n "$current" ] && printf '\n' >"$G/UDC" 2>/dev/null || :
+        if ! printf '%s' "$udc" >"$G/UDC" 2>/dev/null; then
+            say "cannot bind $udc (another gadget holds it?)"; exit 1
+        fi
+        say "rndis bound to $udc"
+    fi
+    configure_iface || :
+    iface=$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)
+    start_dhcp "$iface"
+    start_sshd
+    if [ "$(config_value debug)" = "yes" ]; then
+        cp "$LOG" /mnt/SDCARD/rg353ps-usb-debug.txt 2>/dev/null || :
+    fi
+}
+
+do_stop() {
+    stop_services
+    if [ -e "$G/UDC" ]; then
+        printf '\n' >"$G/UDC" 2>/dev/null || :
+    fi
+    say "debug channel stopped; UDC released"
+}
+
+do_status() {
+    iface=$(cat /run/baseos-usb-debug.iface 2>/dev/null || find_iface || echo none)
+    printf 'usb_debug: %s\n' "$(config_value usb_debug || echo unset)"
+    printf 'gadget:    %s\n' "$([ -d "$G" ] && echo present || echo absent)"
+    printf 'udc bound: %s\n' "$(cat "$G/UDC" 2>/dev/null || echo none)"
+    printf 'interface: %s\n' "$iface"
+    [ "$iface" != none ] && ip -4 addr show "$iface" 2>/dev/null | sed -n 's/^ *inet /address:   /p'
+    printf 'dropbear:  %s\n' "$(pidof dropbear >/dev/null 2>&1 && echo running || echo stopped)"
+    printf 'dhcp:      %s\n' "$(pidof dnsmasq >/dev/null 2>&1 && echo "dnsmasq running" || (pidof udhcpd >/dev/null 2>&1 && echo "udhcpd running" || echo stopped))"
+    printf 'log:       %s\n' "$LOG"
+}
+
+case "${1:-status}" in
+    start)   do_start ;;
+    stop)    do_stop ;;
+    restart) do_stop; sleep 1; do_start ;;
+    status)  do_status ;;
+    *) echo "usage: $0 start|stop|restart|status" >&2; exit 2 ;;
+esac

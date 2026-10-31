@@ -1,0 +1,5 @@
+# Default key for the USB debug channel. Only reachable when baseos.conf has
+# usb_debug=yes and only on the RNDIS interface (192.168.42.1), never on Wi-Fi.
+# Replace it by dropping your own key at BASEOS/baseos-ssh/authorized_keys on the
+# user partition; that file wins over this one.
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAFuvhKo/PCeH6aX+5xHAVfvi4A4rzeDDvxsDfnEiZSf baseos-rg353ps-debug

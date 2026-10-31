@@ -308,11 +308,31 @@ reprobe_usb_stack() {
 #
 # No soft_connect anywhere: see the note above rebind_gadget.
 WATCH_PID=/run/baseos-usb-debug.watch.pid
+
+# Runs on every tick that finds the UDC configured. The address and the DHCP
+# server are set up by do_start, but do_start runs before the host has finished
+# enumerating: on a cable-present cold boot the netdev exists with no carrier
+# yet, so the first attempt can be a no-op. This is the second half of that
+# setup, and it is written to be harmless when there is nothing to do.
+ensure_link_up() {
+    iface=$(cat /run/baseos-usb-debug.iface 2>/dev/null || :)
+    [ -n "$iface" ] || iface=$(find_iface) || return 1
+    printf '%s\n' "$iface" >/run/baseos-usb-debug.iface 2>/dev/null || :
+    ip link set "$iface" up 2>/dev/null || :
+    if ! ip addr show "$iface" 2>/dev/null | grep -q "inet $ADDR/"; then
+        ip addr add "$CIDR" dev "$iface" 2>/dev/null || :
+        say "supervisor: link address restored on $iface ($ADDR)"
+    fi
+    pidof dnsmasq >/dev/null 2>&1 || start_dhcp "$iface"
+    pidof dropbear >/dev/null 2>&1 || start_sshd
+}
+
 watch_cable() {
     tick=0
     last_state=x
     last_present=no
     attempt=0
+    stuck_since=
     # Twelve seconds of grace: a boot that has the cable already in is the one
     # case that works on its own, and tearing the controller down while the
     # host is mid-enumeration would turn a good boot bad.
@@ -349,9 +369,25 @@ watch_cable() {
             persist_log
         fi
         last_state=$state
-        [ "$state" = configured ] && { persist_log; continue; }
+        # The field result that reordered all of this: a cable-present cold boot
+        # enumerates fine - Device Manager shows the RNDIS device - while the
+        # same cable plugged in later never leaves "not attached". So the ladder
+        # must never run during a live enumeration and must never run at all once
+        # the thing works. "configured" is success; default/address/powered mean
+        # the host is mid-conversation; only a controller parked in
+        # not attached/attached is stuck, and only after it has sat there.
+        case "$state" in
+            configured)
+                ensure_link_up || :
+                continue ;;
+            default|address|powered)
+                stuck_since= ;;
+            *)
+                [ -z "$stuck_since" ] && stuck_since=$tick ;;
+        esac
+        [ -n "$stuck_since" ] || continue
 
-        if [ "$tick" -ge "$next_tick" ]; then
+        if [ "$tick" -ge "$next_tick" ] && [ $((tick - stuck_since)) -ge 6 ]; then
             attempt=$((attempt + 1))
             if [ "$present" = yes ]; then
                 # With a cable in, escalate quickly: two controller re-probes,
@@ -379,9 +415,12 @@ watch_cable() {
             elif [ "$attempt" -le 72 ]; then
                 next_tick=$((tick + 30))
             else
-                say "supervisor: giving up after $attempt attempts; state=$(udc_state)"
-                persist_log
-                exit 0
+                # Never give up: a cable that arrives an hour from now still
+                # resets the ladder through the insert event, and the channel
+                # exists precisely for the case where nobody is at the device.
+                [ "$attempt" = 73 ] &&
+                    say "supervisor: 72 attempts failed (state=$(udc_state)); dropping to a 5 minute sweep"
+                next_tick=$((tick + 150))
             fi
         fi
     done
@@ -488,6 +527,34 @@ build_gadget() {
         printf '02:1a:11:00:42:02' >"$G/functions/$fname/host_addr" 2>/dev/null || :
     [ -e "$G/configs/c.1/$fname" ] || ln -sf "$G/functions/$fname" "$G/configs/c.1/$fname" 2>/dev/null || :
     say "function $fname linked into c.1"
+    # Field result: a cable-present cold boot does enumerate - Device Manager
+    # shows an RNDIS device - but Windows leaves it with a yellow bang, because
+    # a plain RNDIS interface gives it nothing to match netrndis.inf against.
+    # The fix is the Microsoft OS descriptor handshake: the OS string 0xEE
+    # (qw_sign MSFT100, vendor code 0xcd) plus the per-interface compatible IDs.
+    # With these three pieces Windows binds its own driver on plug-in and the
+    # channel needs no manual installation at all.
+    if [ -w "$G/os_desc/use" ]; then
+        printf '1' >"$G/os_desc/use" 2>/dev/null || :
+        printf '0xcd' >"$G/os_desc/b_vendor_code" 2>/dev/null || :
+        printf 'MSFT100' >"$G/os_desc/qw_sign" 2>/dev/null || :
+        say "MS OS string descriptor armed (bcdUSB=$(cat "$G/bcdUSB" 2>/dev/null))"
+    else
+        say "no os_desc support; Windows will need the driver pointed at by hand"
+    fi
+    if [ "$fname" = rndis.usb0 ]; then
+        osd="$G/functions/$fname/os_desc/interface.rndis"
+        if mkdir -p "$osd" 2>/dev/null; then
+            printf 'RNDIS' >"$osd/compatible_id" 2>/dev/null || :
+            printf '5162001' >"$osd/sub_compatible_id" 2>/dev/null || :
+            say "RNDIS compatible id RNDIS/5162001"
+        fi
+    fi
+    # Without this symlink the host is told about the IDs but not which
+    # configuration they apply to, and Windows ignores them.
+    if [ -d "$G/os_desc" ] && [ ! -e "$G/os_desc/c.1" ]; then
+        ln -sf "$G/configs/c.1" "$G/os_desc/c.1" 2>/dev/null || :
+    fi
 }
 
 configure_iface() {

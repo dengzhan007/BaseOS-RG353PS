@@ -2,9 +2,9 @@
 # BaseOS-bundled fallback launcher for Slot on RG353PS.
 # Used when the frontend package's .baseos adapter was omitted during extraction.
 #
-# No "baseos: power-owned" marker: rg353ps-hotkeyd keeps the power key so a tap
-# suspends the unit instead of only blanking Slot's panel. Same contract as the
-# packaged adapter.
+# No power-key ownership marker here: rg353ps-hotkeyd keeps the power key so a
+# tap suspends the unit instead of only blanking Slot's panel. Same contract as
+# the packaged adapter.
 set -eu
 
 SDCARD="${BASEOS_FRONTEND_ROOT:-/mnt/SDCARD}"

@@ -476,8 +476,10 @@ if [ "$LAUNCH_MODE" = "exec" ]; then
   "$LAUNCHER" &
 else
   # A script adapter opts into owning the power key with one marker line. Read
-  # it before launch: the child cannot tell us once it is running.
-  if grep -q 'baseos: power-owned' "$LAUNCHER" 2>/dev/null; then
+  # it before launch: the child cannot tell us once it is running. Match the
+  # whole line, so an adapter that merely mentions the marker in its comments
+  # (or writes that it does not claim the key) is not mistaken for a claim.
+  if grep -qE '^[[:space:]]*#[[:space:]]*baseos:[[:space:]]*power-owned[[:space:]]*$' "$LAUNCHER" 2>/dev/null; then
     POWER_OWNED=1
   fi
   /bin/sh "$LAUNCHER" &

@@ -119,12 +119,20 @@
 - **无 dbus**：rootfs 无 `dbus-daemon`，依赖系统总线的前端特性（如某些 audiomon）起不来；
   Slot 走 ALSA 直连，不受影响。
 - **内核驱动**：坚持 Panfrost，**不要**试图塞闭源 libMali（需私有 `mali.ko`，与 Panfrost 互斥）。
-- **电源键归属**：系统里有两个角色能处理电源键——常驻的 `rg353ps-hotkeyd`（短按 `echo mem`
-  深睡、长按 2 秒关机）和前端自己（Slot 短按 doze、长按 flush 存档后关机）。两者同时响应
-  会让一次短按休眠两次、唤醒还要再按一次。约定是**前台优先**：前端在 `launch.sh` 里写一行
+- **电源键归属**：系统里有两个角色能处理电源键——常驻的 `rg353ps-hotkeyd`（短按
+  `echo mem` 真挂起、长按 2 秒关机）和前端自己。两者同时响应会让一次短按休眠两次、
+  唤醒还要再按一次。约定是**前台优先**：前端在 `launch.sh` 里写一行
   `# baseos: power-owned`，`baseos-frontend-session` 就会在前端运行期间把 pid 写进
   `/run/baseos-power-frontend`，hotkeyd 据此让位；前端退出/暂停/崩溃时该文件被清掉，
-  电源键自动回到 hotkeyd。新 frontend 若不写这一行，则始终由 hotkeyd 负责。
+  电源键自动回到 hotkeyd。不写这一行的前端，始终由 hotkeyd 负责。
+- **Slot 不声明 power-owned**：Slot 的短按动作是 `doze()`——只关背光待机，不挂起系统，
+  功耗仍然不低；而 hotkeyd 的短按是真 `mem` 挂起。实测接管后"按一下只关屏、不睡觉"，
+  所以 Slot 把电源键完全交还给 hotkeyd，并且 `slot-rg353ps.patch` 里特意**不映射
+  `KEY_POWER(116)`、也不放进 `WANTED`**，两边不会同时动作。移植别的 fork 时如果它
+  的电源键行为能真正挂起系统（而不是只关屏），再把标记行加回 `launch.sh` 才有意义。
+- **音频**：不要指望前端自己设混音器。`baseos-audio-init` 在开机时、前端之前把
+  `rk817_ext` 声卡的 ALSA `default`、DAC 音量和 Speaker Amp 开关都设好并存进
+  `alsactl`；Slot 只会打开 ALSA 播放，从不碰控件。排查用 `baseos-audio-check`。
 
 ---
 

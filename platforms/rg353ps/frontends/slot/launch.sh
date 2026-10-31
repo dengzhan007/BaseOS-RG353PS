@@ -1,12 +1,12 @@
 #!/bin/sh
 # BaseOS RG353PS launcher for the SDL2/KMSDRM Slot build.
 #
-# The power key is deliberately NOT claimed (no "baseos: power-owned" marker):
-# Slot's own short-tap action is a doze that only blanks the panel, while a
-# BaseOS tap suspends the whole unit. Letting both act meant one tap blanked the
-# screen and never slept. rg353ps-hotkeyd owns the key for this frontend, so a
-# tap is a real suspend and a two-second hold is a shutdown. Slot's evdev map
-# no longer translates KEY_POWER for the same reason.
+# The power key is deliberately not claimed. Slot's own short-tap action is a
+# doze that only blanks the panel, while a BaseOS tap suspends the whole unit;
+# letting both act meant one tap blanked the screen and never slept.
+# rg353ps-hotkeyd owns the key for this frontend, so a tap is a real suspend and
+# a two-second hold is a shutdown. Slot's evdev map no longer translates
+# KEY_POWER for the same reason.
 set -eu
 
 SDCARD="${BASEOS_FRONTEND_ROOT:-/mnt/SDCARD}"

@@ -472,33 +472,73 @@ if [ -x /usr/sbin/baseos-audio-init ]; then
     /usr/sbin/baseos-audio-init >/dev/null 2>&1 || :
   fi
 fi
-# Slot keeps its own software volume (Config/slot.state, keys volume= and
-# volume_hp=) and multiplies it into its own output, on top of the mixer the
-# volume keys drive. Two attenuators in series is what made the same on-screen
-# percentage sound different from one session to the next, and what made "40"
-# on its bar nearly silent. rg353ps-hotkeyd now takes the volume keys
-# exclusively, so the frontend can no longer move that number; pin it to unity
-# so the mixer is the only thing left in the path.
-neutralize_frontend_volume() {
-  nv_state="$FRONTEND_ROOT/Config/slot.state"
-  [ -f "$nv_state" ] || return 0
-  if grep -qx 'volume=100' "$nv_state" 2>/dev/null &&
-     grep -qx 'volume_hp=100' "$nv_state" 2>/dev/null; then
-    return 0
+# Volume ownership.
+#
+# The frontend draws its own bar, in its own style, and holds its own level.
+# That bar is the thing the user looks at while pressing the keys, so it has to
+# be the thing that actually changes the loudness - a bar that moves while the
+# mixer does something else is what made the same on-screen percentage sound
+# different every session.
+#
+# So while a frontend runs, the mixer is held at one fixed level and the
+# frontend's own control is the only attenuator. The marker tells
+# rg353ps-hotkeyd to stop moving the mixer; the previous mixer value is kept so
+# the diagnostic UI, a shell or an update gets it back afterwards.
+VOLUME_MARKER=/run/baseos-volume-frontend
+VOLUME_SAVED=/run/baseos-volume-mixer-saved
+# 0 dB at full scale plus a handheld speaker is a bad idea: it clips the tiny
+# driver and leaves nothing to give if a frontend applies no gain of its own.
+# 90/99 (-4.3 dB) is loud and still has headroom.
+FRONTEND_MIXER_LEVEL=90
+
+audio_card_index() {
+  for ac_i in 0 1 2 3 4 5 6 7; do
+    case "$(cat "/sys/class/sound/card$ac_i/id" 2>/dev/null)" in
+      *rk817*) printf '%s' "$ac_i"; return 0 ;;
+    esac
+  done
+  return 1
+}
+
+claim_volume_for_frontend() {
+  ac_card=$(audio_card_index) || return 0
+  amixer -c "$ac_card" sget 'BaseOS Master' >/dev/null 2>&1 || return 0
+  ac_cur=$(amixer -c "$ac_card" cget name='BaseOS Master' 2>/dev/null |
+           sed -n 's/^ *: values=\([0-9][0-9]*\).*/\1/p' | head -1)
+  [ -n "$ac_cur" ] && printf '%s\n' "$ac_cur" > "$VOLUME_SAVED" 2>/dev/null
+  if amixer -c "$ac_card" cset name='BaseOS Master' "$FRONTEND_MIXER_LEVEL" >/dev/null 2>&1; then
+    log "mixer pinned at $FRONTEND_MIXER_LEVEL for the frontend (was ${ac_cur:-unknown}); the frontend's own volume now controls loudness"
+  else
+    log "could not pin the mixer for the frontend; it will still own the keys"
   fi
-  [ -f "$nv_state.baseos-unity.bak" ] || cp "$nv_state" "$nv_state.baseos-unity.bak" 2>/dev/null || :
-  nv_tmp="$nv_state.baseos-tmp"
-  if sed -e 's/^volume=.*/volume=100/' -e 's/^volume_hp=.*/volume_hp=100/' \
-        "$nv_state" > "$nv_tmp" 2>/dev/null && [ -s "$nv_tmp" ]; then
-    mv "$nv_tmp" "$nv_state" 2>/dev/null && \
-      log "pinned frontend software volume to unity in $nv_state"
-  fi
-  rm -f "$nv_tmp" 2>/dev/null || :
+}
+
+release_volume_from_frontend() {
+  rm -f "$VOLUME_MARKER" 2>/dev/null || :
+  [ -s "$VOLUME_SAVED" ] || return 0
+  ac_card=$(audio_card_index) || return 0
+  ac_back=$(cat "$VOLUME_SAVED" 2>/dev/null)
+  case "$ac_back" in
+    ''|*[!0-9]*) return 0 ;;
+  esac
+  amixer -c "$ac_card" cset name='BaseOS Master' "$ac_back" >/dev/null 2>&1 &&
+    log "mixer restored to $ac_back after the frontend exited"
+  rm -f "$VOLUME_SAVED" 2>/dev/null || :
 }
 
 log "launching $SELECTED frontend ($LAUNCH_MODE): $LAUNCHER"
-if [ "$SELECTED" = "slot" ]; then
-  neutralize_frontend_volume
+# Which side owns the volume keys. "frontend" is the default for Slot: it has
+# its own bar, its own step and its own stored level, and matching another
+# frontend's skin is exactly why the bar belongs to the frontend. Set
+# volume_owner=system on the card to keep the mixer authoritative instead.
+VOLUME_CLAIMED=no
+case "$(setting volume_owner auto)" in
+  system) VOLUME_CLAIMED=no ;;
+  frontend) VOLUME_CLAIMED=yes ;;
+  *) [ "$SELECTED" = "slot" ] && VOLUME_CLAIMED=yes ;;
+esac
+if [ "$VOLUME_CLAIMED" = yes ]; then
+  claim_volume_for_frontend
 fi
 # Pause the frontend before exposing its mounted card to the USB host.
 kill_tree() {
@@ -529,6 +569,12 @@ else
   /bin/sh "$LAUNCHER" &
 fi
 FRONTEND_PID=$!
+if [ "$VOLUME_CLAIMED" = yes ]; then
+  # The pid is what rg353ps-hotkeyd checks to decide whether the marker still
+  # means anything; an empty marker would read as "no frontend".
+  printf '%s\n' "$FRONTEND_PID" > "$VOLUME_MARKER" 2>/dev/null || :
+  log "frontend $SELECTED owns the volume keys while it runs"
+fi
 if [ "$POWER_OWNED" -eq 1 ]; then
   printf '%s\n' "$FRONTEND_PID" > "$POWER_OWNER_FILE" 2>/dev/null || :
   log "frontend $SELECTED owns the power key while it runs"
@@ -560,6 +606,7 @@ while kill -0 "$FRONTEND_PID" 2>/dev/null; do
     if kill -0 "$FRONTEND_PID" 2>/dev/null; then kill_tree KILL "$FRONTEND_PID"; fi
     wait "$FRONTEND_PID" 2>/dev/null || :
     cd /
+    release_volume_from_frontend
     : > /run/baseos-frontend-paused
     while [ -e /run/baseos-usb-storage.request ]; do sleep 0.1; done
     rm -f /run/baseos-frontend-paused
@@ -571,6 +618,7 @@ done
 wait "$FRONTEND_PID"
 rc=$?
 release_power_owner
+release_volume_from_frontend
 persist_detection_log
 log "frontend '$SELECTED' exited with status $rc; returning to diagnostics"
 printf '\033[0m\033[?25h\033[2J\033[H' > /dev/tty1 2>/dev/null || :

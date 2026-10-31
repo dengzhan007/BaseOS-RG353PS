@@ -205,6 +205,28 @@ static int keep_persistent_log_message(const char *message) {
     return 0;
 }
 
+/* A frontend that draws its own volume bar announces itself here, so this
+   daemon can keep the volume keys out of the mixer while it is running. */
+#define FRONTEND_VOLUME_MARKER "/run/baseos-volume-frontend"
+
+static int frontend_owns_volume(void) {
+    char buf[32];
+    char path[64];
+    int fd;
+    ssize_t n;
+    long pid;
+    fd = open(FRONTEND_VOLUME_MARKER, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return 0;
+    n = read(fd, buf, sizeof(buf) - 1);
+    (void)close(fd);
+    if (n <= 0) return 0;
+    buf[n] = '\0';
+    pid = strtol(buf, NULL, 10);
+    if (pid <= 1) return 0;
+    (void)snprintf(path, sizeof(path), "/proc/%ld", pid);
+    return access(path, F_OK) == 0;
+}
+
 static void log_message(const char *message) {
     char line[512];
     int fd;
@@ -378,24 +400,13 @@ static void discover_inputs(void) {
         dev->fd=fd; dev->role=role;
         (void)snprintf(dev->path,sizeof(dev->path),"%s",path);
         (void)snprintf(dev->name,sizeof(dev->name),"%s",name);
-        /* The frontend reads the same node and keeps its own software volume,
-           which multiplies on top of the mixer. Two controls moving at once
-           meant its on-screen number drifted away from what the speaker
-           actually did. Grab the node while we are alive: the frontend stops
-           seeing volume keys, its stored level stays where it was put, and the
-           mixer is the only volume there is. */
-        if (role == ROLE_VOLUME) {
-            char msg[256];
-            if (ioctl(fd, EVIOCGRAB, 1) == 0) {
-                (void)snprintf(msg,sizeof(msg),"exclusive grab on %s (%s)",path,name);
-                log_message(msg);
-            } else {
-                (void)snprintf(msg,sizeof(msg),
-                    "could not grab %s (%s): %s; the frontend may still move its own volume",
-                    path,name,strerror(errno));
-                log_message(msg);
-            }
-        }
+        /* The volume keys stay shared with the frontend on purpose. A frontend
+           draws its own bar in its own style, and that bar has to be the thing
+           the keys move - a second bar in another style, or a second control
+           that moves on its own, is worse than either alone. So while a
+           frontend session owns the volume (it says so in a marker file), this
+           daemon keeps its hands off and only handles the keys when nothing
+           else is listening. */
         if (role == ROLE_KEYS) {
             unsigned long key_bits[(KEY_MAX + (sizeof(unsigned long) * 8)) /
                                    (sizeof(unsigned long) * 8)];
@@ -717,6 +728,21 @@ static void handle_input(struct input_device *dev) {
     while((count=read(dev->fd,&ev,sizeof(ev)))==(ssize_t)sizeof(ev)) {
         if(ev.type!=EV_KEY) continue;
         if(dev->role==ROLE_VOLUME) {
+            /* A frontend session that handles the volume keys itself announces
+               that in FRONTEND_VOLUME_MARKER. When it is there, this daemon
+               must not also move the mixer: one press would then change two
+               controls, and the on-screen bar would stop matching the sound.
+               Outside a frontend (boot, the diagnostic UI, a plain shell) the
+               marker is absent and the keys fall back to the mixer. */
+            if(frontend_owns_volume()) {
+                static long long told_ms = -1000000;
+                long long now = monotonic_ms();
+                if(now - told_ms > 5000) {
+                    told_ms = now;
+                    log_message("volume keys belong to the running frontend; not touching the mixer");
+                }
+                continue;
+            }
             /* value 1 is the press, value 2 is the kernel's autorepeat, and
                gpio-keys-vol advertises EV_REP. Acting on every repeat made the
                number of steps depend on how long the key was held to the

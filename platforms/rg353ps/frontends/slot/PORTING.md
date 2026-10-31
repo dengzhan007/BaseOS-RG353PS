@@ -65,7 +65,7 @@ Mesa/Panfrost 根本不认这个 ABI，结果就是黑屏或 `EGL not initialize
 **做法**：`cp platforms/rg353ps/frontends/slot/fbdev.rs` 覆盖同名文件。
 只要目标 fork 的 `Surface` trait 签名没变就直接生效；变了才需要按新签名微调。
 
-### B. `crates/slot/src/input/evdev.rs` —— 八处，漏一处坏一个功能
+### B. `crates/slot/src/input/evdev.rs` —— 十处，漏一处坏一个功能
 
 | # | 改动 | 不改的后果 |
 |---|---|---|
@@ -119,8 +119,9 @@ Y 上报值越大越靠上**。所以 X 保持原号、Y 取负。而且**数字
 这样鼠标和触摸屏不会混进来。**注意 `ABS_RX` 的编号就是 0x03**，H700 机型把左摇杆
 Y 轴叫 `ABS_LSY` 也是 0x03 —— RG353PS 上 0x03 属于右摇杆，别照 H700 的写法抄。
 
-补丁本体见 `slot-rg353ps.patch`，是上面九条的可执行版本 —— 新 fork 直接改文件名后
-`git apply` 大概率能过；如果它的 `evdev.rs` 已经重构过，就照着表逐条手工改。
+补丁本体见 `slot-rg353ps.patch`，是上面**第 1～9 条**（全部落在 `evdev.rs` 一个文件里）的可执行版本 ——
+新 fork 直接改文件名后 `git apply` 大概率能过；如果它的 `evdev.rs` 已经重构过，就照着表逐条手工改。
+**第 10 条不在这个补丁里**，它跨 `device.rs`，放在 B2 的 `slot-analog.patch`。
 
 ### B2. `slot-analog.patch` —— 摇杆真正变成模拟轴（通用，与 DTS 无关）
 
@@ -146,19 +147,28 @@ if (port==0 && device==RETRO_DEVICE_ANALOG) {
 2. 模拟轴**只挂 port 0**，左右摇杆用 `index` 区分，值是完整的 i16 量程（±32767）。
 3. 死区不在 libretro 回调里做，放在读设备那一层 —— 我们的 `ADC_ANALOG_DEADZONE` 就在 `Hat::analog()`。
 
-**补丁改了这些文件**（一次改完，换 fork 通常不用动）：
+**补丁改了这些文件**（一次改完，换 fork 通常不用动）。分两组，**A 组漏了编译不过，
+B 组漏了编译能过但摇杆仍然没反应** —— 后者更容易悄悄漏掉，所以每行都写了「漏了会怎样」：
 
-| 文件 | 改动 |
-|---|---|
-| `crates/slot-input/src/raw.rs` | `Btn` 增加 `L3`/`R3` |
-| `crates/slot-store/src/bindings.rs` | `Device` 增加 `L3`/`R3`（`ALL` 从 14 变 16），`key()`/`label()` 补上 `l3`/`r3` |
-| `crates/slot/src/input/bind.rs` | `PAIRS` 补 `(Device::L3, Btn::L3)`、`(Device::R3, Btn::R3)` —— 有了这条，按键设置里按摇杆能被捕获成 L3/R3 |
-| `crates/slot-retro/src/core.rs` | 新增 `Axes { left, right }`，`RetroCore::set_analog()`（默认空实现，不碰任何核心） |
-| `crates/slot-retro/src/ffi.rs` | `DEVICE_ANALOG=5`、`DEVICE_INDEX_ANALOG_LEFT/RIGHT`、`DEVICE_ID_ANALOG_X/Y` |
-| `crates/slot-retro/src/libretro.rs` | `Host` 存 `Axes`；`input_state` 增加 ANALOG 分支；实现 `set_analog` |
-| `crates/slot/src/emu.rs` | `Shared` 增加 4 个 `AtomicI32`；`EmuHandle::set_analog()`；帧循环里每帧喂给核心 |
-| `crates/slot/src/input/device.rs` | 读设备的线程把 `Hat::analog()` 写进共享原子；`DeviceInput::analog()` |
-| `crates/slot/src/session.rs` / `frontend.rs` / `device_app.rs` | 每帧把 `input.analog()` 送进正在跑的核心 |
+| 文件 | 改动 | 漏了会怎样 |
+|---|---|---|
+| **A 组：摇杆按压 L3 / R3** | | |
+| `crates/slot-input/src/raw.rs` | `Btn` 增加 `L3`/`R3` | 整组编译不过 |
+| `crates/slot-store/src/bindings.rs` | `Device` 增加 `L3`/`R3`（`ALL` 从 14 变 16），`key()`/`label()` 补上 `l3`/`r3` | `Device::ALL` 与 `Btn` 数量对不上，编译不过 |
+| `crates/slot/src/input/bind.rs` | `PAIRS` 补 `(Device::L3, Btn::L3)`、`(Device::R3, Btn::R3)` | 按键设置里按摇杆不会被捕获成 L3/R3 |
+| `crates/slot/src/input/keys.rs` | `KeyE → L3`、`KeyR → R3` | 桌面用键盘调试时没有 L3/R3 |
+| `crates/slot/src/input/pad.rs` | `LeftThumb → L3`、`RightThumb → R3` | 接 SDL 手柄调试时没有 L3/R3 |
+| `crates/slot/src/input/trace.rs` | 轴名改成 `ABS_X/ABS_Y/ABS_RX/ABS_RY`，输出 `lx/ly/rx/ry` | `SLOT_TRACE_INPUT=1` 的日志里看不到摇杆 |
+| **B 组：模拟轴通路（读设备 → 原子 → 核心）** | | |
+| `crates/slot-retro/src/core.rs` | 新增 `Axes { left, right }`，`RetroCore::set_analog()`（默认空实现，不碰任何核心） | 没有往核心送值的入口 |
+| `crates/slot-retro/src/lib.rs` | 导出 `Axes` | 上层 `use` 不到 |
+| `crates/slot-retro/src/ffi.rs` | `DEVICE_ANALOG=5`、`DEVICE_INDEX_ANALOG_LEFT/RIGHT`、`DEVICE_ID_ANALOG_X/Y` | 只能手写魔数，易错 |
+| `crates/slot-retro/src/libretro.rs` | `Host` 存 `Axes`；`input_state` 增加 ANALOG 分支；实现 `set_analog` | 核心来问了也拿不到值，右摇杆照旧无效 |
+| `crates/slot/src/emu.rs` | `Shared` 增加 4 个 `AtomicI32`；`EmuHandle::set_analog()`；帧循环里每帧喂给核心 | 事件到不了核心所在线程 |
+| `crates/slot/src/input/device.rs` | 读设备的线程把 `Hat::analog()` 写进共享原子（**只有 `is_stick_node()` 节点允许**）；`DeviceInput::analog()` | 轴恒为 0，或者按一下按键就清零 |
+| `crates/slot/src/frontend.rs` | 转发 `set_analog()` | 上层调用无处落地 |
+| `crates/slot/src/session.rs` | 新增 `set_analog()` | 同上 |
+| `crates/slot/src/device_app.rs` | 每帧 `frontend.set_analog(input.analog())` | 链路最后一步没接上，前面全白做 |
 
 **设计要点**：模拟量**不进 `RawEvent` 流**。`RawEvent` 只有 `Down/Up` 两个变体，
 再加一个变体要动 app/session/gesture 里所有 `match`，收益为零。摇杆走的是
@@ -241,6 +251,34 @@ if (port==0 && device==RETRO_DEVICE_ANALOG) {
 - [ ] 电池/背光脚本不报错（无 AXP 设备时安全跳过）
 - [ ] 存档 / 退出 / 休眠唤醒正常
 
+### 摇杆不对时先分层，别一上来就改代码
+
+硬件、前端映射、核心三段可以各自单独验，从上往下走，很快能定位问题落在哪一段：
+
+```sh
+# ① 哪个节点是摇杆 —— 节点号在不同机型/内核上不固定，别硬编码
+for f in /sys/class/input/event*/device/name; do echo "$f: $(cat $f)"; done
+
+# ② 硬件层：推摇杆，看四个轴的原始值（evtest 在 rootfs 里已装）
+evtest /dev/input/event4 | awk -F', ' '$2 ~ /EV_ABS/ {c=$3; v=$4; sub(/.*\(/,"",c); sub(/\).*/,"",c); sub(/value /,"",v); printf "%-6s %5s\n", c, v; fflush()}'
+
+# ③ 前端层：实际生效的极性，以及哪个节点在供轴
+grep -iE 'input|sticks' /mnt/SDCARD/Logs/slot.log | tail
+```
+
+判读：
+
+| 现象 | 结论 |
+|---|---|
+| ② 里某个轴完全不动 | 硬件或 DTS 问题，跟前端无关，先查 `adc-joystick` 的 `ABS` 能力位 |
+| ② 有值，但方向和预期相反 | 改数据分区 `Config/sticks.txt` 的 `lx/ly/rx/ry=±1`，重进前端生效，**不用重新编译** |
+| ③ 里没有 `[sticks]` 标记 | `is_stick_node()` 没认到设备 —— 单摇杆机型要放宽判据，见 §2.1 B 第 7、10 条 |
+| ②③ 都对，游戏里仍没反应 | 该核心不查 `RETRO_DEVICE_ANALOG`（GBA/GB/GBC 天生如此），不是前端的问题 |
+| ② 能读到值，但插了别的前端就读不到 | 那个前端 `EVIOCGRAB` 了设备；Slot **没有** grab，可以和 `evtest` 同时跑 |
+
+RG353PS 实测参考值：`adc-joystick` 是 **event4**（`event1` 是电源键），静止 `ABS_X≈539`、
+其余≈511，行程 15..1023。**不要用 `hexdump -e` 或 `od` 读**，原因见 §5「验轴工具」。
+
 ---
 
 ## 5. 已知坑（写进方法论，免得每次重踩）
@@ -262,6 +300,15 @@ if (port==0 && device==RETRO_DEVICE_ANALOG) {
 - **无 dbus**：rootfs 无 `dbus-daemon`，依赖系统总线的前端特性（如某些 audiomon）起不来；
   Slot 走 ALSA 直连，不受影响。
 - **内核驱动**：坚持 Panfrost，**不要**试图塞闭源 libMali（需私有 `mali.ko`，与 Panfrost 互斥）。
+- **验轴工具（实测踩过，别再抄网上的命令）**：BusyBox 环境下两条最常见的读 evdev 命令**都跑不了**：
+  - `hexdump -e '24/1 "%u " "\n"'` —— BusyBox 1.37 的 `-e` 不支持 `N/M` 迭代前缀，
+    直接报 `Invalid argument`；
+  - `od -An -tu1 -w24` —— 读字符设备报 `read error`。
+  还有一个更隐蔽的坑：`struct input_event` 在 **aarch64 上是 24 字节**（timeval 16 + type 2 +
+  code 2 + value 4），而网上大量按 16 字节（32 位）写的字段偏移式 awk 抄过来会**全部筛空**——
+  正确偏移是 `type` 在 `$17/$18`、`code` 在 `$19/$20`、`value` 在 `$21..$24`。
+  **正解是 rootfs 自带的 `evtest`**：输出本身就是可读文本，`grep EV_ABS` 就能用，命令见 §4。
+  另外节点号**不是固定的**，`event1` 在这台机器上是电源键、摇杆在 `event4`，换机型必然要重查。
 - **电源键归属**：系统里有两个角色能处理电源键——常驻的 `rg353ps-hotkeyd`（短按
   `echo mem` 真挂起、长按 2 秒关机）和前端自己。两者同时响应会让一次短按休眠两次、
   唤醒还要再按一次。约定是**前台优先**：前端在 `launch.sh` 里写一行
@@ -316,7 +363,8 @@ if (port==0 && device==RETRO_DEVICE_ANALOG) {
 - 构建+打包：`platforms/rg353ps/build-slot.sh`
 - 显示后端：`platforms/rg353ps/frontends/slot/fbdev.rs`
 - 运行环境：`platforms/rg353ps/frontends/slot/launch.sh`
-- 示例按键 patch：`platforms/rg353ps/frontends/slot/slot-rg353ps.patch`
+- 按键映射 patch（只动 `evdev.rs`，与 DTS 相关）：`platforms/rg353ps/frontends/slot/slot-rg353ps.patch`
+- 摇杆模拟轴 patch（跨 15 个文件，与 DTS 无关）：`platforms/rg353ps/frontends/slot/slot-analog.patch`
 - 音量/电源归属实现：`platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session`
   （`claim_volume_for_frontend` / `release_power_owner`）与 `src/rg353ps-hotkeyd.c`
 - 本指南：`platforms/rg353ps/frontends/slot/PORTING.md`

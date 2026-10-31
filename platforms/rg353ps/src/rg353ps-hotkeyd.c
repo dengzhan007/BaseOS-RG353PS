@@ -28,6 +28,9 @@
    key that woke the unit is still queued in the evdev buffer and would
    otherwise be seen as a fresh press. */
 #define RESUME_GUARD_MS 3000
+/* Floor between two autorepeat volume steps. The input layer's own repeat rate
+   is not a contract, and it made a held key move by an unpredictable amount. */
+#define VOL_REPEAT_MS 120
 #define SLEEP_SCRIPT "/usr/sbin/rg353ps-sleep"
 /* Written by baseos-frontend-session once a frontend that claims the power key
    has started; it holds that frontend's pid. */
@@ -40,6 +43,7 @@ static int input_count;
 static volatile sig_atomic_t running = 1;
 static long long power_press_start_ms = -1;
 static long long power_ignore_until_ms = 0;
+static long long vol_last_ms = -1000000;
 static int function_down;
 static int mode_down;
 static int storage_latched;
@@ -517,7 +521,12 @@ static int adjust_playback_volume(int up) {
     size_t i;
     char msg[200];
     if(card<0) { log_message("volume: no rk817 sound card found"); return 0; }
-    rc=run_amixer(card,"BaseOS Master",up?"5%+":"5%-");
+    /* Absolute raw steps, not percent. "5%" of a 0..99 control is 4.95, which
+       the layer rounds to 4 or 5 depending on where the value happens to sit -
+       so two presses from the same place do not always move the same distance,
+       and the position that sounded like 50% last time no longer does. "5+" is
+       five raw units (2.4 dB) every single time; ALSA clamps at the ends. */
+    rc=run_amixer(card,"BaseOS Master",up?"5+":"5-");
     if(rc==0) {
         used="BaseOS Master";
     } else {
@@ -605,8 +614,22 @@ static void handle_input(struct input_device *dev) {
     while((count=read(dev->fd,&ev,sizeof(ev)))==(ssize_t)sizeof(ev)) {
         if(ev.type!=EV_KEY) continue;
         if(dev->role==ROLE_VOLUME) {
-            if((ev.value==1||ev.value==2)&&(ev.code==KEY_VOLUMEUP||ev.code==KEY_VOLUMEDOWN))
-                (void)adjust_playback_volume(ev.code==KEY_VOLUMEUP);
+            /* value 1 is the press, value 2 is the kernel's autorepeat, and
+               gpio-keys-vol advertises EV_REP. Acting on every repeat made the
+               number of steps depend on how long the key was held to the
+               millisecond, so "hold it until it sounds right" landed somewhere
+               different every time. A tap is exactly one step; a hold repeats
+               at a fixed 120 ms floor. */
+            if(ev.code==KEY_VOLUMEUP||ev.code==KEY_VOLUMEDOWN) {
+                long long now=monotonic_ms();
+                if(ev.value==1) {
+                    vol_last_ms=now;
+                    (void)adjust_playback_volume(ev.code==KEY_VOLUMEUP);
+                } else if(ev.value==2 && now-vol_last_ms>=VOL_REPEAT_MS) {
+                    vol_last_ms=now;
+                    (void)adjust_playback_volume(ev.code==KEY_VOLUMEUP);
+                }
+            }
         } else if(dev->role==ROLE_POWER&&ev.code==KEY_POWER) {
             long long now = monotonic_ms();
             if (frontend_owns_power()) {

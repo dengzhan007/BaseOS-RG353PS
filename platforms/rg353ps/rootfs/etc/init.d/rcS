@@ -128,37 +128,17 @@ echo $! > /run/rg353ps-hotkeyd.pid
 # records whether that happened; the data volume no longer plays any part in it.
 BOOT_LOGO_DRAWN=0
 
-# Sample held boot keys immediately after input devices appear. Do not wait for
-# userdata initialization or first-boot prompts: the user may release Function
-# before those potentially long steps finish. The storage helper itself waits
-# until /mnt/SDCARD is mounted before exporting it.
-i=0
-while [ ! -e /run/rg353ps-hotkeyd.ready ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i+1)); done
-mark "hotkeyd ready"
-
+# Everything from here to the wait below runs while the key sample is still
+# polling, because none of it depends on the sample's result. The sample is a
+# deliberate 400 ms of input polling whose whole point is to catch a Function key
+# that is still held, and making the rest of the boot sit through it was 0.61 s
+# spent doing nothing. Mounting the volumes, loading the GPU and initialising user
+# storage are all independent of it, so they run inside that window.
+#
+# The boot logo is the one step that must stay after the wait: it may not be
+# painted over a USB storage session the sample is about to request.
 /usr/sbin/baseos-mount-storage
 mark "storage mounted"
-
-# The boot logo is a file on BASEOS_BOOT, the same volume the frontend can write,
-# and it is drawn exactly once, here, as soon as that volume is mounted. This is
-# the upstream contract: the data partition offers no place to change the boot
-# logo, and nothing repaints the screen later in the boot. fbsplash accepts only
-# a plain 24-bit BMP and draws nothing when the file is absent or malformed,
-# which leaves U-Boot's black screen rather than some substitute artwork.
-if [ ! -e "$BOOT_USB_REQUEST" ] && [ -x /usr/bin/fbsplash ]; then
-  if BASEOS_CUSTOM_SPLASH_ONLY=1 /usr/bin/fbsplash 0 >/dev/null 2>&1; then
-    BOOT_LOGO_DRAWN=1
-  else
-    log "NOTICE: no usable bootlogo.bmp on BASEOS_BOOT; leaving the panel black"
-  fi
-fi
-
-# Successful userdata initialization is routine; keep its trace in tmpfs and
-# persist a copy on BASEOS_BOOT only if the initialization loop fails.
-if grep -q ' /mnt/boot ' /proc/mounts 2>/dev/null; then
-  rm -f /mnt/boot/baseos-userdata-init.txt 2>/dev/null || :
-fi
-: > /tmp/baseos-userdata-init.txt 2>/dev/null || :
 
 # Keep boot diagnostics in the kernel ring buffer, not on the handheld screen.
 dmesg -n 1 2>/dev/null || :
@@ -194,11 +174,103 @@ if [ -x /sbin/modprobe ]; then
   ) &
 fi
 
+# User storage must be initialized before the diagnostic UI starts, and none of
+# that work depends on the key sample: it mounts BASEOS_DATA, creates its
+# directories and runs the one-shot migrations. On an established card it is
+# 0.48 s that used to sit after the sample; it now runs inside it.
+BOOT_STORAGE_MARKER=/mnt/boot/.baseos-userdata-v1
+FIRST_BOOT=0
+SHOW_STARTUP_STATUS=1
+USERDATA_DONE=0
+
+init_user_storage() {
+  while :; do
+    /usr/sbin/baseos-init-userdata
+    INIT_RC=$?
+    if grep -q " /mnt/SDCARD " /proc/mounts && [ -e "$BOOT_STORAGE_MARKER" ]; then
+      break
+    fi
+    if grep -q ' /mnt/boot ' /proc/mounts 2>/dev/null; then
+      cp /tmp/baseos-userdata-init.txt /mnt/boot/baseos-userdata-init.txt 2>/dev/null || :
+    fi
+    # Exit 3 means the initializer changed the partition table but the kernel has
+    # not published the new block node yet. Looping cannot resolve that and used
+    # to leave a freshly flashed card on a black screen forever, which is
+    # indistinguishable from dead hardware. Reboot once and let the second boot
+    # find the partition already in place.
+    if [ "$INIT_RC" -eq 3 ]; then
+      log "User storage needs a reboot to pick up the new partition; rebooting"
+      if [ "$SHOW_STARTUP_STATUS" -eq 1 ]; then
+        /usr/bin/fbsplash 45 "STORAGE READY - REBOOTING" 2>/dev/null || :
+      fi
+      sync
+      sleep 3
+      reboot -f
+      exit 0
+    fi
+    if [ "$SHOW_STARTUP_STATUS" -eq 1 ]; then
+      /usr/bin/fbsplash -1 "STORAGE INITIALIZATION FAILED" 2>/dev/null || :
+    fi
+    log "User storage is not ready; retrying initialization"
+    sleep 2
+    if [ "$SHOW_STARTUP_STATUS" -eq 1 ]; then
+      /usr/bin/fbsplash 45 "EXPANDING STORAGE" 2>/dev/null || :
+    fi
+  done
+}
+
+# Established card: nothing about this needs to know whether Function was held.
+if [ -e "$BOOT_STORAGE_MARKER" ]; then
+  init_user_storage
+  mark "userdata ready"
+  USERDATA_DONE=1
+fi
+
 # The GL stack is 33 MB of shared library and every byte of it is read before the
-# frontend can draw. Reading it here, beside the 1.5 s startup-key sample below,
+# frontend can draw. Reading it here, inside the startup-key sample window,
 # moves that I/O off the frontend's startup: it was measured at 1.87 s there with
 # a cold page cache and 0.01 s once resident.
+#
+# It starts after user storage, not before it. Both are I/O bound and they were
+# measured fighting over the card: with the read-ahead running first, the exFAT
+# mount and directory creation went from 0.48 s to 1.15 s, which ate the whole
+# gain from no longer waiting on the key sample. User storage finishes in half a
+# second and the sample window still has room for the read-ahead afterwards.
 [ -x /usr/sbin/baseos-prefetch-gl ] && /usr/sbin/baseos-prefetch-gl >/dev/null 2>&1 &
+
+# Wait for the key sample. It is bounded at 5 s here and takes 400 ms on the
+# device, and it is now the only step left that needs its result. A unit whose
+# hotkeyd never reports still boots - it just loses the boot-key hotkeys.
+i=0
+while [ ! -e /run/rg353ps-hotkeyd.ready ] && [ "$i" -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+mark "hotkeyd ready"
+
+# A Function-triggered storage boot hands the display to the USB helper as soon
+# as it starts, so first-boot pills inside init_user_storage must not cover its
+# instructions. Whether that request exists is only known now.
+if [ -e "$BOOT_USB_REQUEST" ]; then SHOW_STARTUP_STATUS=0; fi
+
+# The boot logo is a file on BASEOS_BOOT, the same volume the frontend can write,
+# and it is drawn exactly once, here, as soon as the key sample has decided
+# whether this boot belongs to a USB storage session. This is
+# the upstream contract: the data partition offers no place to change the boot
+# logo, and nothing repaints the screen later in the boot. fbsplash accepts only
+# a plain 24-bit BMP and draws nothing when the file is absent or malformed,
+# which leaves U-Boot's black screen rather than some substitute artwork.
+if [ ! -e "$BOOT_USB_REQUEST" ] && [ -x /usr/bin/fbsplash ]; then
+  if BASEOS_CUSTOM_SPLASH_ONLY=1 /usr/bin/fbsplash 0 >/dev/null 2>&1; then
+    BOOT_LOGO_DRAWN=1
+  else
+    log "NOTICE: no usable bootlogo.bmp on BASEOS_BOOT; leaving the panel black"
+  fi
+fi
+
+# Successful userdata initialization is routine; keep its trace in tmpfs and
+# persist a copy on BASEOS_BOOT only if the initialization loop fails.
+if grep -q ' /mnt/boot ' /proc/mounts 2>/dev/null; then
+  rm -f /mnt/boot/baseos-userdata-init.txt 2>/dev/null || :
+fi
+: > /tmp/baseos-userdata-init.txt 2>/dev/null || :
 
 # One-shot, opt-in suspend/wakeup inventory. Create an empty
 # BASEOS-SUSPEND-AUDIT file on BASEOS_BOOT from a PC to request a report on
@@ -210,57 +282,19 @@ if [ -e /mnt/boot/BASEOS-SUSPEND-AUDIT ] && [ -x /usr/sbin/rg353ps-suspend-audit
   log "RG353PS suspend audit requested; report saved on BASEOS_BOOT"
 fi
 
-log "BaseOS userspace initialized for RG353PS"
-
-# Do not start the diagnostic UI until user storage has been initialized.
-# The status pill overlays the selected full-screen background during first-boot work.
-BOOT_STORAGE_MARKER=/mnt/boot/.baseos-userdata-v1
-FIRST_BOOT=0
-SHOW_STARTUP_STATUS=1
-# During a Function-triggered storage boot, the USB helper owns the display
-# once it starts; unrelated first-boot pills must not cover its instructions.
-if [ -e "$BOOT_USB_REQUEST" ]; then SHOW_STARTUP_STATUS=0; fi
-if [ ! -e "$BOOT_STORAGE_MARKER" ]; then
+# A card that has never been through storage init does that work here rather than
+# above: it draws status pills, and until the sample finished this script did not
+# know whether a USB storage session owns the display.
+if [ "$USERDATA_DONE" -eq 0 ]; then
   FIRST_BOOT=1
   if [ "$SHOW_STARTUP_STATUS" -eq 1 ]; then
     /usr/bin/fbsplash 45 "EXPANDING STORAGE" 2>/dev/null || :
   fi
+  init_user_storage
+  mark "userdata ready"
 fi
 
-while :; do
-  /usr/sbin/baseos-init-userdata
-  INIT_RC=$?
-  if grep -q " /mnt/SDCARD " /proc/mounts && [ -e "$BOOT_STORAGE_MARKER" ]; then
-    break
-  fi
-  if grep -q ' /mnt/boot ' /proc/mounts 2>/dev/null; then
-    cp /tmp/baseos-userdata-init.txt /mnt/boot/baseos-userdata-init.txt 2>/dev/null || :
-  fi
-  # Exit 3 means the initializer changed the partition table but the kernel has
-  # not published the new block node yet. Looping cannot resolve that and used
-  # to leave a freshly flashed card on a black screen forever, which is
-  # indistinguishable from dead hardware. Reboot once and let the second boot
-  # find the partition already in place.
-  if [ "$INIT_RC" -eq 3 ]; then
-    log "User storage needs a reboot to pick up the new partition; rebooting"
-    if [ "$SHOW_STARTUP_STATUS" -eq 1 ]; then
-      /usr/bin/fbsplash 45 "STORAGE READY - REBOOTING" 2>/dev/null || :
-    fi
-    sync
-    sleep 3
-    reboot -f
-    exit 0
-  fi
-  if [ "$SHOW_STARTUP_STATUS" -eq 1 ]; then
-    /usr/bin/fbsplash -1 "STORAGE INITIALIZATION FAILED" 2>/dev/null || :
-  fi
-  log "User storage is not ready; retrying initialization"
-  sleep 2
-  if [ "$SHOW_STARTUP_STATUS" -eq 1 ]; then
-    /usr/bin/fbsplash 45 "EXPANDING STORAGE" 2>/dev/null || :
-  fi
-done
-mark "userdata ready"
+log "BaseOS userspace initialized for RG353PS"
 
 # Earlier builds wrote a few traces on every boot with no way to turn them off:
 # a duplicate baseos.log on the data volume, a boot-key report beside it, and a

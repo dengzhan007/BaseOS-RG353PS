@@ -669,54 +669,53 @@ echo "file ep0.c +p"    > /sys/kernel/debug/dynamic_debug/control
 `pr_info` 故意留在 info 级——它们只在用户主动按 Function 进 USB 存储模式时才跑，
 不在启动路径上。
 
-### 6.7 还能压的地方（1.0.6 复核，按"收益 ÷ 难度"排）
+### 6.7 还能压的地方（1.0.8 复核，按"收益 ÷ 难度"排）
 
-1.0.6 冷启动实测（USB 未插，同一张卡连测四次）：
+1.0.8 冷启动实测（USB 未插，同一张卡连测三次，取最后一次的时间线）：
 
 ```
-Startup: 4.184 s before Linux, 3.40 s Linux to menu, 7.584 s total
-    1.21  rcS: proc/sys/dev          1.28  mdev done        +0.07
-    1.89  hotkeyd ready              +0.61   ← 纯阻塞等待（下一项）
-    1.93  storage mounted            +0.04
-    2.13  modules: gpu ready         +0.20
-    2.61  userdata ready             +0.48
-    2.66  rcS done                   +0.05
-    2.67  session entry              +0.01
-    2.90  frontend selected: slot    +0.23
-    2.95  session: audio wait begins +0.05
-    3.02  bg: gl prefetch done       +0.07   （后台，不挡路）
-    3.28  bg: wifi/bt/vpu ready      +0.26   （后台，不挡路）
-    3.36  session: audio ready       +0.08   （等 400 ms 上限）
-    3.40  session: prepped           +0.04
-    3.40  handoff: entered           +0.00
-    3.40  frontend exec              +0.00   ← 1.0.5 这里是 +1.34
+Startup: 4.183 s before Linux, 3.17 s Linux to menu, 7.353 s total
+    1.25  rcS: proc/sys/dev          1.32  mdev done        +0.07
+    1.36  storage mounted            +0.04
+    1.40  modules: gpu ready         +0.04
+    1.51  userdata ready             +0.11
+    2.02  hotkeyd ready              +0.51   ← 采样窗口，下面几项已排进来
+    2.30  bg: wifi/bt/vpu ready      +0.28   （后台，不挡路）
+    2.47  bg: gl prefetch done       +0.17   （后台，不挡路）
+    2.54  rcS done                   +0.07
+    2.55  session entry              +0.01
+    2.68  frontend selected: slot    +0.13
+    2.71  session: audio wait begins +0.03
+    3.12  session: audio ready       +0.41   （等 400 ms 上限）
+    3.16  session: prepped           +0.04
+    3.16  handoff: entered           +0.00
+    3.17  frontend exec              +0.01
 ```
 
-四次 `Linux to menu`：3.37 / 3.43 / 3.10 / 3.40，`total`：7.553 / 7.614 / 7.284 / 7.584。
-`before Linux` 四次都是 4.184，与 1.0.5 的 4.187 相同 —— 它本来就不受这项改动影响。
-Slot 进程内首帧仍另计 **2.04 s**（`slot.log` 的 `first frame at 2041 ms`），没变。
+三次 `Linux to menu`：2.90 / 3.14 / 3.17，`total`：7.084 / 7.323 / 7.353。
+Slot 首帧 2.07–2.09 s（`slot.log`），与 1.0.6 的 2.04–2.07 在噪声内。
 
-#### 已做（1.0.6）
+#### 已做
 
-| # | 压缩点 | 原值 | 现值 | 实收益 |
-|---|---|---|---|---|
-| 1 | `boot-clock` 冷读拦在 exec 前 | `handoff`→`exec` 差 0.00–1.34 s | 四次都是 0.00–0.01 s | **Linux to menu 4.89 → 3.33，−1.56 s**（含同段其余抖动） |
+| # | 压缩点 | 版本 | 原值 | 现值 | 实收益 |
+|---|---|---|---|---|---|
+| 1 | `boot-clock` 冷读拦在 exec 前 | 1.0.6 | `handoff`→`exec` 差 0.00–1.34 s | 0.00–0.01 s | **−1.56 s**（9.08 → 7.51） |
+| 2 | `hotkeyd ready` 的阻塞等待 | 1.0.8 | `rcS done` 2.66 | `rcS done` 2.48 | **−0.18 s**（7.51 → 7.25），改法见 §6.7b |
 
 #### 还没做
 
 | # | 压缩点 | 现状 | 做法 | 难度 | 目标收益 |
 |---|---|---|---|---|---|
-| 2 | **`hotkeyd ready` 的阻塞等待** | +0.61 s，且 `mount-storage`/GPU/userdata 全排在它后面 | `hotkeyd` 后台采样，`rcS` 立刻 `mount-storage` → 画 logo → GPU → userdata，只在 gate 前等 ready（helper 自己会等 `/mnt/SDCARD`） | 低–中 | **~0.6 s** |
-| 3 | **`audio-init` 提前** | `rcS` 第 315 行才启动，`session` 再等 400 ms（实测有时 0、有时 400，正好卡在上限） | 挪到 `rcS` 开头与 `hotkeyd` 并行，让 softvol 那次 DAPM 上电和用户态阶段重叠 | 低 | **0.2–0.4 s** |
-| 4 | **前端选择结果缓存** | +0.23 s，每次扫 `.baseos/frontends/*` | 把选中的名字写进 `/run` 或 `baseos.conf` 缓存，失效再扫 | 低 | **~0.2 s** |
+| 3 | **`audio-init` 提前** | `session` 里等 0–400 ms，每次都顶在上限附近 | 挪到 `rcS` 开头与采样窗口并行，让 softvol 那次 DAPM 上电和用户态阶段重叠 | 低 | **0.2–0.4 s** |
+| 4 | **前端选择结果缓存** | +0.13–0.29 s，每次扫 `.baseos/frontends/*` | 把选中的名字写进 `/run` 或 `baseos.conf` 缓存，失效再扫 | 低 | **~0.2 s** |
 | 5 | **内核压缩成 FIT** | `Image` 27.8 MB，U-Boot 侧约 2.9 s | `Image.gz` + `kernel.itb` + `bootm`；`CONFIG_FIT=y` 已开 | 中–高（要同步改更新包与 A/B 布局） | **~1.3 s**（读 9.5 MB 省 1.85，内核自解压付 0.55；按下面那个 A/B 实测修正） |
 | 6 | **裁内核体积** | 27.8 MB 偏大（同芯片常见 18–22 MB） | 关掉不用的子系统/驱动（**要先列清砍掉什么、影响什么**） | 中 | 每减 5 MB ≈ **0.5 s** |
 | 7 | **SD 调谐（Linux 侧）** | 0.585→1.165 = 0.58 s，含一次 `tuning failed -5` 重来 | DTS 改 `sd-uhs-sdr50` | 低（但要复核 `libgallium` 预读仍赶得上首帧） | **~0.5 s**；若同时做 #5，U-Boot 读盘不受影响 |
 | 8 | **`mdev -s` 改用 devtmpfs** | `mdev done` 0.07 s + init 到首 mark 的 0.21 s | 内核已自动填充 `/dev`，只需处理热插拔 | 低 | 0.05–0.15 s |
-| 9 | **userdata 初始化精简** | +0.48 s（挂 exFAT + 建目录 + 一次性迁移） | 把迁移判断挪到后台，只在真需要时同步做 | 中 | 0.1–0.25 s |
-| — | **Slot 首帧**（不属于底座） | 2.04 s（前端进程内） | 前端自己的资源/皮肤加载 | 中 | 0.3–1.0 s。**改前端，已列为可选，见 §6.7b** |
+| 9 | **userdata 初始化精简** | 稳定态只有 0.11 s（见 6.7d），已无油水 | — | — | 接近 0 |
+| — | **Slot 首帧**（不属于底座） | 2.07 s（前端进程内） | 前端自己的资源/皮肤加载 | 中 | 0.3–1.0 s。**改前端，已列为可选，见 §6.7c** |
 
-**唯一还没量准的数字是"U-Boot 读 27.8 MB `Image` 花了多久"。** `before Linux` 4.184 s
+**唯一还没量准的数字是"U-Boot 读 27.8 MB `Image` 花了多久"。** `before Linux` 4.183 s
 里含 bootrom/SPL/BL31/U-Boot 自身（同芯片上游约 0.94 s）、FAT 读 `Image`、内核早期到
 timekeeping。按 4.18 − 0.94 − 0.2 倒推，读盘约 **2.9 s，即 ~9.5 MB/s** —— 这是
 U-Boot 的 PIO/FAT 路径，不是 Linux 侧那个 150 MHz SDR104。**先把这个假设验掉再动内核**：
@@ -726,12 +725,12 @@ U-Boot 的 PIO/FAT 路径，不是 Linux 侧那个 150 MHz SDR104。**先把这�
 **不要做的**：把 Linux 侧 SD 降到 SDR50 之后，如果同时还想靠"提高 SD 时钟"来加速
 U-Boot 读内核，两者方向相反 —— 先定 #5 还是"提速"，别一起上。
 
-**不减时间但很值的一项**：通电到有画面现在是 **6.1 s**（`rcS` 画 logo 在
-`storage mounted` 之后），这之前全是黑屏。U-Boot 在本移植不驱动 VOP2，所以修 U-Boot
+**不减时间但很值的一项**：通电到有画面现在是 **5.5 s**（`rcS` 画 logo 在
+`hotkeyd ready` 之后），这之前全是黑屏。U-Boot 在本移植不驱动 VOP2，所以修 U-Boot
 显示（或让内核挂内建 splash）能把黑屏砍到 ~1.5 s。这是**感知收益**，不影响总时间。
 
-**推荐顺序**：#2 → #3 → #4 一起做（都是底座脚本，不动 U-Boot、不动更新链），合计约
-**1.0 s**（7.55 → ~6.5）；然后再用 A/B 验掉 #5 的读速假设，决定要不要动内核。
+**推荐顺序**：#3 → #4 一起做（都是底座脚本，不动 U-Boot、不动更新链），合计约
+**0.4–0.6 s**（7.25 → ~6.7）；然后再用 A/B 验掉 #5 的读速假设，决定要不要动内核。
 
 ### 6.7a #1 的改法：把不随时刻变化的量挪到前面去采
 
@@ -763,15 +762,56 @@ done
 里又写卡了"，实际是 `boot-clock` 这个 66 KB 静态二进制自己没被读进来 —— 那一刻 27.8 MB
 内核刚由 bootloader 读完、`libgallium` 33 MB 正在预读、exFAT 才接手第一次写，队列排满。
 
-### 6.7b 前端侧的可选项（不在底座范围内，换 fork 时再看）
+### 6.7b #2 的改法：把不依赖按键采样的步骤排进采样窗口
+
+`hotkeyd` 启动后要先采 400 ms 按键（`CONFIG` 里的采样窗口），采完才写
+`/run/rg353ps-hotkeyd.ready`。rcS 原来就堵在 `while [ ! -e ...ready ]` 上，把整段
+0.61 s 空等掉，然后才去挂载卷、加载 GPU、初始化 userdata —— 而这三件事一件都不需要
+采样结果。
+
+现在的顺序是：`hotkeyd` 启动 → `baseos-mount-storage` → GPU 模块 → userdata →
+**等 ready** → 画 logo → 剩下的。`rcS done` 从 2.66 s 降到 2.48 s。
+
+三件必须记住的事：
+
+1. **logo 不能跟着往前挪。** 它必须等采样结果，因为采样决定这一轮是不是
+   Function 触发的 USB 存储会话，而那种会话由 USB helper 独占屏幕，logo 会盖掉它的
+   操作提示。
+2. **userdata 只在"已初始化过的卡"上提前。** 首次启动它要画 `EXPANDING STORAGE`
+   状态条，同样会和 USB helper 抢屏，所以首启路径仍然留在 wait 之后
+   （`USERDATA_DONE` 标记区分）。两条路径都调同一个 `init_user_storage()` 函数。
+3. **`prefetch-gl` 必须排在 userdata 之后。** 第一版把它放在前面，两个 I/O 密集型
+   任务抢同一张卡：exFAT 挂载 + 建目录从 0.48 s 涨到 1.15 s，把这项的收益整个吃掉。
+   现在的顺序是 userdata 先跑完，预读再起，仍然赶在 session 之前读完。
+
+**为什么实收益只有 0.18 s，而不是预估的 0.6–0.7 s**：预估用的是 1.0.6 时间线里
+`userdata ready` 的 +0.48 s，但那是一次带迁移的启动。稳定态下这三项分别是
+0.04 / 0.04 / 0.11 s，加起来 0.19 s —— 就是能填进采样窗口的全部工作量，剩下 0.4 s
+是净等，除非缩短 hotkeyd 自己的 400 ms 采样窗口（那会改变"按住 Function 开机"的
+手感，属于产品取舍，不在这次范围内）。
+
+### 6.7c 前端侧的可选项（不在底座范围内，换 fork 时再看）
 
 这几项只能在前端进程里做，底座改不动，因此**只记录，不在本移植实施**：
 
-- **首帧 2.04 s**：`slot.log` 的 `first frame at 2041 ms`。Slot 在首帧前加载皮肤、
+- **首帧 2.07 s**：`slot.log` 的 `first frame at 2074 ms`（1.0.8）。Slot 在首帧前加载皮肤、
   字体与封面缓存；换成带增量加载或预热资源的 fork 才有意义。
 - **资源预读**：底座已经把 `libgallium` 提前 33 MB 读进 cache（`bg: gl prefetch done`），
   前端若自己也做资源预读，两条路径会抢 I/O；真要改，让前端在首帧后再预读。
 - **启动时的 `sync`/写盘**：前端若在首帧前落盘（存档扫描、日志 flush），会直接顶到首帧时间上。
+
+### 6.7d 同一个阶段在"首次"和"稳定态"能差三倍
+
+这一轮差点被自己的基线骗了：1.0.6 的 `userdata ready` 是 +0.48 s，1.0.8 稳定态是
++0.11 s，而 1.0.7/1.0.8 的第一次启动又是 +1.06 s。三个数都对，但量的是三件事：
+
+- **+1.06 s**：刚刷完新版本后的第一次，`.baseos` 下要重建目录、迁移旧布局；
+- **+0.48 s**：1.0.6 的那次测量恰好也是一次带迁移的启动；
+- **+0.11 s**：之后的每一次，只剩挂载 exFAT 和几个 `mkdir`。
+
+结论：**比较启动时间只能用稳定态，而且至少要三次取同一段**。这也是为什么 §6.7 的
+数字都写成"连测三次"而不用单次值；1.0.7 第一次测出 `rcS done` 2.62 时差点被当成
+"这项没有收益"而放弃。
 
 ### 6.8 量启动时的注意事项
 

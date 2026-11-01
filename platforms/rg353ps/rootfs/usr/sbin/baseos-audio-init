@@ -204,6 +204,20 @@ fi
 #    frontend just does not sit through it.
 pin_hardware
 
+# The ready flag goes here, not at the end of the file. Everything a frontend
+# needs is already true at this point - the softvol control exists and the
+# hardware gains are pinned, so sound is audible - and what follows is the
+# user's saved level plus the state-blob work, which the frontend session
+# deliberately overrides anyway with its own fixed gain stage. Measured on
+# 1.1.5, the session reached its wait at 2.69 s and this file's flag only landed
+# at 3.3 s, so the frontend sat through the restore for nothing; that gap was the
+# largest item left between rcS and the frontend.
+#
+# The user's level still gets applied below, just no longer in front of the
+# handoff. When a frontend owns the keys it re-pins the control afterwards, so
+# the ordering cannot leave the unit quiet.
+: >/run/baseos-audio-ready 2>/dev/null || :
+
 # The softvol level is also kept in its own file: alsactl restores one state
 # blob and can give up on a single mismatched control, and silently losing the
 # user's volume to that is worse than a duplicated source of truth. The file
@@ -260,13 +274,20 @@ fi
 # marker is what decides this, not the current value - a user who left the
 # volume at 0 must not be turned back up by the next boot.
 VOLUME_MARKER=$STATE_DIR/baseos-volume-model
-if ! softvol_present; then
-    say "softvol control still missing; volume keys will fall back to hardware"
-elif [ ! -e "$VOLUME_MARKER" ]; then
-    if amixer -c "$CARD" sset "$SOFTVOL_CTL" 100% >/dev/null 2>&1; then
-        say "softvol '$SOFTVOL_CTL' initialised to 100%"
+# The result is kept, not just acted on: the frontend session takes the card
+# number below as proof that this layer exists, so the record must only be
+# written when it actually does.
+SOFTVOL_OK=0
+if softvol_present; then
+    SOFTVOL_OK=1
+    if [ ! -e "$VOLUME_MARKER" ]; then
+        if amixer -c "$CARD" sset "$SOFTVOL_CTL" 100% >/dev/null 2>&1; then
+            say "softvol '$SOFTVOL_CTL' initialised to 100%"
+        fi
+        : >"$VOLUME_MARKER" 2>/dev/null || :
     fi
-    : >"$VOLUME_MARKER" 2>/dev/null || :
+else
+    say "softvol control still missing; volume keys will fall back to hardware"
 fi
 
 # Everything the frontend needs is in place: /etc/asound.conf names the codec,
@@ -275,6 +296,19 @@ fi
 WANT_LEVEL=$(amixer -c "$CARD" cget name="$SOFTVOL_CTL" 2>/dev/null |
     sed -n 's/^ *: values=\([0-9]*\).*/\1/p' | head -1)
 # The frontend session waits for this file before it paints its volume bar.
+# The card number goes with it: the session used to rediscover it by reading
+# eight /sys/class/sound/cardN/id entries and then re-check the control with
+# amixer, purely to decide whether this script had already run. Writing the
+# answer here costs one redirect and saves that whole dance on every boot - and
+# the number is not stable across boots, HDMI can probe as card 0 with no sink
+# attached, so a hardcoded 0 would be wrong half the time.
+# Only when the layer is really there. Without this condition a failed softvol
+# creation would still hand the session a card number, the session would treat
+# that as proof and skip its own retry, and the unit would boot with a volume
+# control that does not exist.
+if [ "$SOFTVOL_OK" = 1 ]; then
+    printf '%s\n' "$CARD" > /run/baseos-audio-card 2>/dev/null || :
+fi
 : >/run/baseos-audio-ready 2>/dev/null || :
 
 # 5. Deferred pass: restore the saved state blob, then undo whatever it did to

@@ -10,7 +10,15 @@ export PATH
 # one-shot: a second "session entry" after the frontend was paused is a
 # respawn, not a boot, and would make the timeline read as if the boot had
 # started twice.
-boot_mark() { /usr/sbin/baseos-boot-mark "$@" 2>/dev/null || :; }
+# Inlined for the same reason as rcS: this supervisor makes six of these calls
+# and each one used to be a fork, an exec and a shell script.
+boot_mark() {
+  bm_up=
+  read -r bm_up bm_rest < /proc/uptime 2>/dev/null || return 0
+  [ -n "${bm_up:-}" ] || return 0
+  printf '%s %s\n' "$bm_up" "$*" >> /run/boot-marks 2>/dev/null || :
+  return 0
+}
 if [ ! -e /run/baseos-session-entered ]; then
   : > /run/baseos-session-entered 2>/dev/null || :
   boot_mark "session entry"
@@ -427,9 +435,83 @@ FRONTEND_ROOT=
 # script = a *.baseos/frontends/<name>/launch.sh run under /bin/sh.
 # exec   = an upstream BaseOS .tmp_update/updater run directly.
 LAUNCH_MODE=script
+
+# Discovery walks the card's top level once per profile in frontends_order,
+# because a package may have been extracted inside one wrapper directory. On
+# this card that is 45 entries, and each one costs a subshell for the
+# resolve_adapter call: 0.15 s of the boot, every boot, to reach a conclusion
+# that changes when a card changes and not otherwise.
+#
+# The cache is validated, not trusted. The recorded order has to match the
+# configured one, the launcher has to still exist, and its root has to still be
+# mounted; anything that fails drops through to the full scan below, which is
+# also the only thing that rewrites the file. A card that was swapped, a package
+# that was deleted or a config that was reordered all land on the slow path and
+# correct themselves, so a stale cache can only cost time, never a wrong answer.
+# Fields are separated by '|' because it cannot occur in a path on this system.
+SELECTION_CACHE=/mnt/SDCARD/.baseos/cache/frontend-selection
+
+# Same test as is_mounted, without the fork: this runs on the path it is
+# supposed to shorten.
+mount_has() {
+  mount_has_want=$1
+  [ -n "$mount_has_want" ] || return 1
+  while read -r mount_has_dev mount_has_mp mount_has_rest; do
+    [ "$mount_has_mp" = "$mount_has_want" ] && return 0
+  done < /proc/mounts
+  return 1
+}
+
+launcher_path_of() {
+  case "$1" in
+    exec:*) printf '%s' "${1#exec:}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+cached_selection() {
+  [ -s "$SELECTION_CACHE" ] || return 1
+  c_order= c_profile= c_mode= c_root= c_launcher=
+  IFS='|' read -r c_order c_profile c_mode c_root c_launcher < "$SELECTION_CACHE" 2>/dev/null || return 1
+  [ "$c_order" = "$FRONTENDS_ORDER" ] || return 1
+  [ -n "$c_profile" ] && [ -n "$c_root" ] && [ -n "$c_launcher" ] || return 1
+  case "$c_mode" in exec|script) ;; *) return 1 ;; esac
+  case "$c_profile" in nextui|slot|custom|baseos) ;; *) return 1 ;; esac
+  [ -f "$(launcher_path_of "$c_launcher")" ] || return 1
+  mount_has "$c_root" || return 1
+  # TF2 outranks TF1, and a cache written on one card cannot know that a second
+  # one has appeared since. Without this, inserting a TF2 that carries a
+  # frontend would keep booting TF1's choice for as long as the cache survived -
+  # the "I copied my frontend over and nothing changed" report, with no error to
+  # look at. One mount_has is a builtin loop over /proc/mounts, no fork.
+  if [ "$c_root" = "$TF1" ] && mount_has "$TF2"; then
+    return 1
+  fi
+  SELECTED=$c_profile
+  LAUNCH_MODE=$c_mode
+  LAUNCHER=$c_launcher
+  FRONTEND_ROOT=$c_root
+  return 0
+}
+
+write_selection_cache() {
+  [ -n "$LAUNCHER" ] && [ -n "$FRONTEND_ROOT" ] || return 0
+  [ -f "$(launcher_path_of "$LAUNCHER")" ] || return 0
+  mkdir -p "${SELECTION_CACHE%/*}" 2>/dev/null || return 0
+  printf '%s|%s|%s|%s|%s\n' "$FRONTENDS_ORDER" "$SELECTED" "$LAUNCH_MODE" \
+    "$FRONTEND_ROOT" "$LAUNCHER" > "$SELECTION_CACHE.new" 2>/dev/null &&
+    mv -f "$SELECTION_CACHE.new" "$SELECTION_CACHE" 2>/dev/null || {
+      rm -f "$SELECTION_CACHE.new" 2>/dev/null || :
+    }
+  return 0
+}
+
 # Card priority is deliberate: use TF2 if it has a recognized adapter; only
 # fall back to TF1's BASEOS_DATA when TF2 is absent or has no usable frontend.
-if is_mounted "$TF2"; then
+if cached_selection; then
+  log "frontend selection restored from cache: $SELECTED at $FRONTEND_ROOT"
+fi
+if [ -z "$LAUNCHER" ] && is_mounted "$TF2"; then
   if scan_root "$TF2"; then
     log "selected $SELECTED frontend from TF2 ($FRONTEND_ROOT)"
   else
@@ -446,6 +528,7 @@ if [ -z "$LAUNCHER" ]; then
   log "inspect $DETECTION_LOG; a Slot package needs System/slot plus either .baseos/frontends/slot/launch.sh or .tmp_update/updater"
   diagnostic
 fi
+write_selection_cache
 
 # Keep the compatibility alias aligned with the card actually selected.
 ln -sfn "$FRONTEND_ROOT" /mnt/sdcard
@@ -483,14 +566,20 @@ export BASEOS_FRONTEND_ROOT BASEOS_DATA_DIR BASEOS_USERDATA_DIR BASEOS_LAUNCHER
 # The fallback is a tmpfs: a unit whose user volume did not mount still gets a
 # frontend, it just compiles its shaders every time.
 MESA_CACHE_DIR=/mnt/SDCARD/.baseos/cache
-if ! mkdir -p "$MESA_CACHE_DIR" 2>/dev/null; then
+# [ -d ] before mkdir, not instead of it: busybox sh has no builtin mkdir, so
+# every call forks /bin/mkdir, and on exFAT each of those does a directory walk
+# before it can answer "it's already there". The test is a builtin stat. These
+# three directories exist on every boot after the first, so the common path
+# should not fork at all.
+if [ ! -d "$MESA_CACHE_DIR" ] && ! mkdir -p "$MESA_CACHE_DIR" 2>/dev/null; then
   MESA_CACHE_DIR=/var/cache
-  mkdir -p "$MESA_CACHE_DIR" 2>/dev/null || :
+  [ -d "$MESA_CACHE_DIR" ] || mkdir -p "$MESA_CACHE_DIR" 2>/dev/null || :
 fi
 XDG_CACHE_HOME=$MESA_CACHE_DIR
 export XDG_CACHE_HOME
 export MESA_SHADER_CACHE_MAX_SIZE=32M
-mkdir -p "$BASEOS_DATA_DIR" "$BASEOS_USERDATA_DIR" 2>/dev/null || :
+[ -d "$BASEOS_DATA_DIR" ] || mkdir -p "$BASEOS_DATA_DIR" 2>/dev/null || :
+[ -d "$BASEOS_USERDATA_DIR" ] || mkdir -p "$BASEOS_USERDATA_DIR" 2>/dev/null || :
 # An upstream package brings its own layout and does not want BaseOS's dot-dirs
 # invented on its card; it does need the two paths upstream guarantees.
 if [ "$LAUNCH_MODE" = "exec" ]; then
@@ -515,15 +604,28 @@ if [ -x /usr/sbin/baseos-audio-init ]; then
     sleep 0.1
     _aw=$((_aw + 1))
   done
+  # baseos-audio-init records which card it settled on when it finishes, so the
+  # common path is one read instead of a scan. Finding the card by hand meant
+  # eight cat forks plus an amixer fork, and it answered a question that had
+  # already been answered: the ready flag is written at the one point where the
+  # softvol layer exists and the hardware gains are pinned, and the branch below
+  # only exists for the case where this script has to run it itself.
   AUDIO_CARD=
-  for _i in 0 1 2 3 4 5 6 7; do
-    case "$(cat "/sys/class/sound/card$_i/id" 2>/dev/null)" in
-      *rk817*) AUDIO_CARD=$_i; break ;;
-    esac
-  done
-  if [ -z "$AUDIO_CARD" ] || ! amixer -c "$AUDIO_CARD" sget 'BaseOS Master' >/dev/null 2>&1; then
-    log "volume layer missing; running baseos-audio-init before launch"
-    /usr/sbin/baseos-audio-init >/dev/null 2>&1 || :
+  if [ -s /run/baseos-audio-card ]; then
+    read -r AUDIO_CARD < /run/baseos-audio-card 2>/dev/null || AUDIO_CARD=
+  fi
+  if [ -z "$AUDIO_CARD" ]; then
+    # No card was recorded: either the init found no codec, or it never ran.
+    # Scan, and treat a missing control as "needs running".
+    for _i in 0 1 2 3 4 5 6 7; do
+      case "$(cat "/sys/class/sound/card$_i/id" 2>/dev/null)" in
+        *rk817*) AUDIO_CARD=$_i; break ;;
+      esac
+    done
+    if [ -z "$AUDIO_CARD" ] || ! amixer -c "$AUDIO_CARD" sget 'BaseOS Master' >/dev/null 2>&1; then
+      log "volume layer missing; running baseos-audio-init before launch"
+      /usr/sbin/baseos-audio-init >/dev/null 2>&1 || :
+    fi
   fi
 fi
 # Volume ownership.
@@ -546,6 +648,16 @@ VOLUME_SAVED=/run/baseos-volume-mixer-saved
 FRONTEND_MIXER_LEVEL=90
 
 audio_card_index() {
+  # Reuse what this session already learned. baseos-audio-init records the card
+  # it settled on when it publishes the ready marker, and the lookup above used
+  # to throw that away and rescan: eight cat forks, on the handoff path, to
+  # answer a question that had been answered a moment earlier. The scan stays as
+  # the fallback for when the marker carried no number (no codec found, or the
+  # init never ran).
+  if [ -n "${AUDIO_CARD:-}" ]; then
+    printf '%s' "$AUDIO_CARD"
+    return 0
+  fi
   for ac_i in 0 1 2 3 4 5 6 7; do
     case "$(cat "/sys/class/sound/card$ac_i/id" 2>/dev/null)" in
       *rk817*) printf '%s' "$ac_i"; return 0 ;;
@@ -558,15 +670,18 @@ claim_volume_for_frontend() {
   # Declared first and unconditionally: the marker is what tells
   # rg353ps-hotkeyd and baseos-audio-init to keep their hands off this control,
   # and it matters most in the case where the softvol control is not up yet
-  # (the sget below would bail out and, with the write after it, leave the
+  # (the cget below would bail out and, with the write after it, leave the
   # daemon still moving the mixer). It carries this session's pid, and a pid
   # that no longer exists means the marker can be ignored.
   printf '%s\n' "$$" > "$VOLUME_MARKER" 2>/dev/null || :
   ac_card=$(audio_card_index) || return 0
-  amixer -c "$ac_card" sget 'BaseOS Master' >/dev/null 2>&1 || return 0
+  # One amixer call, not two. sget was only there to prove the control exists
+  # and cget answers that by coming back empty, which is also the value that has
+  # to be saved before the pin overwrites it.
   ac_cur=$(amixer -c "$ac_card" cget name='BaseOS Master' 2>/dev/null |
            sed -n 's/^ *: values=\([0-9][0-9]*\).*/\1/p' | head -1)
-  [ -n "$ac_cur" ] && printf '%s\n' "$ac_cur" > "$VOLUME_SAVED" 2>/dev/null
+  [ -n "$ac_cur" ] || return 0
+  printf '%s\n' "$ac_cur" > "$VOLUME_SAVED" 2>/dev/null
   if amixer -c "$ac_card" cset name='BaseOS Master' "$FRONTEND_MIXER_LEVEL" >/dev/null 2>&1; then
     log "mixer pinned at $FRONTEND_MIXER_LEVEL for the frontend (was ${ac_cur:-unknown}); the frontend's own volume now controls loudness"
   else

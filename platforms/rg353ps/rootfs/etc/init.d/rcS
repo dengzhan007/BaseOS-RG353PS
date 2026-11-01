@@ -56,7 +56,18 @@ mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /etc/wpa_supplicant 2>/dev/null |
 # writes to the card. One fork each, so they only sit on the stages that
 # actually account for the seconds; /proc/uptime cannot see the bootloader at
 # all, that part comes from boot-clock at the handoff.
-mark() { /usr/sbin/baseos-boot-mark "$@" 2>/dev/null || :; }
+# Inlined rather than shelling out to baseos-boot-mark. That script is already
+# a plain read of /proc/uptime plus one append, but running it costs a fork, an
+# exec and a shell to parse it - three or four milliseconds each, and this boot
+# makes nine of these calls. Same output, same file, no process.
+mark() {
+  [ -d /run ] || return 0
+  mark_up=
+  read -r mark_up mark_rest < /proc/uptime 2>/dev/null || return 0
+  [ -n "${mark_up:-}" ] || return 0
+  printf '%s %s\n' "$mark_up" "$*" >> /run/boot-marks 2>/dev/null || :
+  return 0
+}
 # This is the first instant rcS can be observed at. Everything between it and
 # 0.00 is kernel initialisation, the rootfs mount and BusyBox init -- the handoff
 # cannot be understood without knowing how much of it happened before any of
@@ -97,10 +108,27 @@ done
 dmesg > /run/dmesg-boot.txt 2>/dev/null || :
 
 echo /sbin/mdev > /proc/sys/kernel/hotplug 2>/dev/null || :
-# devtmpfs has already created every node the kernel knows about; mdev -s walks
-# /sys and shells out per device, so it costs real time and is worth its own
-# mark rather than hiding inside "rcS: mounts".
-/sbin/mdev -s 2>/dev/null || :
+# No mdev -s. /dev is a devtmpfs mount made ten lines up, and devtmpfs is
+# populated by the kernel itself as each driver registers: console, ptmx, tty1,
+# mmcblk*, the input nodes and the sound nodes are all already there by the time
+# this runs. mdev -s would walk /sys and fork once per device to create nodes
+# that exist, which measured 50 ms a boot. There is no mdev.conf on this image,
+# so nothing depends on the rules pass either. The hotplug line above stays:
+# that is what handles devices appearing later, which devtmpfs cannot know about.
+# One guard, because "devtmpfs is configured in" is an assumption about the
+# kernel this rootfs happens to boot with, not about this script. Without it a
+# kernel that came up without devtmpfs leaves /dev empty, and the first thing to
+# notice is a driver or the frontend failing to open a node - minutes of
+# black screen later. A builtin stat costs nothing on a normal boot.
+if [ ! -e /dev/console ]; then
+  # printf, not the log() helper: that one is defined further down.
+  printf 'baseos: devtmpfs did not populate /dev; falling back to mdev -s
+' \
+    > /dev/kmsg 2>/dev/null || :
+  /sbin/mdev -s 2>/dev/null || :
+fi
+# Keeps its old name so the stage stays comparable with the boot logs recorded
+# before this change; it now means "/dev is complete".
 mark "rcS: mdev done"
 
 # Hide the virtual-terminal cursor; fbsplash writes pixels but does not own
@@ -236,6 +264,26 @@ fi
 # mount and directory creation went from 0.48 s to 1.15 s, which ate the whole
 # gain from no longer waiting on the key sample. User storage finishes in half a
 # second and the sample window still has room for the read-ahead afterwards.
+# Bring the codec up here, inside the key sample, instead of on the last line
+# before "rcS done".
+#
+# It used to start at the end of this script, which put its real work - a 0.14 s
+# aplay that makes the softvol control appear, then four amixer calls - directly
+# on top of the frontend session's own startup. Both are CPU bound, and the
+# session has no way to notice: it waits for the ready flag, and the flag is
+# written at the END of that work. On this boot the dmesg gap between "frontend
+# selection restored from cache" (2.408 s) and "launching slot frontend"
+# (2.728 s) lines up exactly with audio-init's softvol pass at 2.56 s, and the
+# session code in between is four stats and one log line - it cannot be the
+# 0.32 s. That was attributed to I/O queueing in an earlier revision; it is not.
+#
+# Started here it runs while hotkeyd is still polling keys, which is the one
+# stretch of the boot with an idle CPU, and it finishes before the session
+# exists. It must stay after user storage: STATE_DIR lives on the user volume,
+# and a run before that mount silently falls back to /var and loses the level
+# the user saved.
+[ -x /usr/sbin/baseos-audio-init ] && /usr/sbin/baseos-audio-init >/dev/null 2>&1 &
+
 [ -x /usr/sbin/baseos-prefetch-gl ] && /usr/sbin/baseos-prefetch-gl >/dev/null 2>&1 &
 
 # Wait for the key sample. It is bounded at 5 s here and takes 400 ms on the
@@ -366,11 +414,9 @@ if [ "$FIRST_BOOT" -eq 1 ] && [ "$SHOW_STARTUP_STATUS" -eq 1 ]; then
   /usr/bin/baseos-splash --important 100 "STORAGE READY" 2>/dev/null || :
 fi
 
-# Put the RK817 codec into a usable state before a frontend can open ALSA. The
-# rootfs itself never touched the mixer, so the speaker amplifier stayed off and
-# every frontend without its own audio daemon came up silent. Backgrounded: it
-# waits for the card to probe, and nothing after this needs its result.
-[ -x /usr/sbin/baseos-audio-init ] && /usr/sbin/baseos-audio-init >/dev/null 2>&1 &
+# audio-init already ran back inside the key-sample window (see above). It is
+# not started again here: a second copy would race the deferred restore pass for
+# the default PCM, which is the failure 1.1.2 fixed.
 
 # USB debug channel: RNDIS network plus a key-only dropbear, reachable over the
 # cable on 192.168.42.1. On by default in this bring-up build; baseos.conf can

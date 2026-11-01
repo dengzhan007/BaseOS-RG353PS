@@ -19,8 +19,12 @@ platforms/*/frontends/*/*.sh text eol=lf
 platforms/*/frontends/*/*.patch text eol=lf
 
 # Kconfig fragments and other build inputs are parsed line by line by tools that
-# do not trim CR, so a "0\r" would quietly not be a 0.
+# do not trim CR, so a "0\r" would quietly not be a 0. The kernel config is the
+# same kind of input, but it reaches the build through olddefconfig rather than
+# a line-oriented script, so a CR there fails more quietly: the option still
+# appears to be set while the recorded value carries the CR.
 platforms/*/uboot.config text eol=lf
+platforms/*/kernel/config/* text eol=lf
 src/*.c text eol=lf
 
 # The version file is read with `tr -d ' \n'` and compared against the release

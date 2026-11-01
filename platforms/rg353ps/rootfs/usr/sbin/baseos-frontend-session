@@ -614,19 +614,38 @@ write_boot_log() {
 record_handoff() {
   # Keep the first handoff: a respawn after a USB-storage session is not a boot.
   [ -s /run/boot-frontend-exec ] && return 0
-  # Bracket the clock read: the handoff mark is the uptime embedded in boot-clock
-  # rather than the time this line runs, so a slow path here would otherwise look
-  # like time spent launching the frontend.
   boot_mark "handoff: entered"
   ho_handoff= ho_pre= ho_post= ho_total=
-  if [ -x /usr/sbin/boot-clock ] \
-     && /usr/sbin/boot-clock > /run/boot-clock-handoff 2>/dev/null; then
-    read -r ho_handoff ho_pre ho_post ho_total < /run/boot-clock-handoff 2>/dev/null || :
-  else
-    rm -f /run/boot-clock-handoff 2>/dev/null || :
-    read -r ho_handoff _ < /proc/uptime 2>/dev/null || :
+  read -r ho_handoff _ < /proc/uptime 2>/dev/null || :
+  # rcS took the counter split while the card was idle; only the handoff instant
+  # has to be sampled here, and /proc/uptime is already in the page cache. The
+  # split's "before Linux" field is a constant for the rest of the boot (free
+  # running counter minus monotonic clock), so the total is that constant plus
+  # this boot's uptime.
+  if [ -n "${ho_handoff:-}" ] && [ -s /run/boot-clock-boot ]; then
+    read -r _ ho_pre _ _ < /run/boot-clock-boot 2>/dev/null || :
+    if [ -n "${ho_pre:-}" ]; then
+      ho_post=$ho_handoff
+      ho_total=$(awk -v a="$ho_pre" -v b="$ho_handoff" \
+        'BEGIN { printf "%.3f", a + b }' 2>/dev/null) || ho_total=
+    fi
+  fi
+  # rcS could not take the split (kernel denies userspace counter reads, or the
+  # samples kept straddling a reschedule): fall back to sampling the whole thing
+  # here, which is what this did before and still produces a usable number.
+  if [ -z "${ho_total:-}" ]; then
+    if [ -x /usr/sbin/boot-clock ] \
+       && /usr/sbin/boot-clock > /run/boot-clock-handoff 2>/dev/null; then
+      read -r ho_handoff ho_pre ho_post ho_total < /run/boot-clock-handoff 2>/dev/null || :
+    else
+      rm -f /run/boot-clock-handoff 2>/dev/null || :
+    fi
   fi
   [ -n "${ho_handoff:-}" ] || return 0
+  if [ -n "${ho_total:-}" ]; then
+    printf '%s %s %s %s\n' "$ho_handoff" "$ho_pre" "$ho_post" "$ho_total" \
+      > /run/boot-clock-handoff 2>/dev/null || :
+  fi
   printf '%s\n' "$ho_handoff" > /run/boot-frontend-exec 2>/dev/null || :
   if [ -n "${ho_total:-}" ]; then
     log "Startup: $ho_pre s before Linux, $ho_post s Linux to menu, $ho_total s total ($1)"

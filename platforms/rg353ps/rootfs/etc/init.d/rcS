@@ -63,6 +63,30 @@ mark() { /usr/sbin/baseos-boot-mark "$@" 2>/dev/null || :; }
 # this script ran.
 mark "rcS: proc/sys/dev"
 
+# Take the counter split here, not at the handoff.
+#
+# boot-clock has to be paged in from the card, and the handoff is the one moment
+# the card is least able to serve it: the bootloader has just read a 27.8 MB
+# kernel, libgallium is being read ahead for the frontend, and the user volume
+# is taking its first writes. The same 66 KB binary has been measured at 0.03 s
+# on an idle queue and at 1.34 s on that one (Logs/boot.log carries the whole
+# range), and none of it is attributable boot time - it is a log line delaying
+# the frontend.
+#
+# "Before Linux" is the one field that does not depend on when it is sampled:
+# it is the free-running counter minus the monotonic clock, and both advance at
+# the same rate, so a value taken here stays correct however much later the
+# handoff happens. rcS samples it while nothing else is reading, keeps it in
+# RAM, and record_handoff then reads only /proc/uptime - no disk, no fork of a
+# binary that is not in cache yet.
+bc_try=0
+while [ "$bc_try" -lt 3 ]; do
+  if /usr/sbin/boot-clock > /run/boot-clock-boot 2>/dev/null; then
+    break
+  fi
+  bc_try=$((bc_try + 1))
+done
+
 # Keep the kernel's own view of this boot, taken at the earliest instant it can
 # be read. It has to happen here: the USB debug gadget later in this script
 # turns every packet on the cable into several dev_info lines, and with a cable

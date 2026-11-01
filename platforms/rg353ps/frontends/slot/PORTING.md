@@ -958,6 +958,15 @@ v1.5.3 的版本提交（`ddae623`）只改 `VERSION` 一行，内容都在 v1.5
 
 正常开机与正常插拔线的结果：**卡上不新增任何字节，也不再有这两次 `sync`**。故障时的卡上内容与原来一致。
 
+**实测（1.2.1，同一张卡）：** 升级前后各记录一次 `stat`，升级那次开机（含应用更新与随后的一次重启）与再之后一次干净重启，两个文件都没有变化：
+
+| 文件 | 升级前 | 升级后 |
+|---|---|---|
+| `rg353ps-usb-probe.txt` | 17243 B / mtime 1793529892 | 17243 B / mtime 1793529892 |
+| `rg353ps-usb-debug.txt` | 1118 B / mtime 1793529893 | 1118 B / mtime 1793529893 |
+
+`baseos.log` 只多了 `update to 1.2.1 confirmed` 那三行（更新本身的事件，应当写）；`Logs/boot.log` 每次开机仍加 19 行。启动时间没有变化：`before Linux 2.548 s`、`total 5.068 s`，与 1.2.0 同一档。`baseos-usb-debug status` 在新脚本下正常返回（`udc state: configured`），SSH 通道自始至终可用。
+
 ### 8.4 前端侧可选项（不在底座范围内）
 
 Slot 的 `System/launch_frontend.sh` 第 101 行无条件把前端输出重定向到卡：

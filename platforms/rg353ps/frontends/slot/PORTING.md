@@ -666,17 +666,67 @@ echo "file ep0.c +p"    > /sys/kernel/debug/dynamic_debug/control
 `pr_info` 故意留在 info 级——它们只在用户主动按 Function 进 USB 存储模式时才跑，
 不在启动路径上。
 
-### 6.7 还没做的
+### 6.7 还能压的地方（1.0.5 复核，按"收益 ÷ 难度"排）
 
-- **softvol 控件第一次真正打开 PCM 要 ~1.4 s**（aplay 刚关掉 PCM，控件赋值又要重开，
-  触发 DAPM 上电）。这笔钱目前由 `audio-init` 先付、前端等它；理想做法是并进前端那次
-  PCM 会话里，让这 1.4 s 和 Slot 自己的启动重叠。实测里 `session: audio ready` 这一步
-  在 0.2~1.5 s 之间波动，就是它。
-- **SD 卡初始化在 Linux 里要 0.7 s**，其中 0.53 s 是 SDR104 的调谐，而且第一次调谐
-  会失败（`tuning execution failed: -5`）再整体重来一次。改 `sd-uhs-sdr50` 可以省掉
-  调谐，代价是读速从 ~79 MB/s 掉到 ~40 MB/s —— 那 33 MB 的 `libgallium` 预读会慢
-  0.35 s 左右（目前预取有 0.35 s 余量）。要不要换是个取舍，没量透之前不动。
-- **开机前还剩 4.18 s**（§6.5），其中内核 `Image` 29 MB 从 FAT 读入是大头。
+1.0.5 的冷启动实测（USB 未插，`baseos-boot-report`）：
+
+```
+Startup: 4.187 s before Linux, 4.892 s Linux to menu, 9.080 s total
+    1.25  rcS: proc/sys/dev          1.31  mdev done        +0.06
+    2.03  hotkeyd ready              +0.72   ← 纯阻塞等待
+    2.07  storage mounted            +0.04
+    2.28  modules: gpu ready         +0.21
+    2.76  userdata ready             +0.48
+    2.81  rcS done                   +0.05
+    2.83  session entry              +0.02
+    3.05  frontend selected: slot    +0.22
+    3.09  session: audio wait begins +0.04
+    3.18  bg: gl prefetch done       +0.09   （后台，不挡路）
+    3.22  bg: wifi/bt/vpu ready      +0.04   （后台，不挡路）
+    3.50  session: audio ready       +0.28   （等 400 ms 上限）
+    3.54  session: prepped           +0.04
+    3.55  handoff: entered           +0.01
+    4.89  frontend exec              +1.34   ← 测量工具自己，见下
+```
+Slot 进程内首帧另计 **2.03 s**（`slot.log` 的 `first frame at 2029 ms`）。
+
+**唯一还没量准的数字是"U-Boot 读 27.8 MB `Image` 花了多久"。** `before Linux` 4.187 s
+里含 bootrom/SPL/BL31/U-Boot 自身（同芯片上游约 0.94 s）、FAT 读 `Image`、内核早期到
+timekeeping。按 4.19 − 0.94 − 0.2 倒推，读盘约 **2.9–3.0 s，即 ~9.5 MB/s** —— 这是
+U-Boot 的 PIO/FAT 路径，不是 Linux 侧那个 150 MHz SDR104。**先把这个假设验掉再动内核**：
+往启动分区放一个明显更小的可启动 `Image`，看 `before Linux` 掉多少，一次 A/B 就能得出
+实际读速，不用重编 U-Boot。
+
+| # | 压缩点 | 现状 | 做法 | 难度 | 目标收益 |
+|---|---|---|---|---|---|
+| 1 | **`boot-clock` 冷读拦在 exec 前** | 0.03–1.34 s，历次 `boot.log` 是 0.00/0.03/0.04/0.12/0.64/1.34 | `rcS` 早期跑一次 `boot-clock` 存 `before`；`record_handoff` 只读 `/proc/uptime`，`total = uptime + before` | **极低**（一个函数） | **0.3–1.3 s**，典型 0.4 |
+| 2 | **`hotkeyd ready` 的阻塞等待** | +0.72 s，且 `mount-storage`/GPU/userdata 全排在它后面 | `hotkeyd` 后台采样，`rcS` 立刻 `mount-storage` → 画 logo → GPU → userdata，只在 gate 前等 ready（helper 自己会等 `/mnt/SDCARD`） | 低–中 | **~0.7 s**（0.72+0.04+0.21+0.48 压到 ~0.75 起） |
+| 3 | **内核压缩成 FIT** | `Image` 27.8 MB，U-Boot 侧约 2.9 s | `Image.gz` + `kernel.itb` + `bootm`；`CONFIG_FIT=y` 已开 | 中–高（要同步改更新包与 A/B 布局） | **~1.3 s**（读 9.5 MB 省 1.85，内核自解压付 0.55；按 §上面那个 A/B 实测修正） |
+| 4 | **裁内核体积** | 27.8 MB 偏大（同芯片常见 18–22 MB） | 关掉不用的子系统/驱动 | 中（要保功能） | 每减 5 MB ≈ **0.5 s** |
+| 5 | **`audio-init` 提前** | `rcS` 第 315 行才启动，`session` 再等 400 ms | 挪到 `rcS` 开头与 `hotkeyd` 并行，让 softvol 那次 DAPM 上电和用户态阶段重叠 | 低 | **0.2–0.4 s** |
+| 6 | **前端选择结果缓存** | +0.22 s，每次扫 `.baseos/frontends/*` | 把选中的名字写进 `/run` 或 `baseos.conf` 缓存，失效再扫 | 低 | **~0.2 s** |
+| 7 | **SD 调谐（Linux 侧）** | 0.585→1.165 = 0.58 s，含一次 `tuning failed -5` 重来 | DTS 改 `sd-uhs-sdr50` | 低（但要复核 `libgallium` 预读仍赶得上首帧） | **~0.5 s**；若同时做 #3，U-Boot 读盘不受影响 |
+| 8 | **`mdev -s` 改用 devtmpfs** | `mdev done` 0.06 s + init 到首 mark 的 0.23 s | 内核已自动填充 `/dev`，只需处理热插拔 | 低 | 0.05–0.15 s |
+| 9 | **userdata 初始化精简** | +0.48 s（挂 exFAT + 建目录 + 一次性迁移） | 把迁移判断挪到后台，只在真需要时同步做 | 中 | 0.1–0.25 s |
+| 10 | **Slot 首帧** | 2.03 s（前端进程内） | 属 Slot 自己的资源/皮肤加载，不在底座路径上 | 中 | 0.3–1.0 s |
+
+**不要做的**：把 Linux 侧 SD 降到 SDR50 之后，如果同时还想靠"提高 SD 时钟"来加速
+U-Boot 读内核，两者方向相反 —— 先定 #3 还是"提速"，别一起上。
+
+**不减时间但很值的一项**：通电到有画面现在是 **6.2 s**（`rcS` 画 logo 在
+`storage mounted` 之后），这之前全是黑屏。U-Boot 在本移植不驱动 VOP2，所以修 U-Boot
+显示（或让内核挂内建 splash）能把黑屏砍到 ~1.5 s。这是**感知收益**，不影响总时间。
+
+**推荐顺序**：#1 → #2 → #5 → #6 一起做，全是低难度、不动 U-Boot 也不动更新链，
+合计约 **1.4–1.6 s**（9.08 → ~7.5）；然后再用 A/B 验掉 #3 的读速假设，决定要不要动内核。
+
+### 6.7a 那个 `+1.34 s` 不是口径差，是测量工具自己
+
+`handoff: entered` 和 `frontend exec` 用的是同一个钟（`/proc/uptime`），差出来的时间是
+`boot-clock` 这个静态二进制从 fork 到读到时钟的真实耗时。它在启动路径上首次执行，
+27.8 MB 内核刚读完、`libgallium` 33 MB 正在后台预读、exFAT 还在写，I/O 队列被占满时
+就要等一秒多。历次 `Logs/boot.log` 的同一行是 0.00 / 0.03 / 0.04 / 0.12 / 0.64 / 1.34 ——
+它一直在，只是平时藏在几十毫秒里。
 
 ### 6.8 量启动时的注意事项
 
@@ -684,8 +734,9 @@ echo "file ep0.c +p"    > /sys/kernel/debug/dynamic_debug/control
   是三个基准，每次都略有不同。要比就比同一份 `baseos-boot-report` 里的行。
 - `boot-clock` 是唯一能量"U-Boot + 内核加载"的手段，但它只给总数。要拆开就得在
   U-Boot 里埋点（`bootstage` 或往 FAT 写报告），这一层目前没做。
-- `handoff: entered` 和 `frontend exec` 之间只应该差几十毫秒。如果差出上百毫秒，
-  说明 `record_handoff` 里又混进了写卡操作。
+- `handoff: entered` 和 `frontend exec` 之间的差值是 `boot-clock` 冷启动的时间，不是
+  `record_handoff` 里的写卡操作（§6.7a）。它从几十毫秒跳到一秒多说明那一刻 I/O 拥塞，
+  不代表启动变慢；要比启动就比 `before Linux` 和 `Linux to menu` 这两个数。
 - 插着数据线调试时机器会明显更慢（USB 调试 gadget 在跑），优化的真实收益要在
   `usb_debug=no` 下复核一次。
 - rcS 首行的 dmesg 快照现在不再是"救命"的（探针已收进动态调试），但它便宜到没有理由

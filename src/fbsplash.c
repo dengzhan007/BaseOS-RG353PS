@@ -656,26 +656,92 @@ static int draw_custom_bmp(uint8_t *fb, struct fb_var_screeninfo *v,
 		fclose(fp);
 		return 0;
 	}
-	uint8_t *row = malloc(row_bytes);
-	if (!row) { fclose(fp); return 0; }
+	/* Read the whole pixel array once. The old path seeked to every row as it
+	   painted it: 480 lseek/fread pairs for a 640x480 logo, interleaved with
+	   the writes, so the panel had time to scan out several frames mid-draw. */
+	size_t pixels = row_bytes * (size_t)height;
+	uint8_t *src = malloc(pixels);
+	if (!src) { fclose(fp); return 0; }
+	if (fread(src, 1, pixels, fp) != pixels) {
+		free(src);
+		fclose(fp);
+		return 0;
+	}
+	fclose(fp);
+
 	int W = (int)v->xres, H = (int)v->yres;
+	size_t bpp = (size_t)(v->bits_per_pixel / 8);
+	if (bpp != 2 && bpp != 3 && bpp != 4) { free(src); return 0; }
+
+	/* Compose the frame in ordinary memory, then hand it over in one copy.
+	 *
+	 * This is what the visible wipe came from: painting straight into the
+	 * framebuffer meant 307,200 separate stores into an uncached mapping, which
+	 * takes 0.1-0.2 s; a frame is 16.7 ms, so the top of the logo existed for
+	 * six to twelve scans before the bottom did. Cacheable RAM has no such
+	 * penalty, and one 1.2 MB copy finishes well inside a single frame. */
+	uint8_t *frame = malloc((size_t)W * (size_t)H * bpp);
+	if (!frame) {
+		/* Never fail to draw: fall back to the direct path. */
+		for (int y = 0; y < H; y++) {
+			int sy = (int)((uint64_t)y * (uint64_t)height / (uint64_t)H);
+			int file_y = signed_height > 0 ? height - 1 - sy : sy;
+			const uint8_t *row = src + (size_t)file_y * row_bytes;
+			for (int x = 0; x < W; x++) {
+				int sx = (int)((uint64_t)x * (uint64_t)width / (uint64_t)W);
+				const uint8_t *p = row + (size_t)sx * 3u;
+				put_pixel(fb, v, f, x, y, make_pixel(v, p[2], p[1], p[0]));
+			}
+		}
+		free(src);
+		return 1;
+	}
 	for (int y = 0; y < H; y++) {
 		int sy = (int)((uint64_t)y * (uint64_t)height / (uint64_t)H);
 		int file_y = signed_height > 0 ? height - 1 - sy : sy;
-		if (fseek(fp, (long)((uint64_t)pixel_offset + (uint64_t)file_y * row_bytes), SEEK_SET) != 0 ||
-		    fread(row, 1, row_bytes, fp) != row_bytes) {
-			free(row);
-			fclose(fp);
-			return 0;
-		}
-		for (int x = 0; x < W; x++) {
-			int sx = (int)((uint64_t)x * (uint64_t)width / (uint64_t)W);
-			const uint8_t *p = row + (size_t)sx * 3u;
-			put_pixel(fb, v, f, x, y, make_pixel(v, p[2], p[1], p[0]));
+		const uint8_t *row = src + (size_t)file_y * row_bytes;
+		uint8_t *dst = frame + (size_t)y * (size_t)W * bpp;
+		switch (bpp) {
+		case 2:
+			for (int x = 0; x < W; x++) {
+				int sx = (int)((uint64_t)x * (uint64_t)width / (uint64_t)W);
+				const uint8_t *p = row + (size_t)sx * 3u;
+				*(uint16_t *)(dst + (size_t)x * 2) =
+					(uint16_t)make_pixel(v, p[2], p[1], p[0]);
+			}
+			break;
+		case 3:
+			for (int x = 0; x < W; x++) {
+				int sx = (int)((uint64_t)x * (uint64_t)width / (uint64_t)W);
+				const uint8_t *p = row + (size_t)sx * 3u;
+				uint32_t pixel = make_pixel(v, p[2], p[1], p[0]);
+				uint8_t *q = dst + (size_t)x * 3;
+				q[0] = pixel & 0xff;
+				q[1] = (pixel >> 8) & 0xff;
+				q[2] = (pixel >> 16) & 0xff;
+			}
+			break;
+		default:
+			for (int x = 0; x < W; x++) {
+				int sx = (int)((uint64_t)x * (uint64_t)width / (uint64_t)W);
+				const uint8_t *p = row + (size_t)sx * 3u;
+				*(uint32_t *)(dst + (size_t)x * 4) = make_pixel(v, p[2], p[1], p[0]);
+			}
+			break;
 		}
 	}
-	free(row);
-	fclose(fp);
+
+	size_t stride = (size_t)W * bpp;
+	if (f->line_length == stride) {
+		memcpy(fb, frame, stride * (size_t)H);
+	} else {
+		/* The framebuffer pads each line; copy row by row so the padding stays
+		   whatever it was. */
+		for (int y = 0; y < H; y++)
+			memcpy(fb + (size_t)y * f->line_length, frame + (size_t)y * stride, stride);
+	}
+	free(frame);
+	free(src);
 	return 1;
 }
 

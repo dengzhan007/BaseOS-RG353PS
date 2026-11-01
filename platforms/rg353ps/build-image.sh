@@ -57,8 +57,14 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
   -e IMG_DATA_START="$DATA_START" \
   -e TOTAL_SIZE="$TOTAL_SIZE" \
   -e ROOT_PARTUUID="$ROOT_PARTUUID" \
+  -e DEBIAN_MIRROR="${DEBIAN_MIRROR:-}" \
   debian:bookworm-slim sh -euc '
     export DEBIAN_FRONTEND=noninteractive
+    if [ -n "${DEBIAN_MIRROR:-}" ]; then
+      sed -i "s#http://deb.debian.org/debian#${DEBIAN_MIRROR}#g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+      sed -i "s#http://deb.debian.org/debian#${DEBIAN_MIRROR}#g" /etc/apt/sources.list 2>/dev/null
+      echo "debian apt repositories now use mirror: ${DEBIAN_MIRROR}"
+    fi
     apt-get -qq update
     apt-get -qq install -y --no-install-recommends \
       gdisk dosfstools mtools e2fsprogs coreutils gzip util-linux

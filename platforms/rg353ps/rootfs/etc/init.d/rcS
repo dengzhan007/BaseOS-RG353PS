@@ -6,10 +6,21 @@ export PATH
 mount -t proc proc /proc 2>/dev/null || :
 mount -t sysfs sysfs /sys 2>/dev/null || :
 mount -t devtmpfs devtmpfs /dev 2>/dev/null || :
-mkdir -p /dev/pts /run /tmp /mnt/boot /mnt/roms
+mkdir -p /dev/pts /run /tmp
 mount -t devpts devpts /dev/pts 2>/dev/null || :
 mount -t tmpfs -o mode=0755 tmpfs /run 2>/dev/null || :
 mount -t tmpfs -o mode=1777 tmpfs /tmp 2>/dev/null || :
+
+# /mnt is a mount-point directory and nothing else, so it is RAM too. On the
+# read-only root, every attempt to create something under it fails with EROFS,
+# and those failures are not silent: mkdir and ln write their complaint to
+# stderr, stderr is tty1, and tty1 is the framebuffer console - the three lines
+# ended up printed across the top of the boot logo. TF2 also never got its mount
+# point, so a second card could not be mounted at all, and /mnt/sdcard could not
+# be re-pointed at the card actually selected.
+mount -t tmpfs -o mode=0755 tmpfs /mnt 2>/dev/null || :
+mkdir -p /mnt/boot /mnt/roms /mnt/SDCARD /mnt/TF2 2>/dev/null || :
+ln -sfn /mnt/SDCARD /mnt/sdcard 2>/dev/null || :
 
 # The card is the root filesystem and the kernel mounts it read-only (`ro` on
 # the command line). That is not tidiness. ext4 replays its journal whenever the
@@ -89,8 +100,8 @@ BOOT_USB_REQUEST=/run/baseos-usb-storage.boot-request
 rm -f /run/rg353ps-hotkeyd.ready "$BOOT_USB_REQUEST"
 /usr/sbin/rg353ps-hotkeyd >/dev/null 2>&1 &
 echo $! > /run/rg353ps-hotkeyd.pid
-# Keep the framebuffer untouched until BASEOS_DATA is mounted by
-# baseos-init-userdata. baseos-mount-storage only mounts BASEOS_BOOT.
+# The boot logo is drawn once, as soon as BASEOS_BOOT is mounted below. This
+# records whether that happened; the data volume no longer plays any part in it.
 BOOT_LOGO_DRAWN=0
 
 # Sample held boot keys immediately after input devices appear. Do not wait for
@@ -103,6 +114,20 @@ mark "hotkeyd ready"
 
 /usr/sbin/baseos-mount-storage
 mark "storage mounted"
+
+# The boot logo is a file on BASEOS_BOOT, the same volume the frontend can write,
+# and it is drawn exactly once, here, as soon as that volume is mounted. This is
+# the upstream contract: the data partition offers no place to change the boot
+# logo, and nothing repaints the screen later in the boot. fbsplash accepts only
+# a plain 24-bit BMP and draws nothing when the file is absent or malformed,
+# which leaves U-Boot's black screen rather than some substitute artwork.
+if [ ! -e "$BOOT_USB_REQUEST" ] && [ -x /usr/bin/fbsplash ]; then
+  if BASEOS_CUSTOM_SPLASH_ONLY=1 /usr/bin/fbsplash 0 >/dev/null 2>&1; then
+    BOOT_LOGO_DRAWN=1
+  else
+    log "NOTICE: no usable bootlogo.bmp on BASEOS_BOOT; leaving the panel black"
+  fi
+fi
 
 # Successful userdata initialization is routine; keep its trace in tmpfs and
 # persist a copy on BASEOS_BOOT only if the initialization loop fails.
@@ -254,16 +279,27 @@ if [ ! -e "$BOOT_USB_REQUEST" ] && [ -x /usr/sbin/baseos-update ]; then
   /usr/sbin/baseos-update apply
 fi
 
-# BASEOS_DATA is now mounted at /mnt/SDCARD. This is the first point where
-# the user-supplied bootlogo can be opened reliably. Never fall back to the
-# built-in BaseOS artwork if the custom image cannot be loaded.
-if [ ! -e "$BOOT_USB_REQUEST" ] && [ -x /usr/bin/fbsplash ]; then
-  if BASEOS_CUSTOM_SPLASH_ONLY=1 /usr/bin/fbsplash 0 >/dev/null 2>&1; then
+# A card that was updated rather than reflashed still has no bootlogo.bmp on
+# BASEOS_BOOT: an update replaces the rootfs slots and never this partition. Fill
+# it once, from a logo an older build left on the data volume, or else from the
+# copy the image ships - the same state a reflashed card is in, where this
+# partition arrives with artwork. Draw it now if this boot showed nothing; the
+# repaint happens on that boot only.
+if [ ! -e "$BOOT_USB_REQUEST" ] && [ ! -s /mnt/boot/bootlogo.bmp ]; then
+  for logo_source in /mnt/SDCARD/bootlogos/bootlogo.bmp /etc/baseos/bootlogo.bmp; do
+    [ -s "$logo_source" ] || continue
+    if cp "$logo_source" /mnt/boot/bootlogo.bmp 2>/dev/null; then
+      sync
+      log "seeded BASEOS_BOOT/bootlogo.bmp from $logo_source"
+      break
+    fi
+    log "could not copy $logo_source to BASEOS_BOOT"
+  done
+  if [ "$BOOT_LOGO_DRAWN" -eq 0 ] && [ -s /mnt/boot/bootlogo.bmp ] &&
+     [ -x /usr/bin/fbsplash ] &&
+     BASEOS_CUSTOM_SPLASH_ONLY=1 /usr/bin/fbsplash 0 >/dev/null 2>&1; then
     BOOT_LOGO_DRAWN=1
-  else
-    log "WARNING: unable to render custom boot logo after userdata mount"
   fi
-  echo 0 > /sys/class/backlight/backlight/bl_power 2>/dev/null || :
 fi
 
 if [ "$FIRST_BOOT" -eq 1 ] && [ "$SHOW_STARTUP_STATUS" -eq 1 ]; then

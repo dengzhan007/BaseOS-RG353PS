@@ -497,7 +497,7 @@ stop_watch() {
 # stayed up leaves nothing behind. "force" is for the few callers that are
 # themselves the event worth recording: a failed start, an explicit stop.
 persist_log() {
-    [ "$1" = force ] || persist_enabled || return 0
+    [ "${1:-}" = force ] || persist_enabled || return 0
     [ -d /mnt/SDCARD ] || return 0
     tail -n 120 "$LOG" 2>/dev/null >/mnt/SDCARD/rg353ps-usb-debug.txt 2>/dev/null || :
     sync 2>/dev/null || :

@@ -237,8 +237,12 @@ dmesg | grep 'power key'                # frontend slot owns the power key while
 tail -5 /mnt/SDCARD/.baseos/state/rg353ps-sleep.log
 #   应看到 entering suspend -> suspend returned rc=0
 ```
-`hotkeyd` 让位后不会再打 `rg353ps-hotkeyd: key 116 ...` 这类动作日志，但按键事件本身
-仍可能出现在它的 `KEY_EVENT` 行里（它照样读事件，只是不动作），这不代表失败。
+实机确认的形态是**两个进程同时打开同一个节点**：电源键是 `rk805 pwrkey`（`event1`），
+`rg353ps-hotkeyd` 和前端都读它，谁都没做 `EVIOCGRAB`，所以两边都收得到事件，
+hotkeyd 靠 marker 决定要不要动作。**别指望前端"独占设备"，也别为了独占去加 grab** ——
+那会让 hotkeyd 在前端崩溃、marker 来不及清理时彻底失去电源键，只能拔电。
+验证时可以顺带看 `ls -l /proc/$(cat /run/baseos-power-frontend)/fd` 里有没有 `event1`。
+hotkeyd 让位后不再打动作日志，但它的 `KEY_EVENT` 行里仍会出现该键，这不代表失败。
 
 ### F. boot logo 写回启动分区（`slot-bootlogo.patch`）
 

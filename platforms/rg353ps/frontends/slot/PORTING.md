@@ -669,31 +669,30 @@ echo "file ep0.c +p"    > /sys/kernel/debug/dynamic_debug/control
 `pr_info` 故意留在 info 级——它们只在用户主动按 Function 进 USB 存储模式时才跑，
 不在启动路径上。
 
-### 6.7 还能压的地方（1.0.8 复核，按"收益 ÷ 难度"排）
+### 6.7 还能压的地方（1.1.2 复核，按"收益 ÷ 难度"排）
 
-1.0.8 冷启动实测（USB 未插，同一张卡连测三次，取最后一次的时间线）：
+1.1.2 冷启动实测（USB 未插，同一张卡连测三次，取最后一次的时间线）：
 
 ```
-Startup: 4.183 s before Linux, 3.17 s Linux to menu, 7.353 s total
-    1.25  rcS: proc/sys/dev          1.32  mdev done        +0.07
-    1.36  storage mounted            +0.04
-    1.40  modules: gpu ready         +0.04
-    1.51  userdata ready             +0.11
-    2.02  hotkeyd ready              +0.51   ← 采样窗口，下面几项已排进来
-    2.30  bg: wifi/bt/vpu ready      +0.28   （后台，不挡路）
-    2.47  bg: gl prefetch done       +0.17   （后台，不挡路）
-    2.54  rcS done                   +0.07
-    2.55  session entry              +0.01
-    2.68  frontend selected: slot    +0.13
-    2.71  session: audio wait begins +0.03
-    3.12  session: audio ready       +0.41   （等 400 ms 上限）
-    3.16  session: prepped           +0.04
-    3.16  handoff: entered           +0.00
-    3.17  frontend exec              +0.01
+Startup: 4.184 s before Linux, 2.92 s Linux to menu, 7.104 s total
+    1.24  rcS: proc/sys/dev          1.30  mdev done        +0.06
+    1.34  storage mounted            +0.04
+    1.38  modules: gpu ready         +0.04
+    1.99  hotkeyd ready              +0.61   ← 采样窗口，下面几项已排进来
+    2.05  bg: gl prefetch done       +0.06   （后台，不挡路）
+    2.29  bg: wifi/bt/vpu ready      +0.24   （后台，不挡路）
+    2.40  userdata ready             +0.11
+    2.51  rcS done                   +0.11
+    2.52  session entry              +0.01
+    2.75  frontend selected: slot    +0.23
+    2.90  session: audio wait begins +0.15   ← 这段就是等 audio 的 0.44 s
+    2.90  session: audio ready       +0.00
+    2.94  session: prepped           +0.04
+    2.94  handoff: entered           +0.00
+    2.94  frontend exec              +0.00
 ```
 
-三次 `Linux to menu`：2.90 / 3.14 / 3.17，`total`：7.084 / 7.323 / 7.353。
-Slot 首帧 2.07–2.09 s（`slot.log`），与 1.0.6 的 2.04–2.07 在噪声内。
+三次 `Linux to menu`：3.03 / 2.94 / 2.92，`total`：7.213 / 7.124 / 7.104。
 
 #### 已做
 
@@ -701,18 +700,18 @@ Slot 首帧 2.07–2.09 s（`slot.log`），与 1.0.6 的 2.04–2.07 在噪声�
 |---|---|---|---|---|---|
 | 1 | `boot-clock` 冷读拦在 exec 前 | 1.0.6 | `handoff`→`exec` 差 0.00–1.34 s | 0.00–0.01 s | **−1.56 s**（9.08 → 7.51） |
 | 2 | `hotkeyd ready` 的阻塞等待 | 1.0.8 | `rcS done` 2.66 | `rcS done` 2.48 | **−0.18 s**（7.51 → 7.25），改法见 §6.7b |
+| 3 | `audio-init` 提前启动 | 1.1.2 | 只占位没收益 | 已回退，只留并发修复 | **≈0**（7.25 → 7.15，噪声内）。**假设被证伪，见 §6.7e** |
 
 #### 还没做
 
 | # | 压缩点 | 现状 | 做法 | 难度 | 目标收益 |
 |---|---|---|---|---|---|
-| 3 | **`audio-init` 提前** | `session` 里等 0–400 ms，每次都顶在上限附近 | 挪到 `rcS` 开头与采样窗口并行，让 softvol 那次 DAPM 上电和用户态阶段重叠 | 低 | **0.2–0.4 s** |
-| 4 | **前端选择结果缓存** | +0.13–0.29 s，每次扫 `.baseos/frontends/*` | 把选中的名字写进 `/run` 或 `baseos.conf` 缓存，失效再扫 | 低 | **~0.2 s** |
-| 5 | **内核压缩成 FIT** | `Image` 27.8 MB，U-Boot 侧约 2.9 s | `Image.gz` + `kernel.itb` + `bootm`；`CONFIG_FIT=y` 已开 | 中–高（要同步改更新包与 A/B 布局） | **~1.3 s**（读 9.5 MB 省 1.85，内核自解压付 0.55；按下面那个 A/B 实测修正） |
-| 6 | **裁内核体积** | 27.8 MB 偏大（同芯片常见 18–22 MB） | 关掉不用的子系统/驱动（**要先列清砍掉什么、影响什么**） | 中 | 每减 5 MB ≈ **0.5 s** |
-| 7 | **SD 调谐（Linux 侧）** | 0.585→1.165 = 0.58 s，含一次 `tuning failed -5` 重来 | DTS 改 `sd-uhs-sdr50` | 低（但要复核 `libgallium` 预读仍赶得上首帧） | **~0.5 s**；若同时做 #5，U-Boot 读盘不受影响 |
-| 8 | **`mdev -s` 改用 devtmpfs** | `mdev done` 0.07 s + init 到首 mark 的 0.21 s | 内核已自动填充 `/dev`，只需处理热插拔 | 低 | 0.05–0.15 s |
-| 9 | **userdata 初始化精简** | 稳定态只有 0.11 s（见 6.7d），已无油水 | — | — | 接近 0 |
+| 3 | **前端选择结果缓存** | +0.13–0.29 s，每次扫 `.baseos/frontends/*` | 把选中的名字写进 `/run` 或 `baseos.conf` 缓存，失效再扫 | 低 | **~0.2 s** |
+| 4 | **内核压缩成 FIT** | `Image` 27.8 MB，U-Boot 侧约 2.9 s | `Image.gz` + `kernel.itb` + `bootm`；`CONFIG_FIT=y` 已开 | 中–高（要同步改更新包与 A/B 布局） | **~1.3 s**（读 9.5 MB 省 1.85，内核自解压付 0.55；按下面那个 A/B 实测修正） |
+| 5 | **裁内核体积** | 27.8 MB 偏大（同芯片常见 18–22 MB） | 关掉不用的子系统/驱动（**要先列清砍掉什么、影响什么**） | 中 | 每减 5 MB ≈ **0.5 s** |
+| 6 | **SD 调谐（Linux 侧）** | 0.585→1.165 = 0.58 s，含一次 `tuning failed -5` 重来 | DTS 改 `sd-uhs-sdr50` | 低（但要复核 `libgallium` 预读仍赶得上首帧） | **~0.5 s**；若同时做 #4，U-Boot 读盘不受影响 |
+| 7 | **`mdev -s` 改用 devtmpfs** | `mdev done` 0.07 s + init 到首 mark 的 0.21 s | 内核已自动填充 `/dev`，只需处理热插拔 | 低 | 0.05–0.15 s |
+| 8 | **userdata 初始化精简** | 稳定态只有 0.11 s（见 6.7d），已无油水 | — | — | 接近 0 |
 | — | **Slot 首帧**（不属于底座） | 2.07 s（前端进程内） | 前端自己的资源/皮肤加载 | 中 | 0.3–1.0 s。**改前端，已列为可选，见 §6.7c** |
 
 **唯一还没量准的数字是"U-Boot 读 27.8 MB `Image` 花了多久"。** `before Linux` 4.183 s
@@ -723,14 +722,14 @@ U-Boot 的 PIO/FAT 路径，不是 Linux 侧那个 150 MHz SDR104。**先把这�
 实际读速，不用重编 U-Boot。
 
 **不要做的**：把 Linux 侧 SD 降到 SDR50 之后，如果同时还想靠"提高 SD 时钟"来加速
-U-Boot 读内核，两者方向相反 —— 先定 #5 还是"提速"，别一起上。
+U-Boot 读内核，两者方向相反 —— 先定 #4 还是"提速"，别一起上。
 
 **不减时间但很值的一项**：通电到有画面现在是 **5.5 s**（`rcS` 画 logo 在
 `hotkeyd ready` 之后），这之前全是黑屏。U-Boot 在本移植不驱动 VOP2，所以修 U-Boot
 显示（或让内核挂内建 splash）能把黑屏砍到 ~1.5 s。这是**感知收益**，不影响总时间。
 
-**推荐顺序**：#3 → #4 一起做（都是底座脚本，不动 U-Boot、不动更新链），合计约
-**0.4–0.6 s**（7.25 → ~6.7）；然后再用 A/B 验掉 #5 的读速假设，决定要不要动内核。
+**推荐顺序**：#3（前端选择缓存，~0.2 s）之后再往下去，剩下的都是要动内核或设备树的
+项 —— 先用 A/B 验掉 #4 的读速假设，决定要不要把内核压成 FIT。
 
 ### 6.7a #1 的改法：把不随时刻变化的量挪到前面去采
 
@@ -812,6 +811,38 @@ done
 结论：**比较启动时间只能用稳定态，而且至少要三次取同一段**。这也是为什么 §6.7 的
 数字都写成"连测三次"而不用单次值；1.0.7 第一次测出 `rcS done` 2.62 时差点被当成
 "这项没有收益"而放弃。
+
+### 6.7e #3 证伪：audio 的等待不是"启动太晚"，是 codec 本身的节奏
+
+原计划是"把 `baseos-audio-init` 从 rcS 末尾挪到采样窗口里并行，省掉 session 里
+0–400 ms 的等待"。改了四版，全部量过，结论是这条路上没有收益。
+
+**第一步**：把 audio-init 从 rcS 373 行挪到 userdata 之后（约 1.5 s）。等待仍是 400 ms。
+看 `/run/baseos-audio.log` 的时间戳，第一条 `rk817 codec is card1` 是 **2.40 s**——
+也就是说它 1.5 s 启动，但直到 2.4 s 才跑到第一行。
+
+**第二步**：查 dmesg，codec 早在 **1.13 s** 就 probe 完了，不是它等 codec。那 0.9 s
+是 audio-init 这个 shell 脚本自己没被读进来 —— 同一时刻 `prefetch-gl` 正在读 33 MB。
+
+**第三步**：把 `prefetch-gl` 和 Wi-Fi/BT/VPU 的模块加载都推到 audio-init 之后，让它
+独占 I/O。**仍然 2.40 s。** 至此可以确定：与 I/O 顺序无关，是内核那边 codec 节点
+可用的时刻就摆在那里（1.13 s 是 dmesg 的首条，而 `find_card` 轮到它时已经 2.4 s ——
+中间被 bg 模块和 exFAT 初始化占满，换谁先跑都躲不开）。
+
+**第四步**：量总账。因为把两个后台 I/O 任务推后，`frontend selected` 从 0.23 s 涨到
+**0.56 s**（exFAT 目录扫描被拖慢），total 反而从 7.25 回到 7.40。回退。
+
+**顺带修掉一个真 bug**：`baseos-frontend-session` 里有一段兜底——查不到
+`BaseOS Master` 就再跑一次 audio-init。rcS 里那次还没跑完时，这个判断会误以为音量层
+缺失，于是起了**第二个** audio-init，两个抢 default PCM，后一个在
+`/run/baseos-audio.log` 里留下 `could not open default PCM to create the softvol control`。
+现在先等 `/run/baseos-audio-ready` 再判断（那个 flag 在"没找到 codec"的分支里也会写，
+所以真的坏了仍然会重试）。
+
+**结论**：`session` 与 audio ready 的相对位置决定了这 0.4 s 一定要等 —— audio 在
+2.9 s 完成，session 在 2.5 s 就开始找前端。提前启动 audio-init 只是让它更早开始等
+同一个时刻。1.1.2 保留的只有并发修复和把等待挪到更早的位置（现在记在
+`frontend selected` 之后的那一段，标记更诚实），净收益在噪声内。
 
 ### 6.8 量启动时的注意事项
 

@@ -503,6 +503,18 @@ cd "$FRONTEND_ROOT" || diagnostic
 # old, unusable register-percent curve. Re-run the init only when the layer is
 # actually missing: on a normal boot this costs one stat and no delay.
 if [ -x /usr/sbin/baseos-audio-init ]; then
+  # Wait for the background run first. Deciding "the layer is missing" while
+  # that run is still mid-flight started a second copy, and the two raced for
+  # the default PCM: the late one logged "could not open default PCM to create
+  # the softvol control" and the volume layer ended up built twice. Waiting for
+  # its ready flag costs nothing when it finished promptly, and the flag is
+  # written even when no codec was found, so a genuinely broken mixer still
+  # falls through to the retry below.
+  _aw=0
+  while [ ! -e /run/baseos-audio-ready ] && [ "$_aw" -lt 30 ]; do
+    sleep 0.1
+    _aw=$((_aw + 1))
+  done
   AUDIO_CARD=
   for _i in 0 1 2 3 4 5 6 7; do
     case "$(cat "/sys/class/sound/card$_i/id" 2>/dev/null)" in

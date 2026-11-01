@@ -13,6 +13,11 @@ platforms/*/rootfs/usr/sbin/* text eol=lf
 platforms/*/rootfs/usr/bin/* text eol=lf
 platforms/*/rootfs/etc/profile* text eol=lf
 platforms/*/*.sh text eol=lf
+# Frontend sources are copied onto the card and, for the patches, fed to
+# `git apply`: a CR on a context line turns every hunk into a mismatch.
+platforms/*/frontends/*/*.sh text eol=lf
+platforms/*/frontends/*/*.patch text eol=lf
+
 # Kconfig fragments and other build inputs are parsed line by line by tools that
 # do not trim CR, so a "0\r" would quietly not be a 0.
 platforms/*/uboot.config text eol=lf
@@ -22,3 +27,6 @@ src/*.c text eol=lf
 # stamp inside the image. A CR left in it makes the device see "1.0.4\r" and
 # refuse every update payload, with no error anywhere near the cause.
 VERSION text eol=lf
+
+# Git reads this file itself; a CR here breaks the patterns on the last line.
+.gitattributes text eol=lf

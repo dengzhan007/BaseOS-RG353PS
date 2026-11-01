@@ -32,6 +32,8 @@
 | **运行环境** | `platforms/rg353ps/frontends/slot/launch.sh` | `SDL_VIDEODRIVER=kmsdrm` / `SDL_AUDIODRIVER=alsa` / 暂存二进制到 tmpfs / `--init-root` |
 | 示例按键 patch | `platforms/rg353ps/frontends/slot/slot-rg353ps.patch` | 本 fork 专用按键/摇杆映射（**换 fork 要重做**） |
 | **摇杆补丁** | `platforms/rg353ps/frontends/slot/slot-analog.patch` | 让摇杆真的成为模拟轴送到 libretro 核心，并把摇杆按压变成可绑定的 L3/R3（**通用，换 fork 一般直接可用**） |
+| **电源键补丁** | `platforms/rg353ps/frontends/slot/slot-power.patch` | KEY_POWER 交给前端，并让 `doze()` 通过 `BASEOS_SLEEP` 真正挂起整机（**改法固定，但要按 fork 的 `Btn` 枚举与 `doze` 名字对一遍**，见 §2.1 E） |
+| **boot logo 补丁** | `platforms/rg353ps/frontends/slot/slot-bootlogo.patch` | 让前端认 `BASEOS_BOOT` 这个分区名，并复用 `rcS` 已建立的挂载点（**换机型只改一个常量**，见 §2.1 F） |
 | 模拟核心 | mGBA / gpSP 的 `.so`（aarch64 musl） | 与前端 fork 无关，通常直接复用 |
 
 ---
@@ -47,8 +49,10 @@
 | 5 | **按键映射** | 新 patch，如 `slot-<fork>-ab.patch` | **是（每个 fork 必做）** | 对该 fork 的 `crates/slot/src/input/evdev.rs` 重写 `code_to_btn`、`WANTED` 与摇杆轴 |
 | 6 | 设备脚本 | `led.sh`/`lid.sh` + `AGS_*` 环境变量 | 否（设备相关） | 提供 RK817 / 无 hall 传感器的版本或 stub |
 | 7 | 分辨率 | `fbdev.rs` 读 `fb0`，fallback 640×480 | 否 | 通常不动；若 fork 硬写分辨率再调 |
+| 8 | **电源键归前端** | `slot-power.patch`（`evdev.rs` + `app.rs`）+ `launch.sh` | **是（每个 fork 必做）** | 三处改动，见 §2.1 E |
+| 9 | **boot logo 写盘** | `slot-bootlogo.patch`（`bootlogo.rs`） | 否（前提是 fork 自带该模块） | 改分区名 + 复用挂载点，见 §2.1 F |
 
-> 经验值：**第 4、5 项是每个 fork 真正要写的东西**，其余都是复制粘贴。
+> 经验值：**第 4、5、8 项是每个 fork 真正要写的东西**，其余都是复制粘贴。
 
 ---
 
@@ -184,16 +188,94 @@ B 组漏了编译能过但摇杆仍然没反应** —— 后者更容易悄悄�
 - 二进制 `cp` 到 `/tmp` 再 `exec`（TF/exFAT 不保 exec 位）
 - **写** `# baseos: power-owned`，并 `export BASEOS_SLEEP=/usr/sbin/rg353ps-sleep`
   —— 前端接管电源键，长按走 Slot 自己的关机画面，短按的 `doze()` 通过这个变量
-  真正挂起整机（见 §6「电源键归属」）
+  真正挂起整机（见 §5「电源键归属」，逐条改法见 §2.1 E）
 
 ### D. 数据分区的 `Config/slot.state`
 
 `volume=` 和 `volume_hp=` 是 Slot **自己的软件音量**（0..100），和 ALSA mixer 是
 **串联相乘**的两级衰减，不是同一个数字。系统侧怎么配合见 §5「音量键归属」。
 
-### E. 不要做的事
+### E. 电源键交给前端（`slot-power.patch`）—— 三处，缺一处就有一半不工作
 
-- 前端要接管电源键，就必须给它一个真能挂起的 `doze()`（见 §6），否则一次触碰只关屏
+**前提**：前端必须已经有一条「短按真的挂起整机」的路。Slot 的 `doze()` 原本只关背光、
+CPU 照跑，所以早期版本把电源键整个交给 `rg353ps-hotkeyd`。现在反过来由前端负责，
+但因为补上了挂起钩子，短按仍然是真 `s2idle`。**先确认能挂起，再声明归属**，否则
+一次触碰就变成"屏幕黑了但机器在烧电"。
+
+1. `crates/slot/src/input/evdev.rs` —— **两处**
+   - `code_to_btn()` 里加 `116 => Btn::Power`（`KEY_POWER`）。早期 patch 曾把它注释掉
+     并 `return None`，现在必须恢复。把全部 patch 打完后，最终源码里**不该**再出现
+     那段 "deliberately left unmapped" 的注释；还留着就是 `slot-power.patch` 没打上，
+     或排到了 `slot-rg353ps.patch` 前面（它必须在之后）。
+   - `WANTED` 数组加 `116` 并把常量长度 `+1`（`[u16; 24]` → `[u16; 25]`）。
+     **只改映射不改 `WANTED` 是无效的**：`WANTED` 决定该节点被 `EVIOCGBIT` 保留哪些
+     码，不在里面的码根本不会被读上来，表现就是"完全没反应"，且不报错。
+2. `crates/slot/src/app.rs` `doze()` 末尾 —— 挂起钩子
+   ```rust
+   if let Some(program) = std::env::var_os("BASEOS_SLEEP") {
+       let _ = std::process::Command::new(program).status();
+   }
+   ```
+   放在 `power.on_close()` 之后：先把存档/状态落盘，再睡。这个调用**阻塞到按键唤醒**，
+   正是 `doze()` 期望的语义；不设该变量时行为与上游完全一致。
+3. `launch.sh` —— 两行
+   ```sh
+   # baseos: power-owned
+   export BASEOS_SLEEP=/usr/sbin/rg353ps-sleep
+   ```
+   标记行必须**独占一行**且匹配 `^\s*#\s*baseos:\s*power-owned\s*$`，
+   前面多写一个词就不算。
+
+**符号替换到别的 fork**：`Btn::Power` 要在该 fork 的 `Btn` 枚举里存在；枚举里叫别的名字
+（如 `Btn::PowerOff`）就换名字。`doze()` 也可能叫 `sleep()` / `on_idle()`，找那个
+「关背光 + 停音频 + 落盘」的函数，把钩子放它尾巴上。
+
+**验证**（三项都过才算成）：
+```sh
+cat /run/baseos-power-frontend          # 前端运行期间有 pid，退出/暂停后消失
+dmesg | grep 'power key'                # frontend slot owns the power key while it runs
+tail -5 /mnt/SDCARD/.baseos/state/rg353ps-sleep.log
+#   应看到 entering suspend -> suspend returned rc=0
+```
+`hotkeyd` 让位后不会再打 `rg353ps-hotkeyd: key 116 ...` 这类动作日志，但按键事件本身
+仍可能出现在它的 `KEY_EVENT` 行里（它照样读事件，只是不动作），这不代表失败。
+
+### F. boot logo 写回启动分区（`slot-bootlogo.patch`）
+
+上游的契约是：logo 文件在**启动分区**根目录（`bootlogo.bmp`），用户想换图就把图放进
+数据分区的 `Config/bootlogo.bmp`，前端启动时把它写进启动分区，原图另存为
+`bootlogo.baseos.bmp`。Slot 自带这套逻辑，但在本移植上**两处都会失败**：
+
+1. **分区名不对**：它找的是 `boot-resource`，这个移植的 FAT 分区叫 `BASEOS_BOOT`，
+   于是 `partition()` 返回 `None`，直接静默放弃（只有 stderr 一行）。
+   → 加一个回退常量，`partition(PARTITION).or_else(|| partition(PORT_PARTITION))`。
+   **换机型只改这一行常量。**
+2. **二次挂载 `EBUSY`**：它无条件 `mount -t vfat` 到 `/tmp/slot-boot-resource`，
+   而 `rcS` 从开机起就把这个分区挂在 `/mnt/boot`。vfat 不允许同一设备挂两次，
+   照上游写的代码到这里必然失败。
+   → `mounted_at()` 读 `/proc/mounts` 找该设备已有的挂载点；找到就直接在里面操作，
+   并且**跳过 remount rw 和 umount**（那两个动作作用在别人的挂载点上，会把 `rcS`
+   的挂载改成 rw 或直接摘掉）。找不到才走原来的 mount/remount/umount 三步。
+
+**底座侧的对应契约**（改前端时不用动，但要知道）：`rcS` 在挂上 `BASEOS_BOOT` 之后
+立刻用 `BASEOS_CUSTOM_SPLASH_ONLY=1 fbsplash 0` 画一次 `/mnt/boot/bootlogo.bmp`，
+整个启动只画这一次，不存在"用户分区挂上后再重绘"的第二遍。所以前端写盘要到
+**下一次开机**才看得到，这与上游一致。U-Boot 在本移植不驱动 VOP2，不读这个文件。
+
+**状态：写盘路径尚未上机验证。** 已验的是：补丁能干净应用到目标 commit、整条 patch
+链顺序无冲突、`rcS` 正常画出该文件、开机后 `vcsa1` 无残留文字。**未验的是**
+"Slot 把 `Config/bootlogo.bmp` 真的写进 `BASEOS_BOOT`" 这一步——当前这个 Slot 版本
+没有更换 logo 的 UI 入口，触发不到 `refresh()`。换到带入口的 fork 时补测，检查点：
+```sh
+ls -l /mnt/boot/bootlogo.bmp /mnt/boot/bootlogo.baseos.bmp
+cat /mnt/SDCARD/Logs/slot.log | grep bootlogo     # 期望 "installed"
+```
+若出现 `could not mount` / `EBUSY`，说明 `mounted_at()` 没命中——先确认
+`/proc/mounts` 里该设备名与 `/sys/class/block/*/uevent` 的 `DEVNAME` 一致。
+
+### G. 不要做的事
+
+- 前端要接管电源键，就必须给它一个真能挂起的 `doze()`（见 §2.1 E），否则一次触碰只关屏
 - 不要靠调低 mixer 来"修音量"——硬件前提是 0 dB，调低就破坏了 0..100 的整条曲线
 - 不要让前端直接打开 `hw:CARD`，那会绕开 softvol 层
 
@@ -251,7 +333,15 @@ B 组漏了编译能过但摇杆仍然没反应** —— 后者更容易悄悄�
 - [ ] 音量：一次开机到下一次开机，同一格的响度一致（不漂移）
 - [ ] 模拟核心能加载并运行（mGBA / gpSP）
 - [ ] 电池/背光脚本不报错（无 AXP 设备时安全跳过）
-- [ ] 存档 / 退出 / 休眠唤醒正常
+- [ ] 存档 / 退出正常
+- [ ] **短按电源键**：熄屏后**真的挂起**，不是只关背光。
+      `tail -5 /mnt/SDCARD/.baseos/state/rg353ps-sleep.log` 要有
+      `entering suspend` 与 `suspend returned rc=0`；再按一次能唤醒、音频回来
+- [ ] **长按 2 秒电源键**：出现**前端自己的**关机画面再关机，不是黑底 tty1 残留文字。
+      只看到黑屏直接断电，说明电源键仍在 hotkeyd 手里（`/run/baseos-power-frontend`
+      不存在或 `launch.sh` 少了标记行）
+- [ ] 电源键归属可回收：退出前端后 `/run/baseos-power-frontend` 消失，电源键回到
+      hotkeyd；`dmesg | grep 'power key'` 里有前端接管/交还的记录
 - [ ] 启动耗时：`/usr/sbin/baseos-boot-report` 的 `Linux to menu` 不超过 9 s（拔掉数据线再测一次，
       插线时 USB 调试 gadget 会让整机变慢）；`handoff: entered` 到 `frontend exec` 应在几十毫秒内
 - [ ] 音量在 audio 走上后台之后仍然正确：开机后 `amixer -c <n> sget 'BaseOS Master'` 是 90，
@@ -326,8 +416,10 @@ RG353PS 实测参考值：`adc-joystick` 是 **event4**（`event1` 是电源键�
   （实测就是开机 logo 上那几行 EROFS 报错），没有前端收尾。代价原本是短按变成
   「只关屏不睡觉」，所以给 Slot 加了 `BASEOS_SLEEP` 钩子：`doze()` 在关背光、落盘
   之后执行该变量指向的程序并阻塞到唤醒，`launch.sh` 把它指向 `rg353ps-sleep`，
-  短按因此仍是真 `mem` 挂起。`slot-rg353ps.patch` 里**保留** `KEY_POWER(116)` 的映射，
-  `slot-power.patch` 把它加回 `WANTED` 并给 `doze()` 补那段钩子。hotkeyd 看到
+  短按因此仍是真 `mem` 挂起。`slot-power.patch`（必须排在 `slot-rg353ps.patch` 之后）恢复
+  `KEY_POWER(116)` 的映射、把它加进 `WANTED`，并给 `doze()` 补那段钩子 ——
+  早期 `slot-rg353ps.patch` 是把这个码注释掉、交给 hotkeyd 的，两版方向相反，
+  所以顺序不能换。逐条改法见 §2.1 E。hotkeyd 看到
   `/run/baseos-power-frontend` 就让位，前端退出/暂停/崩溃时电源键自动回到 hotkeyd。
   移植别的 fork 时，同样要先有「doze 能挂起整机」这条路，再声明 power-owned。
 - **bootlogo 放在启动分区**：和上游 BaseOS 一致，开机画面是启动分区上的一个文件，
@@ -338,7 +430,9 @@ RG353PS 实测参考值：`adc-joystick` 是 **event4**（`event1` 是电源键�
   `bootlogo.baseos.bmp`）；或在 PC 上把 640×480、24 位、未压缩的 BMP 直接写进该分区
   根目录。`slot-bootlogo.patch` 让 Slot 认 `BASEOS_BOOT` 这个分区名，并在分区已经被
   `rcS` 挂载时复用挂载点——vfat 不允许同一设备挂两次，照上游那样再 mount 一次只会
-  拿到 EBUSY。
+  拿到 EBUSY。逐条改法见 §2.1 F。
+  **这一条只验到"补丁能应用、rcS 能画出 logo"，写盘那一步还没上机验证**：当前
+  Slot 版本没有更换 logo 的 UI 入口，`refresh()` 触发不到。换到带入口的 fork 再补测。
 - **音频**：不要指望前端自己设混音器。`baseos-audio-init` 在开机时、前端之前把
   `rk817_ext` 声卡的 ALSA `default`、DAC 音量和 Speaker Amp 开关都设好并存进
   `alsactl`；Slot 只会打开 ALSA 播放，从不碰控件。排查用 `baseos-audio-check`。
@@ -620,6 +714,10 @@ echo "file ep0.c +p"    > /sys/kernel/debug/dynamic_debug/control
 - 运行环境：`platforms/rg353ps/frontends/slot/launch.sh`
 - 按键映射 patch（只动 `evdev.rs`，与 DTS 相关）：`platforms/rg353ps/frontends/slot/slot-rg353ps.patch`
 - 摇杆模拟轴 patch（跨 15 个文件，与 DTS 无关）：`platforms/rg353ps/frontends/slot/slot-analog.patch`
+- 电源键归前端 patch（`evdev.rs` + `app.rs`，与 fork 的 `Btn` 枚举有关）：
+  `platforms/rg353ps/frontends/slot/slot-power.patch`
+- boot logo 写回启动分区 patch（`bootlogo.rs`，只改分区名与挂载复用）：
+  `platforms/rg353ps/frontends/slot/slot-bootlogo.patch`
 - 音量/电源归属实现：`platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session`
   （`claim_volume_for_frontend` / `release_power_owner`）与 `src/rg353ps-hotkeyd.c`
 - 启动测量：`src/boot-clock.c`、`platforms/rg353ps/rootfs/usr/sbin/baseos-boot-mark`、

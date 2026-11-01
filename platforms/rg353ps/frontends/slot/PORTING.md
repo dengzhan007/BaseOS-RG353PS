@@ -900,3 +900,76 @@ done
 
 > 持久卷：`rg353ps-slot-cargo`（registry）、`rg353ps-slot-target`（编译产物缓存）。
 > 镜像：`rg353ps-slot-build:latest`（arm64）。
+
+---
+
+## 8. 上游 v1.5.3 与日志写卡审计
+
+这一节记两件事：上游 1.5.3 的更新对我们到底有没有用（结论是没有可直接搬的东西，但照着它的思路查了一遍 HDMI），以及"每次开机到底往卡上写了什么"（结论是三处例行写，改掉了其中最贵的两处）。
+
+### 8.1 上游 v1.5.3 的两条更新
+
+v1.5.3 的版本提交（`ddae623`）只改 `VERSION` 一行，内容都在 v1.5.2 之后的几条提交里，release note 归纳成两条：
+
+1. **HDMI 输出恢复。** 1.5.1/1.5.2 的 fast loader 在交给 Linux 的 DTB 里把 HDMI 标成 `late`。内核的 `of_device_is_available()` 只认 `okay`/`ok`，`late` 等同于没启用；而发布版里没有任何东西事后再去打开它，所以插着电视也毫无反应。现在 loader 保留原厂设置，并加了断言要求这一项（`54910e7`）。
+2. **fast loader 交给内核的东西与原始 loader 完全一致**，包括 boot logo 的交接。他们用模拟器把 11 个机型跑了一遍，逐字节比对 FDT、命令行、入口寄存器、kernel 与 initrd（`64a3bac` 起的一组提交）。
+
+**为什么不能直接受益。** 上游这套 fast loader 面向 Allwinner H700 那一票（rg28xx/34xx/35xx/rg40xx），自己构造 DTB 再交给内核；RG353PS 是 RK3566，走原厂 U-Boot + 内核自编译的主线 DTB（`rk3566-anbernic-rg353ps.dts`），没有这层 DTB 生成器。那个 `late` 的形态我们不生产，也就踩不到；代码同样搬不过来。**这一条不是"我们落后了"，是两条不同的引导路线。**
+
+**按它的思路自查的结果（1.2.0 真机）：**
+
+| 检查项 | 结果 |
+|---|---|
+| `dmesg` | `Detected HDMI TX controller v2.11a with HDCP`、`display-subsystem: bound fe0a0000.hdmi` |
+| `/sys/class/drm` | `card0-HDMI-A-1` 存在，`status=disconnected`（当时没插线） |
+| 内核配置 | `DRM_DW_HDMI`、`DRM_DW_HDMI_I2S_AUDIO`、`ROCKCHIP_DW_HDMI`、`PHY_ROCKCHIP_INNO_HDMI`、`SND_SOC_HDMI_CODEC` 全 `=y` |
+| 音频 | `#0: HDMI` 声卡已注册（README 里"声卡编号不固定"就是它） |
+
+也就是说 HDMI 通路本身是完好的，**唯一没验的是插线后的实际画面**，因为手上没有 HDMI 线。这条留在"待验证"里，不要因为"启动数字正常"就默认显示正常——1.1.7 的黑屏事故已经证明启动计时不会替显示把关。
+
+上游第二条对我们只有参考价值：现在我们是 U-Boot 交黑屏、rcS 再把 logo 画回来；上游证明了"loader 直接把 logo 交给内核"可行，但那是他们自己写的 loader，不具备可移植性。
+
+### 8.2 每次开机往卡上写了什么（1.2.0 真机实测）
+
+审计方法：把 1.2.0 的 `.bosupd` 解开，`debugfs` 提取 rootfs 里的全部脚本逐一统计写点，再用真机（SSH）核对文件时间戳与大小。结论如下：
+
+| 文件 | 分区 | 频率 | 单次量 | 判断 |
+|---|---|---|---|---|
+| `Logs/boot.log` | SDCARD（exFAT） | 每次启动 | ~20 行 / 0.9 KB | 启动计时，明细可压 |
+| `rg353ps-usb-probe.txt` | SDCARD | 每次启动 2 次 | 每次重写 17 KB + `sync` | 例行写，不必要 |
+| `rg353ps-usb-debug.txt` | SDCARD | 每次启动 1–4 次 | 1.1 KB + `sync` | 例行写，不必要 |
+| `baseos.log` | boot（vfat） | 仅更新事件 | 167 B | 必要 |
+| `baseos-userdata-init.txt` | boot | 仅初始化失败 | — | 必要 |
+| `baseos-frontend-detection.txt` | boot | 仅 debug 或前端扫描失败 | — | 必要 |
+| `Logs/slot*.log`、`ags-shutdown-trace.log` | SDCARD | 每会话 | 96 + 12 + 7 KB | 前端 Slot 自带，不属底座 |
+
+真机时间戳就是判据：`usb-probe.txt` 与 `usb-debug.txt` 的 mtime 每次都等于当次开机时刻，而 `baseos.log` 只在应用更新那一轮写过三行。
+
+根因是 `usb_debug=yes` 这个 bring-up 默认值：它每次开机起 RNDIS + dropbear + 一个 supervisor，而 supervisor 一启动就 `probe_dump "boot"`，把 17 KB 探测报告重写一遍再 `sync`；通道起来之后再写一次 `"after start"`。这份报告是为"通道起不来"准备的，通道起来了就没有读者。
+
+### 8.3 本版改了什么（1.2.1）
+
+只动 `baseos-usb-debug`，不动 `usb_debug` 的默认值，也不动失败诊断的能力：
+
+- 探测报告与通道日志先在 `/run`（RAM）里攒，**不再每次开机落卡**。
+- 只有两种情况才落卡：一是 `USB_TROUBLE=1`（supervisor 真的开始走重试阶梯：reprobe / rebind / 重建 PHY），二是 `debug=yes`（人工要求全量留痕）。
+- 启动失败的三条路径（等不到 UDC、gadget 构建失败、绑不上 UDC）与显式 `stop` 仍然强制落卡。
+- 首次落卡时会把 RAM 里攒的 `boot` / `after start` 快照一起带出去，所以故障现场仍然完整；阶梯每走一步重置一次已落卡标记，多次尝试的过程仍然逐步可见。
+
+正常开机与正常插拔线的结果：**卡上不新增任何字节，也不再有这两次 `sync`**。故障时的卡上内容与原来一致。
+
+### 8.4 前端侧可选项（不在底座范围内）
+
+Slot 的 `System/launch_frontend.sh` 第 101 行无条件把前端输出重定向到卡：
+
+```sh
+exec /lib/ld-linux-aarch64.so.1 "$SYS/slot" > "$LOGS/slot.log" 2>&1
+```
+
+`slot.log` 每个会话几十 KB，`launch_frontend.sh` 自己还有 64 KB 的会话轮转。想让卡上的写入再少一截，把这一行改成 `>/dev/null 2>&1`（崩溃现场就没了），或者只在需要排障时保留。这是前端包里的文件，改它不属于底座，所以只记在这里。
+
+### 8.5 一条教训：`/proc/config.gz` 要当资产存
+
+1.2.0 的内核配置（A/B 两组裁剪后的那份）当时只存在于构建产物里，仓库里的 `linux.aarch64.conf` 还停在未裁剪版本。这一版是用设备上的 `/proc/config.gz` 恢复回来的，差异除了裁剪项，还有一批编译器探测项（`CONFIG_CC_VERSION_TEXT`、`CONFIG_RUSTC_*` 等）会由 `olddefconfig` 重算，不影响结果。
+
+以后每次改了内核配置就提交它，别只留在 `work/` 里——否则下一次构建会悄悄退回未裁剪状态，Image 从 21.6 MB 涨回 29 MB，启动时间也跟着回去，而且不会有任何报错。

@@ -128,11 +128,39 @@ cable_present() {
 }
 
 # Everything a remote reader needs to tell "the PHY never saw the cable" from
-# "the PHY saw it and dwc3 still would not attach", written to the card because
-# the whole point of this channel is that there is no shell yet.
+# "the PHY saw it and dwc3 still would not attach". The whole point of this
+# channel is that there is no shell yet, so the report has to reach the card -
+# but only when the channel is actually in trouble. A boot that brings the
+# network up has nothing to explain, and rewriting 17 KB of probe on every
+# power-on was wear with no reader: the report is assembled in RAM, and copied
+# out on the first sign of a stuck controller.
+PROBE_RAM=/run/baseos-usb-probe.txt
+PROBE_PUSHED=0
+USB_TROUBLE=0
+
+# The card copies exist for the failure case, so that is when they are written.
+# debug=yes still asks for them on every boot, which is what makes a card copy
+# available while the channel is healthy.
+persist_enabled() {
+    [ "$USB_TROUBLE" = 1 ] && return 0
+    [ "$(config_value debug)" = yes ] && return 0
+    return 1
+}
+
+push_probe() {
+    case "$PROBE_PUSHED" in 1) return 0 ;; esac
+    persist_enabled || return 0
+    [ -s "$PROBE_RAM" ] || return 0
+    _pout=/mnt/SDCARD/rg353ps-usb-probe.txt
+    cat "$PROBE_RAM" >>"$_pout" 2>/dev/null || :
+    tail -n 240 "$_pout" >"$_pout.new" 2>/dev/null && mv "$_pout.new" "$_pout" 2>/dev/null || :
+    PROBE_PUSHED=1
+    sync 2>/dev/null || :
+}
+
 probe_dump() {
     [ -d /mnt/SDCARD ] || return 0
-    out=/mnt/SDCARD/rg353ps-usb-probe.txt
+    out=$PROBE_RAM
     {
         printf '== %s  %s\n' "$1" "$(date '+%F %T' 2>/dev/null)"
         printf 'udc=%s state=%s\n' "${UDC:-none}" "$(udc_state)"
@@ -152,7 +180,7 @@ probe_dump() {
         dmesg 2>/dev/null | grep -iE 'dwc3|usb2phy|xhci|gadget|rndis|ep0' | tail -20
     } >>"$out" 2>/dev/null || :
     tail -n 240 "$out" >"$out.new" 2>/dev/null && mv "$out.new" "$out" 2>/dev/null || :
-    sync 2>/dev/null || :
+    push_probe
 }
 
 # Hold the controller and its PHYs out of autosuspend for the life of the
@@ -404,8 +432,14 @@ watch_cable() {
                 reprobe_udc_driver || :
             fi
             say "supervisor: attempt $attempt done state=$(udc_state) cable=$(cable_present && echo yes || echo no)"
+            # A controller that needed a ladder step is the case the card copy
+            # exists for: mark the session as trouble, and let the probe report
+            # that was assembled in RAM go out with it. Resetting the pushed
+            # flag keeps one block per step, so the ladder stays readable.
+            USB_TROUBLE=1
+            PROBE_PUSHED=0
             probe_dump "attempt $attempt"
-            persist_log
+            persist_log force
             # Four seconds between tries with a cable in, ten without, then a
             # slower sweep for an hour before giving up.
             if [ "$present" = yes ] && [ "$attempt" -le 60 ]; then
@@ -458,9 +492,12 @@ stop_watch() {
 
 # The channel exists to be inspected before a shell does, so its log has to be
 # readable from a PC: the card is the only place that survives the reboot
-# someone reaches for when nothing came up. Only the tail is kept, only on
-# events, and it is written even with debug=no.
+# someone reaches for when nothing came up. Only the tail is kept, and it is
+# written on trouble rather than on every event - a channel that came up and
+# stayed up leaves nothing behind. "force" is for the few callers that are
+# themselves the event worth recording: a failed start, an explicit stop.
 persist_log() {
+    [ "$1" = force ] || persist_enabled || return 0
     [ -d /mnt/SDCARD ] || return 0
     tail -n 120 "$LOG" 2>/dev/null >/mnt/SDCARD/rg353ps-usb-debug.txt 2>/dev/null || :
     sync 2>/dev/null || :
@@ -681,15 +718,15 @@ do_start() {
         persist_log
         exit 0
     fi
-    UDC=$(wait_udc) || { say "no UDC after 10s; cannot bring the network up"; persist_log; exit 1; }
+    UDC=$(wait_udc) || { say "no UDC after 10s; cannot bring the network up"; persist_log force; exit 1; }
     say "starting on UDC $UDC"
     disable_usb_runtime_pm
-    build_gadget || { persist_log; exit 1; }
+    build_gadget || { persist_log force; exit 1; }
     current=$(cat "$G/UDC" 2>/dev/null || :)
     if [ "$current" != "$UDC" ]; then
         [ -n "$current" ] && printf '\n' >"$G/UDC" 2>/dev/null || :
         if ! printf '%s' "$UDC" >"$G/UDC" 2>/dev/null; then
-            say "cannot bind $UDC (another gadget holds it?)"; persist_log; exit 1
+            say "cannot bind $UDC (another gadget holds it?)"; persist_log force; exit 1
         fi
         say "gadget ${FUNC:-rndis.usb0} bound to $UDC"
     fi

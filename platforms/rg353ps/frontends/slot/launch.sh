@@ -1,12 +1,13 @@
 #!/bin/sh
 # BaseOS RG353PS launcher for the SDL2/KMSDRM Slot build.
 #
-# The power key is deliberately not claimed. Slot's own short-tap action is a
-# doze that only blanks the panel, while a BaseOS tap suspends the whole unit;
-# letting both act meant one tap blanked the screen and never slept.
-# rg353ps-hotkeyd owns the key for this frontend, so a tap is a real suspend and
-# a two-second hold is a shutdown. Slot's evdev map no longer translates
-# KEY_POWER for the same reason.
+# This frontend owns the power key. It draws its own shutdown screen and flushes
+# its saves before powering off, which is what a handheld user expects from a
+# hold, and nothing behind it can produce that picture. A tap still suspends the
+# whole unit: BASEOS_SLEEP points Slot's doze at rg353ps-sleep, so the tap costs
+# a real s2idle instead of a dark panel over a running CPU. rg353ps-hotkeyd sees
+# the marker below and keeps its hands off the key while this frontend runs.
+# baseos: power-owned
 set -eu
 
 SDCARD="${BASEOS_FRONTEND_ROOT:-/mnt/SDCARD}"
@@ -18,6 +19,9 @@ export SLOT_ROOT="$SDCARD"
 export BASEOS_TARGET=rg353ps
 export BASEOS_MODEL=rg353ps
 export BASEOS_PANEL_ROTATION_CCW=0
+# Slot runs this when a tap puts the unit to sleep. It blocks until the button
+# wakes the unit, which is exactly the contract doze() expects.
+export BASEOS_SLEEP=/usr/sbin/rg353ps-sleep
 export SDL_VIDEODRIVER=kmsdrm
 export SDL_AUDIODRIVER=alsa
 export SDL_JOYSTICK_DISABLE_UDEV=1

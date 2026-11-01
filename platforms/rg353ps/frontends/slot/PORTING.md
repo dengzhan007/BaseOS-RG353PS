@@ -182,7 +182,9 @@ B 组漏了编译能过但摇杆仍然没反应** —— 后者更容易悄悄�
 
 - `SDL_VIDEODRIVER=kmsdrm`、`SDL_AUDIODRIVER=alsa`
 - 二进制 `cp` 到 `/tmp` 再 `exec`（TF/exFAT 不保 exec 位）
-- **不要写** `# baseos: power-owned`
+- **写** `# baseos: power-owned`，并 `export BASEOS_SLEEP=/usr/sbin/rg353ps-sleep`
+  —— 前端接管电源键，长按走 Slot 自己的关机画面，短按的 `doze()` 通过这个变量
+  真正挂起整机（见 §6「电源键归属」）
 
 ### D. 数据分区的 `Config/slot.state`
 
@@ -191,7 +193,7 @@ B 组漏了编译能过但摇杆仍然没反应** —— 后者更容易悄悄�
 
 ### E. 不要做的事
 
-- 不要给 fork 加 `power-owned`（除非它的短按真的能挂起整机）
+- 前端要接管电源键，就必须给它一个真能挂起的 `doze()`（见 §6），否则一次触碰只关屏
 - 不要靠调低 mixer 来"修音量"——硬件前提是 0 dB，调低就破坏了 0..100 的整条曲线
 - 不要让前端直接打开 `hw:CARD`，那会绕开 softvol 层
 
@@ -319,11 +321,24 @@ RG353PS 实测参考值：`adc-joystick` 是 **event4**（`event1` 是电源键�
   `# baseos: power-owned`，`baseos-frontend-session` 就会在前端运行期间把 pid 写进
   `/run/baseos-power-frontend`，hotkeyd 据此让位；前端退出/暂停/崩溃时该文件被清掉，
   电源键自动回到 hotkeyd。不写这一行的前端，始终由 hotkeyd 负责。
-- **Slot 不声明 power-owned**：Slot 的短按动作是 `doze()`——只关背光待机，不挂起系统，
-  功耗仍然不低；而 hotkeyd 的短按是真 `mem` 挂起。实测接管后"按一下只关屏、不睡觉"，
-  所以 Slot 把电源键完全交还给 hotkeyd，并且 `slot-rg353ps.patch` 里特意**不映射
-  `KEY_POWER(116)`、也不放进 `WANTED`**，两边不会同时动作。移植别的 fork 时如果它
-  的电源键行为能真正挂起系统（而不是只关屏），再把标记行加回 `launch.sh` 才有意义。
+- **Slot 声明 power-owned**：电源键归前端，长按由 Slot 画关机画面、落盘再退出，
+  这是用户能看懂的关机；交给 hotkeyd 直接 `poweroff`，屏幕上只剩 tty1 的残留
+  （实测就是开机 logo 上那几行 EROFS 报错），没有前端收尾。代价原本是短按变成
+  「只关屏不睡觉」，所以给 Slot 加了 `BASEOS_SLEEP` 钩子：`doze()` 在关背光、落盘
+  之后执行该变量指向的程序并阻塞到唤醒，`launch.sh` 把它指向 `rg353ps-sleep`，
+  短按因此仍是真 `mem` 挂起。`slot-rg353ps.patch` 里**保留** `KEY_POWER(116)` 的映射，
+  `slot-power.patch` 把它加回 `WANTED` 并给 `doze()` 补那段钩子。hotkeyd 看到
+  `/run/baseos-power-frontend` 就让位，前端退出/暂停/崩溃时电源键自动回到 hotkeyd。
+  移植别的 fork 时，同样要先有「doze 能挂起整机」这条路，再声明 power-owned。
+- **bootlogo 放在启动分区**：和上游 BaseOS 一致，开机画面是启动分区上的一个文件，
+  数据分区里既没有这个目录、也没有改它的入口。上游由 U-Boot 直接读 p2 的
+  `bootlogo.bmp`；这个移植的 U-Boot 不驱动 VOP2（屏幕全黑），改由 `rcS` 在挂载
+  `BASEOS_BOOT` 之后画一次 `fbsplash 0`，整个启动只画这一次。换图有两条路：卡根目录放
+  `Config/bootlogo.bmp`，Slot 启动时把它写进 `BASEOS_BOOT`（原图留作
+  `bootlogo.baseos.bmp`）；或在 PC 上把 640×480、24 位、未压缩的 BMP 直接写进该分区
+  根目录。`slot-bootlogo.patch` 让 Slot 认 `BASEOS_BOOT` 这个分区名，并在分区已经被
+  `rcS` 挂载时复用挂载点——vfat 不允许同一设备挂两次，照上游那样再 mount 一次只会
+  拿到 EBUSY。
 - **音频**：不要指望前端自己设混音器。`baseos-audio-init` 在开机时、前端之前把
   `rk817_ext` 声卡的 ALSA `default`、DAC 音量和 Speaker Amp 开关都设好并存进
   `alsactl`；Slot 只会打开 ALSA 播放，从不碰控件。排查用 `baseos-audio-check`。

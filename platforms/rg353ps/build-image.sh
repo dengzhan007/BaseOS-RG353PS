@@ -132,6 +132,10 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
     mcopy -i "$BOOTFS" /work/kernel/output/Image ::/Image
     mcopy -i "$BOOTFS" /work/kernel/output/rk3566-anbernic-rg353ps.dtb ::/device_trees/rk3566-anbernic-rg353ps.dtb
     mcopy -o -i "$BOOTFS" /work/rootfs/etc/baseos.conf ::/baseos.conf
+    # The boot logo is a plain file on this partition, the way it is upstream:
+    # rcS draws it once, and the frontend replaces it by writing the partition
+    # (no rootfs rebuild, and an update never touches this partition).
+    mcopy -i "$BOOTFS" /work/rootfs/etc/baseos/bootlogo.bmp ::/bootlogo.bmp
     # Install the replaceable keyboard-free diagnostic task on the FAT boot partition.
 
     # `ro`, not `rw`. Nothing on this image writes to the root filesystem: the

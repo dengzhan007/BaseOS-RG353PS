@@ -29,6 +29,19 @@ The image layout separates `BASEOS_BOOT`, a fixed-size `BASEOS_ROOT`, and `BASEO
 
 For details, see [FRONTENDS.md](FRONTENDS.md).
 
+## Boot logo
+
+The boot logo is `bootlogo.bmp` in the root of `BASEOS_BOOT`, next to the kernel,
+and `rcS` draws it exactly once as soon as that volume is mounted. This is where
+upstream BaseOS keeps it too; the user partition has no logo directory and no
+setting for it. To change the artwork, put a 640x480, 24-bit, uncompressed BMP at
+`Config/bootlogo.bmp` on the user card and restart: Slot writes it into
+`BASEOS_BOOT` before the next boot and keeps the previous image as
+`bootlogo.baseos.bmp`. Writing a BMP into `BASEOS_BOOT` by hand from a Linux host
+works the same way. A system update replaces the rootfs slots only, so the logo
+survives it; a card that was updated rather than reflashed gets the shipped
+artwork copied in on its first boot.
+
 ## USB storage mode: plug the cable first
 
 Connect the USB data cable **before** triggering storage mode (long-press

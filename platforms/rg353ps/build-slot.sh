@@ -6,6 +6,9 @@
 #   SLOT_REPO / SLOT_REV   -> which Slot fork + commit to build
 #   platforms/rg353ps/frontends/slot/slot-rg353ps.patch -> input mapping (per DTS)
 #   platforms/rg353ps/frontends/slot/slot-analog.patch  -> stick support (fork-agnostic)
+#   platforms/rg353ps/frontends/slot/slot-power.patch   -> frontend-owned power key
+#   platforms/rg353ps/frontends/slot/slot-bootlogo.patch -> logo written to this
+#                                                          port's boot partition
 # Everything else (fbdev.rs display backend, launch.sh, cores) is reused as-is.
 set -eu
 
@@ -63,6 +66,7 @@ docker run --rm --network host --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
   -v "$OUT":/out \
   -v rg353ps-slot-cargo:/usr/local/cargo \
   -v rg353ps-slot-target:/cargo-target \
+  -v "$WORK/core-cache":/core-cache \
   -v "$SRC_HOST":/slot-up:ro \
   -v "$MGBA_HOST":/mgba-up:ro \
   -v "$GPSP_TARBALL_HOST":/gpsp.tar.gz:ro \
@@ -72,6 +76,8 @@ docker run --rm --network host --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     GPSP_REV="'"$GPSP_REV"'"
     export RUSTFLAGS="-C target-feature=-crt-static"
     export CARGO_HOME=/usr/local/cargo
+    # Unmodified cores are compiled once and kept here, keyed by revision.
+    CORE_CACHE=/core-cache
     # SLOT_TOOLCHAIN pins the compiler explicitly. Leave it empty to honour the
     # rust-toolchain.toml of the fork, which makes rustup download that channel.
     # Set it to e.g. 1.99.1-aarch64-unknown-linux-musl to build offline with the
@@ -91,7 +97,11 @@ docker run --rm --network host --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     # slot-rg353ps.patch: the DTS-specific button and axis mapping.
     # slot-analog.patch: sticks reach the cores (RetroCore::set_analog, ANALOG
     # input_state) and the stick clicks become bindable L3/R3 buttons.
-    for p in /slot-port/slot-rg353ps.patch /slot-port/slot-analog.patch; do
+    # slot-power.patch: KEY_POWER goes back to the frontend (it must apply
+    # after slot-rg353ps.patch, which removed the mapping), and doze() runs
+    # BASEOS_SLEEP so a tap still suspends the unit for real.
+    for p in /slot-port/slot-rg353ps.patch /slot-port/slot-analog.patch \
+             /slot-port/slot-power.patch /slot-port/slot-bootlogo.patch; do
       echo "applying $(basename "$p")"
       git -C "$SRC" apply --ignore-whitespace "$p"
     done
@@ -118,20 +128,50 @@ docker run --rm --network host --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     tar --exclude=.git -czf "$PKG/System/licenses/slot-rg353ps-$SLOT_REV-source.tar.gz" -C "$SRC" .
     "$PKG/System/slot" --init-root "$PKG"
 
-    # mGBA: host-fetched copy so build.sh skips network entirely.
-    rm -rf /tmp/mgba-work
-    mkdir -p /tmp/mgba-work
-    cp -r /mgba-up /tmp/mgba-work/mgba
-    sh cores/mgba/build.sh build "$MGBA_REV" /tmp/mgba-work "$PKG/System/mgba_libretro.so"
-    # mGBA is dynamically linked; include the patched corresponding source and metadata.
-    tar --exclude=.git -czf "$PKG/System/licenses/mgba-$MGBA_REV-source.tar.gz" -C /tmp/mgba-work/mgba .
+    # mGBA: host-fetched copy so build.sh skips network entirely. This port does
+    # not modify the core, so the compiled object, its metadata and the
+    # corresponding-source archive are cached on the host under the revision they
+    # were built from: a rebuild that only touched the slot sources copies them
+    # instead of spending minutes compiling the core again. Changing MGBA_REV misses
+    # the cache by construction; delete $CORE_CACHE to force a clean rebuild.
+    mkdir -p "$CORE_CACHE"
+    if [ -s "$CORE_CACHE/mgba-$MGBA_REV.so" ] &&
+       [ -s "$CORE_CACHE/mgba-$MGBA_REV.meta" ] &&
+       [ -s "$CORE_CACHE/mgba-$MGBA_REV-source.tar.gz" ]; then
+      echo "reusing cached mGBA core ($MGBA_REV)"
+      cp "$CORE_CACHE/mgba-$MGBA_REV.so" "$PKG/System/mgba_libretro.so"
+      cp "$CORE_CACHE/mgba-$MGBA_REV.meta" "$PKG/System/mgba_libretro.so.meta"
+      cp "$CORE_CACHE/mgba-$MGBA_REV-source.tar.gz" "$PKG/System/licenses/mgba-$MGBA_REV-source.tar.gz"
+    else
+      rm -rf /tmp/mgba-work
+      mkdir -p /tmp/mgba-work
+      cp -r /mgba-up /tmp/mgba-work/mgba
+      sh cores/mgba/build.sh build "$MGBA_REV" /tmp/mgba-work "$PKG/System/mgba_libretro.so"
+      # mGBA is dynamically linked; include the patched corresponding source and metadata.
+      tar --exclude=.git -czf "$PKG/System/licenses/mgba-$MGBA_REV-source.tar.gz" -C /tmp/mgba-work/mgba .
+      cp "$PKG/System/mgba_libretro.so" "$CORE_CACHE/mgba-$MGBA_REV.so"
+      cp "$PKG/System/mgba_libretro.so.meta" "$CORE_CACHE/mgba-$MGBA_REV.meta"
+      cp "$PKG/System/licenses/mgba-$MGBA_REV-source.tar.gz" "$CORE_CACHE/mgba-$MGBA_REV-source.tar.gz"
+    fi
 
-    # gpSP: host-fetched tarball, network-free.
+    # gpSP: host-fetched tarball, network-free, and cached the same way as mGBA.
     cp /gpsp.tar.gz /tmp/gpsp-src.tar.gz
     GPSP_TARBALL=/tmp/gpsp-src.tar.gz
-    sh cores/gpsp/build.sh build "$GPSP_REV" "$GPSP_TARBALL" /tmp/gpsp-work "$PKG/System/gpsp_libretro.so"
-    # Include the exact patched source tree corresponding to the output core.
-    tar --exclude=.git -czf "$PKG/System/licenses/gpsp-$GPSP_REV-source.tar.gz" -C "/tmp/gpsp-work/gpsp-$GPSP_REV" .
+    if [ -s "$CORE_CACHE/gpsp-$GPSP_REV.so" ] &&
+       [ -s "$CORE_CACHE/gpsp-$GPSP_REV.meta" ] &&
+       [ -s "$CORE_CACHE/gpsp-$GPSP_REV-source.tar.gz" ]; then
+      echo "reusing cached gpSP core ($GPSP_REV)"
+      cp "$CORE_CACHE/gpsp-$GPSP_REV.so" "$PKG/System/gpsp_libretro.so"
+      cp "$CORE_CACHE/gpsp-$GPSP_REV.meta" "$PKG/System/gpsp_libretro.so.meta"
+      cp "$CORE_CACHE/gpsp-$GPSP_REV-source.tar.gz" "$PKG/System/licenses/gpsp-$GPSP_REV-source.tar.gz"
+    else
+      sh cores/gpsp/build.sh build "$GPSP_REV" "$GPSP_TARBALL" /tmp/gpsp-work "$PKG/System/gpsp_libretro.so"
+      # Include the exact patched source tree corresponding to the output core.
+      tar --exclude=.git -czf "$PKG/System/licenses/gpsp-$GPSP_REV-source.tar.gz" -C "/tmp/gpsp-work/gpsp-$GPSP_REV" .
+      cp "$PKG/System/gpsp_libretro.so" "$CORE_CACHE/gpsp-$GPSP_REV.so"
+      cp "$PKG/System/gpsp_libretro.so.meta" "$CORE_CACHE/gpsp-$GPSP_REV.meta"
+      cp "$PKG/System/licenses/gpsp-$GPSP_REV-source.tar.gz" "$CORE_CACHE/gpsp-$GPSP_REV-source.tar.gz"
+    fi
 
     # Include source/provenance required for the GPL-licensed gpSP core and keep
     # both core build recipes and source patches with the distributable bundle.

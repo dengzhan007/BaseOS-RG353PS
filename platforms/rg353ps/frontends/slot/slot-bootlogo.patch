@@ -1,0 +1,86 @@
+diff --git a/crates/slot/src/bootlogo.rs b/crates/slot/src/bootlogo.rs
+index c053b7b..ee3dfdb 100644
+--- a/crates/slot/src/bootlogo.rs
++++ b/crates/slot/src/bootlogo.rs
+@@ -8,6 +8,10 @@ pub const USER_LOGO: &str = "Config/bootlogo.bmp";
+ const LOGO: &str = "bootlogo.bmp";
+ const ORIGINAL: &str = "bootlogo.baseos.bmp";
+ const PARTITION: &str = "boot-resource";
++/* A port may keep the boot-resource contract under its own name. The RG353PS
++   boots from a FAT volume called BASEOS_BOOT, and a logo written to a literal
++   boot-resource partition there would land where nothing reads it. */
++const PORT_PARTITION: &str = "BASEOS_BOOT";
+ const MOUNT: &str = "/tmp/slot-boot-resource";
+ 
+ #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+@@ -218,33 +222,58 @@ pub fn refresh(card: &Path) {
+     let Some(logo) = chosen(card) else {
+         return;
+     };
+-    let Some(device) = partition(PARTITION) else {
+-        eprintln!("slot: bootlogo: no {PARTITION} partition");
++    let Some(device) = partition(PARTITION).or_else(|| partition(PORT_PARTITION)) else {
++        eprintln!("slot: bootlogo: no {PARTITION} or {PORT_PARTITION} partition");
+         return;
+     };
+-    if fs::create_dir_all(MOUNT).is_err()
+-        || !run("mount", &["-t", "vfat", "-o", "ro,noatime", &device, MOUNT])
+-    {
+-        eprintln!("slot: bootlogo: could not mount {device}");
+-        return;
+-    }
+-    match pending(&logo, Path::new(MOUNT)) {
++    /* A port whose init reads the logo from this partition keeps it mounted for
++       the whole boot, and vfat refuses to mount one device twice. Work in the
++       mount point that already exists instead of failing with EBUSY. */
++    let existing = mounted_at(&device);
++    let dir = match &existing {
++        Some(path) => PathBuf::from(path),
++        None => {
++            if fs::create_dir_all(MOUNT).is_err()
++                || !run("mount", &["-t", "vfat", "-o", "ro,noatime", &device, MOUNT])
++            {
++                eprintln!("slot: bootlogo: could not mount {device}");
++                return;
++            }
++            PathBuf::from(MOUNT)
++        }
++    };
++    match pending(&logo, &dir) {
+         Some(Outcome::Invalid) => eprintln!("slot: bootlogo: no logo fits this panel, left alone"),
+         Some(_) => {}
+-        None if !run("mount", &["-o", "remount,rw,noatime", MOUNT]) => {
++        None if existing.is_none() && !run("mount", &["-o", "remount,rw,noatime", MOUNT]) => {
+             eprintln!("slot: bootlogo: could not remount {device} to write the logo")
+         }
+-        None => match install(&logo, Path::new(MOUNT)) {
++        None => match install(&logo, &dir) {
+             Ok(Outcome::Installed) => eprintln!("slot: bootlogo: installed"),
+             Ok(_) => {}
+             Err(e) => eprintln!("slot: bootlogo: {e}"),
+         },
+     }
+-    if !run("umount", &[MOUNT]) {
++    if existing.is_none() && !run("umount", &[MOUNT]) {
+         eprintln!("slot: bootlogo: could not unmount {MOUNT}");
+     }
+ }
+ 
++/* Where /proc/mounts says this device is mounted, if it is mounted at all. The
++   paths the kernel prints there are escaped for whitespace; partition device
++   names never contain any, so a plain comparison is safe. */
++fn mounted_at(device: &str) -> Option<String> {
++    let mounts = fs::read_to_string("/proc/mounts").ok()?;
++    for line in mounts.lines() {
++        let mut fields = line.split_whitespace();
++        if fields.next() != Some(device) {
++            continue;
++        }
++        return fields.next().map(str::to_string);
++    }
++    None
++}
++
+ fn partition(name: &str) -> Option<String> {
+     for entry in fs::read_dir("/sys/class/block").ok()?.flatten() {
+         let uevent = fs::read_to_string(entry.path().join("uevent")).unwrap_or_default();

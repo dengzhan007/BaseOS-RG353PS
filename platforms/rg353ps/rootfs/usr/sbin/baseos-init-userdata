@@ -92,44 +92,6 @@ find_partition_number() {
 
 mkdir -p "$USERDATA"
 
-# The boot logo lives on the data partition so the owner can replace it without
-# rebuilding. fbsplash reads /mnt/SDCARD/bootlogos/bootlogo.bmp after the data
-# partition is mounted. Seed it once; never overwrite an existing file, so a
-# user-supplied logo survives every reboot and every system update.
-ensure_bootlogo() {
-  [ -d "$USERDATA" ] || return 0
-  # The folder was renamed from "bootlogo" to "bootlogos". Move an existing one
-  # across so a card that already carries a logo ends up with one folder rather
-  # than two. This has to happen before the mkdir below, which would otherwise
-  # create bootlogos and make the move look unnecessary. fbsplash still reads the
-  # old path as a fallback, so a failed move is not fatal.
-  if [ -d "$USERDATA/bootlogo" ] && [ ! -d "$USERDATA/bootlogos" ]; then
-    if mv "$USERDATA/bootlogo" "$USERDATA/bootlogos" 2>/dev/null; then
-      sync
-      log "moved $USERDATA/bootlogo to $USERDATA/bootlogos"
-    else
-      log "could not move $USERDATA/bootlogo to $USERDATA/bootlogos"
-    fi
-  fi
-  mkdir -p "$USERDATA/bootlogos" 2>/dev/null || return 0
-
-  # The format notes are restored even when a logo is already in place: whoever
-  # deleted them is the person who will need them next.
-  if [ ! -s "$USERDATA/bootlogos/README.txt" ] && [ -s /etc/baseos/bootlogo-README.txt ]; then
-    cp /etc/baseos/bootlogo-README.txt "$USERDATA/bootlogos/README.txt" 2>/dev/null || :
-  fi
-
-  [ -s "$USERDATA/bootlogos/bootlogo.bmp" ] && return 0
-  [ -s /etc/baseos/bootlogo.bmp ] || return 0
-  if cp /etc/baseos/bootlogo.bmp "$USERDATA/bootlogos/bootlogo.bmp" 2>/dev/null; then
-    sync
-    log "seeded boot logo at $USERDATA/bootlogos/bootlogo.bmp"
-  else
-    log "could not seed the boot logo into $USERDATA/bootlogos"
-  fi
-  return 0
-}
-
 # The settings file has to be reachable from a PC, and BASEOS_BOOT - where the
 # image ships one - is deliberately hidden from file browsers. So the visible
 # data volume gets a copy of its own, next to Games/ and Saves/. Every reader
@@ -194,7 +156,6 @@ if is_mounted "$USERDATA"; then
     fi
   fi
   log "$USERDATA already mounted"
-  ensure_bootlogo
   ensure_card_config
   exit 0
 fi
@@ -402,7 +363,6 @@ fi
 
 mkdir -p "$USERDATA/.baseos" "$USERDATA/Games" "$USERDATA/BIOS" \
   "$USERDATA/Saves" "$USERDATA/States" "$USERDATA/System" 2>/dev/null || :
-ensure_bootlogo
 ensure_card_config
 if [ ! -e "$MARKER" ]; then
   if printf 'version=1\npartition=%s\nfilesystem=%s\n' "$DATA_DEV" "$FS_TYPE" > "$MARKER"; then

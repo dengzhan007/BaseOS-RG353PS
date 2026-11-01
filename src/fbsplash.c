@@ -601,19 +601,16 @@ static void rotate_blit(uint8_t *fb, const struct fb_var_screeninfo *pv,
 
 // --- optional user-supplied BMP boot logo ---------------------------------
 //
-// Shared Linux-side path. U-Boot support is configured separately; Linux can
-// display this file after BASEOS_DATA has been mounted. Accept only the simple
-// uncompressed 24-bit BMP3 format so malformed files cannot stall early boot.
-#define CUSTOM_SPLASH_PATH "/mnt/SDCARD/bootlogos/bootlogo.bmp"
-// Location used before the folder was pluralised. Read it back so a logo that
-// is already on a card keeps showing after the move; the seeder only writes the
-// new one, so this costs one access() on cards that never had the old folder.
-#define LEGACY_SPLASH_PATH "/mnt/SDCARD/bootlogo/bootlogo.bmp"
+// The logo is a file on BASEOS_BOOT, the FAT volume that also carries the
+// kernel: it is where the frontend can write to change the boot artwork, and it
+// is the partition an update never touches, so a logo survives a system update
+// exactly as it does upstream. There is deliberately no copy on the data
+// partition. Accept only the simple uncompressed 24-bit BMP3 format so
+// malformed files cannot stall early boot.
+#define CUSTOM_SPLASH_PATH "/mnt/boot/bootlogo.bmp"
 static const char *custom_splash_path(void) {
 	if (access(CUSTOM_SPLASH_PATH, R_OK) == 0)
 		return CUSTOM_SPLASH_PATH;
-	if (access(LEGACY_SPLASH_PATH, R_OK) == 0)
-		return LEGACY_SPLASH_PATH;
 	return NULL;
 }
 static uint32_t bmp_le32(const uint8_t *p) {

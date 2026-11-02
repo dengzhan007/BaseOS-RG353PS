@@ -192,6 +192,29 @@ The generated combined bootloader follows ROCKNIX's layout helper:
 The script also saves the FIT and checksum/metadata alongside the combined
 bootloader under `work/rg353ps/`.
 
+Those two LBAs are **offsets inside `rg353ps-uboot.bin`**, not absolute card
+sectors. `build-image.sh` writes that file at absolute LBA 64, so on the card
+the idbloader lands at LBA 64 and the FIT at LBA 16384 — the start of the
+`BASEOS_UBOOT` partition. The file is 9,991,680 bytes (16320 sectors of
+idbloader region, then the FIT). It is **not** the 8 MiB `BASEOS_UBOOT`
+partition image: that one begins with the FIT (`d0 0d fe ed`) and has no
+idbloader, so writing it at LBA 64 produces a card that does not boot. Check
+the first four bytes: `RKNS` is correct, `d00dfeed` means the wrong file.
+
+### The SD clock patch is not optional
+
+`patches/0008-clk-rk3568-sdmmc-internal-divider.patch` must stay in the
+platform patch set. Without it the RK3568 dw_mmc still halves its input clock
+(the driver maps the request straight onto the CRU, where px30/rk3308/rk3328/
+rk3399 double it), so a 50 MHz request runs the card at 25 MHz: the kernel read
+drops from ~24.6 MB/s to ~11.2 MB/s and `before Linux` goes 2.55 s → 3.55 s,
+about 1.0 s of boot. `mmc info` reports 50 MHz either way, so the regression is
+invisible there.
+
+`.bosupd` never carries U-Boot — it only writes the boot and rootfs partitions
+— so a U-Boot change has to be flashed separately, and it cannot be rolled back
+over SSH.
+
 ## Build a first-boot SD smoke image
 
 The scripts are deliberately separated from the Miyoo Flip build. From the

@@ -68,8 +68,14 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
   -e UBOOT_VERSION="$UBOOT_VERSION" \
   -e UBOOT_DEFCONFIG="$UBOOT_DEFCONFIG" \
   -e PATCH_SHA="$PATCH_SHA" \
+  -e DEBIAN_MIRROR="${DEBIAN_MIRROR:-}" \
   debian:bookworm-slim sh -euc '
     export DEBIAN_FRONTEND=noninteractive
+    if [ -n "${DEBIAN_MIRROR:-}" ]; then
+      sed -i "s#http://deb.debian.org/debian#${DEBIAN_MIRROR}#g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+      sed -i "s#http://deb.debian.org/debian#${DEBIAN_MIRROR}#g" /etc/apt/sources.list 2>/dev/null
+      echo "debian apt repositories now use mirror: ${DEBIAN_MIRROR}"
+    fi
     apt-get -qq update
     apt-get -qq install -y --no-install-recommends \
       build-essential bc bison flex libssl-dev patch python3 python3-dev \

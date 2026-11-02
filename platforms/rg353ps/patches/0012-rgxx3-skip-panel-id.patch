@@ -1,0 +1,63 @@
+Skip the RG353 panel detection, whose result nothing consumes.
+
+board_late_init costs 235 ms on the RG353PS and it is all
+rgxx3_detect_display(): the VO power domain, the panel reset release, the DSI
+host probe, the DSI attach and a DCS read of the panel ID. None of that is used
+for output - U-Boot hands over a black screen by design (0007) - and the ID's
+only consumer would be a boot script patching the DT with ${panel}, which this
+platform does not have: extlinux.conf and the kernel command line never mention
+it.
+
+Keep the power domain write (mainline A-TF leaves the VO domain to us; 0001)
+and stop there. The kernel probes and initialises the panel itself.
+
+Measured on the device: stopping after the DSI attach, which skips only the DCS
+read, changed nothing at all (1.891 s before Linux, main_loop still at 354 ms),
+so the cost is the bring-up rather than the read.
+
+Note for later: this does not change which panels work. The shipped DTB names
+anbernic,rg353p-panel, so a unit with the other panel (0x3821) is unsupported
+today and was before. Supporting both means using the ID - e.g. patching the DT
+in ft_board_setup() - and that would have to pay this cost again.
+
+diff --git a/boot/Kconfig b/boot/Kconfig
+--- a/boot/Kconfig
++++ b/boot/Kconfig
+@@ -1309,6 +1309,16 @@
+ 
+ 	  Diagnostic builds only: this costs a timer read per initcall and
+ 	  needs CONFIG_BOOTSTAGE_RECORD_COUNT raised to fit the sequence.
++
++config RGXX3_SKIP_PANEL_ID
++	bool "Skip the RG353 panel detection in board_late_init"
++	help
++	  The Anbernic 353 series shipped two panels and U-Boot reads the panel
++	  ID over DSI to tell them apart, then puts the matching compatible in
++	  the environment for the boot script to patch the device tree with.
++	  Without that script the value is unused and the read costs ~200 ms.
++	  Keeps the VO power domain, the reset release and the DSI attach, so
++	  the panel is still initialised for scan-out.
+ 
+ config BOOTSTAGE_STASH
+ 	bool "Stash the boot timing information in memory before booting OS"
+diff --git a/board/anbernic/rgxx3_rk3566/rgxx3-rk3566.c b/board/anbernic/rgxx3_rk3566/rgxx3-rk3566.c
+--- a/board/anbernic/rgxx3_rk3566/rgxx3-rk3566.c
++++ b/board/anbernic/rgxx3_rk3566/rgxx3-rk3566.c
+@@ -324,6 +324,17 @@
+ 	 */
+ 	wmb();
+ 
++	if (IS_ENABLED(CONFIG_RGXX3_SKIP_PANEL_ID)) {
++		/*
++		 * The panel ID only picks a compatible string for a boot script to
++		 * patch the DT with, and this platform has no such script, so all of
++		 * this is dead weight: the DSI bring-up alone is ~235 ms of
++		 * board_late_init. Keep the power domain write above - mainline A-TF
++		 * does not do it - and leave the panel initialisation to the kernel.
++		 */
++		return 0;
++	}
++
+ 	/*
+ 	 * Take panel out of reset status.
+ 	 * Set GPIO4_A0 to output.

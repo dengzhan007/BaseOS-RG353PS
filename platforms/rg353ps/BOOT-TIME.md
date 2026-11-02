@@ -92,7 +92,7 @@ precedes each mark:
 
 | call | ms | note |
 |---|---|---|
-| `board_late_init` | **234.8** | `rgxx3_detect_display()`: DSI PHY + panel probe + a DCS read of the panel ID |
+| `board_late_init` | **234.8** | split further below — 200.1 of it is one `mdelay` |
 | `initr_dm` | 39.2 | bind and probe 37 devices |
 | `initr_malloc` | 20.7 | |
 | `power_init_board` | 16.1 | regulator init over I2C |
@@ -100,16 +100,37 @@ precedes each mark:
 | pre-relocation sequence (68 calls) | 24.0 | measured from the `board_init_f` mark to the first `board_r` call |
 | everything else | ~13 | `initr_env` 1.4, `initr_reloc` 0.9, the remaining 33 under 1 ms |
 
-The panel detection is the only large item, and **nothing consumes its
-result**: it ends in `env_set("panel", …)`, and neither `extlinux.conf` nor
-the kernel command line references `${panel}` (checked on the device: 0
-occurrences). It exists because the 353 series shipped two different panels
-and the boot script used to patch the DT with the detected one; this platform
-ships a single DTB and the kernel probes the panel itself.
+`board_late_init` itself is one call, so patch `0013` adds marks inside
+`rk_board_late_init()` under the same switch. Measured the same way:
 
-`startup_buzz()` is *not* the cost, despite its `mdelay(200)`: it returns
-immediately because the PWM node it looks for (`pwm@fe6e0010`) is not in this
-board's device tree.
+| step | ms | note |
+|---|---|---|
+| `setup_boot_mode()` | 0.2 | the ADC download-key probe is not the cost |
+| `set_gd_value()`, three `env_set()` | 0.0 | |
+| `rgxx3_detect_display()` | **34.5** | DSI host probe, DSI attach, DCS read of the panel ID |
+| LED writes | 0.0 | |
+| `startup_buzz()` | **200.1** | `pwm_set_enable`, `mdelay(200)`, `pwm_set_enable` |
+
+Two corrections to what this document said before the marks existed:
+
+- The panel detection is 34.5 ms, not 235 ms. It is still dead weight —
+  **nothing consumes its result**: it ends in `env_set("panel", …)`, and
+  neither `extlinux.conf` nor the kernel command line references `${panel}`
+  (0 occurrences on the device). It exists because the 353 series shipped two
+  panels and the boot script used to patch the DT with the detected one; this
+  platform ships a single DTB and the kernel probes the panel itself.
+- `startup_buzz()` **does** run, and it is the 200 ms. It finds the PWM
+  (`pwm@fe6e0010`) even though that node reads `status = "disabled"` in the
+  preprocessed device tree, so the earlier claim that it returns early was
+  wrong. The delay is deliberate — it is how long the chime needs to be
+  audible.
+
+Both are now switchable: `CONFIG_RGXX3_SKIP_PANEL_ID` (0012) and
+`CONFIG_RGXX3_SKIP_STARTUP_BUZZ` (0014), both on in `uboot.config`.
+
+Result, three warm reboots: `before Linux` **1.891 → 1.654 / 1.655 / 1.655 s**,
+`total` 4.09–4.26 → **3.75–3.92 s**. The chime is gone unless
+`CONFIG_RGXX3_SKIP_STARTUP_BUZZ` is deleted from `uboot.config`.
 
 Note the diagnostic build costs ~40 ms of its own (1.890 → 1.930 s): every
 mark is a DM timer read plus `show_boot_progress()`, and there are 45 of them.

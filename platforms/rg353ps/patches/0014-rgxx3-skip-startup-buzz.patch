@@ -1,0 +1,46 @@
+Skip the 200 ms startup chime delay in U-Boot.
+
+startup_buzz() enables the PWM channel, waits a fixed 200 ms so the chime is
+audible, then disables it. Instrumented on the device it accounts for 200.1 ms
+of board_late_init - the single largest item left in the pre-kernel stage after
+the panel detection (0012, 34.5 ms measured the same way).
+
+Opt-in so the chime can be brought back with one line in uboot.config.
+
+diff --git a/boot/Kconfig b/boot/Kconfig
+--- a/boot/Kconfig
++++ b/boot/Kconfig
+@@ -1319,6 +1319,14 @@
+ 	  Without that script the value is unused and the read costs ~200 ms.
+ 	  Keeps the VO power domain, the reset release and the DSI attach, so
+ 	  the panel is still initialised for scan-out.
++
++config RGXX3_SKIP_STARTUP_BUZZ
++	bool "Skip the U-Boot startup chime delay"
++	help
++	  startup_buzz() enables the PWM channel, sleeps a fixed 200 ms so the
++	  chime is audible, then disables it again. That delay is the largest
++	  single item in the pre-kernel stage on the RG353PS: 200.1 ms,
++	  measured with the bootstage marks from 0013.
+ 
+ config BOOTSTAGE_STASH
+ 	bool "Stash the boot timing information in memory before booting OS"
+diff --git a/board/anbernic/rgxx3_rk3566/rgxx3-rk3566.c b/board/anbernic/rgxx3_rk3566/rgxx3-rk3566.c
+--- a/board/anbernic/rgxx3_rk3566/rgxx3-rk3566.c
++++ b/board/anbernic/rgxx3_rk3566/rgxx3-rk3566.c
+@@ -232,6 +232,15 @@
+ 	if (!IS_ENABLED(CONFIG_DM_PWM))
+ 		return;
+ 
++	if (IS_ENABLED(CONFIG_RGXX3_SKIP_STARTUP_BUZZ)) {
++		/*
++		 * The 200 ms below is a fixed delay for a chime, measured as
++		 * 200.1 ms of board_late_init on the RG353PS (bootstage marks
++		 * "late:led+buzz" -> "late:return").
++		 */
++		return;
++	}
++
+ 	/* Probe the PWM controller. */
+ 	err = uclass_get_device_by_name(UCLASS_PWM,
+ 					"pwm@fe6e0010", &dev);

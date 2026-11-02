@@ -1,0 +1,77 @@
+Mark the steps inside rk_board_late_init when bootstage timing is on.
+
+board_late_init costs 235 ms on the RG353PS, and neither the panel detection
+(0012, skipping it saved 35 ms) nor the initcall split can say which step owns
+the rest. These marks only exist with CONFIG_BASEOS_INITCALL_TIMING, which is
+the diagnostic build switch from 0011.
+
+diff --git a/board/anbernic/rgxx3_rk3566/rgxx3-rk3566.c b/board/anbernic/rgxx3_rk3566/rgxx3-rk3566.c
+--- a/board/anbernic/rgxx3_rk3566/rgxx3-rk3566.c
++++ b/board/anbernic/rgxx3_rk3566/rgxx3-rk3566.c
+@@ -3,6 +3,9 @@
+  * Copyright (c) 2023 Chris Morgan <macromorgan@hotmail.com>
+  */
+ 
++#ifdef CONFIG_BASEOS_INITCALL_TIMING
++#include <bootstage.h>
++#endif
+ #include <abuf.h>
+ #include <adc.h>
+ #include <asm/io.h>
+@@ -544,6 +547,12 @@
+ {
+ 	int ret;
+ 
++#ifdef CONFIG_BASEOS_INITCALL_TIMING
++	bootstage_mark_name(BOOTSTAGE_ID_ALLOC, "late:enter");
++#endif
++#ifdef CONFIG_BASEOS_INITCALL_TIMING
++	bootstage_mark_name(BOOTSTAGE_ID_ALLOC, "late:set_gd_value");
++#endif
+ 	ret = set_gd_value();
+ 	if (ret) {
+ 		printf("Unable to auto-detect device\n");
+@@ -560,6 +569,9 @@
+ 			gd->board_type = ret;
+ 	}
+ 
++#ifdef CONFIG_BASEOS_INITCALL_TIMING
++	bootstage_mark_name(BOOTSTAGE_ID_ALLOC, "late:env_set");
++#endif
+ 	env_set("board", rg3xx_model_details[gd->board_type].board);
+ 	env_set("board_name",
+ 		rg3xx_model_details[gd->board_type].board_name);
+@@ -569,6 +581,9 @@
+ 	 * Skip panel detection if not needed. Warn but don't fail for
+ 	 * errors in auto-detection of the panel.
+ 	 */
++#ifdef CONFIG_BASEOS_INITCALL_TIMING
++	bootstage_mark_name(BOOTSTAGE_ID_ALLOC, "late:detect_panel");
++#endif
+ 	if (rg3xx_model_details[gd->board_type].detect_panel) {
+ 		ret = rgxx3_detect_display();
+ 		if (ret)
+@@ -579,6 +594,9 @@
+ 	 * Skip vdd_cpu regulator detection if not needed. Warn but
+ 	 * don't fail for errors in auto-detection of regulator.
+ 	 */
++#ifdef CONFIG_BASEOS_INITCALL_TIMING
++	bootstage_mark_name(BOOTSTAGE_ID_ALLOC, "late:detect_regulator");
++#endif
+ 	if (rg3xx_model_details[gd->board_type].detect_regulator) {
+ 		ret = rgxx3_detect_regulator();
+ 		if (ret)
+@@ -590,7 +608,13 @@
+ 	writel(GPIO_WRITEMASK(GPIO_C7 | GPIO_C6 | GPIO_C5) | GPIO_C6,
+ 	       (GPIO0_BASE + GPIO_SWPORT_DR_H));
+ 
++#ifdef CONFIG_BASEOS_INITCALL_TIMING
++	bootstage_mark_name(BOOTSTAGE_ID_ALLOC, "late:led+buzz");
++#endif
+ 	startup_buzz();
++#ifdef CONFIG_BASEOS_INITCALL_TIMING
++	bootstage_mark_name(BOOTSTAGE_ID_ALLOC, "late:return");
++#endif
+ 
+ 	return 0;
+ }

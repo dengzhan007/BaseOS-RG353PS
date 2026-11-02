@@ -132,6 +132,11 @@ Result, three warm reboots: `before Linux` **1.891 → 1.654 / 1.655 / 1.655 s**
 `total` 4.09–4.26 → **3.75–3.92 s**. The chime is gone unless
 `CONFIG_RGXX3_SKIP_STARTUP_BUZZ` is deleted from `uboot.config`.
 
+In userspace the boot logo now goes up at `rcS` 1.50 s (absolute ≈ 3.16 s)
+instead of after the 400 ms key sample at ~1.9 s: `storage mounted` 1.41 →
+`boot logo drawn` 1.50 in `/run/boot-marks`. It is drawn twice only if the
+first attempt failed.
+
 Note the diagnostic build costs ~40 ms of its own (1.890 → 1.930 s): every
 mark is a DM timer read plus `show_boot_progress()`, and there are 45 of them.
 

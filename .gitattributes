@@ -17,6 +17,10 @@ platforms/*/*.sh text eol=lf
 # `git apply`: a CR on a context line turns every hunk into a mismatch.
 platforms/*/frontends/*/*.sh text eol=lf
 platforms/*/frontends/*/*.patch text eol=lf
+# The U-Boot and kernel patch sets are fed to `patch -p1` from
+# build-uboot.sh and build-kernel.sh. A CR on a context line turns every hunk
+# into a mismatch, and with `set -eu` the build stops at the first one.
+platforms/*/patches/*.patch text eol=lf
 
 # Kconfig fragments and other build inputs are parsed line by line by tools that
 # do not trim CR, so a "0\r" would quietly not be a 0. The kernel config is the

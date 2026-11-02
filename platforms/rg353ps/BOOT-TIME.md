@@ -80,8 +80,49 @@ bootstage, stable to 1 ms across the three boots:
 | Raw FIT at a fixed sector, no scan and no filesystem (`mmc read` + `bootm`) | ~0.3 s of the 0.35 s load overhead | medium: touches build-image and the update path |
 | U-Boot control tree / `blkcache` for the GPT walk | ~0.1 s | low |
 | Kernel compression | 0.06–0.26 s net | not worth it: changes the image format and A/B layout |
-| `initcall_blacklist` or, better, unused drivers off in the kernel config | to be measured | low; we build the kernel, unlike upstream |
+| `initcall_blacklist` / kernel config trimming | only ~108 ms — measured below, no single expensive initcall | low |
 
 Compression and the 1800 MHz decompression path are dead ends here: the read
 already runs at 24.6 MB/s, so shrinking the payload buys ~0.56 s while the
 decode costs 0.3–0.5 s.
+
+## Kernel init, attributed
+
+One boot with `initcall_debug loglevel=7 log_buf_len=8M` appended to
+`APPEND` in `/mnt/boot/extlinux/extlinux.conf` (restore the file afterwards;
+`initcall_debug` output is KERN_DEBUG, so `loglevel=3` would hide it). 828
+initcalls; the kernel reaches userspace at ~1.05 s.
+
+Kernel phase (initcalls finishing before userspace), total **635 ms**:
+
+| initcall | ms | note |
+|---|---|---|
+| `rk3x_i2c_driver_init` | **134** | upstream measured 146 ms and kept it: the PMIC and muic buses live here |
+| `cma_init_reserved_areas` | **92** | `CONFIG_CMA_SIZE_MBYTES=128` |
+| `jent_mod_init` | **70** | jitterentropy startup self-test |
+| `of_platform_default_populate_init` | 48 | structural |
+| `clk_debug_init` | 38 | debugfs clock summary, pure diagnostic |
+| `rk817_charger_driver_init` | 25 | |
+| `param_sysfs_builtin_init` | 16 | |
+| `chr_dev_init` / `slab_late_init` / `rockchip_drm_init` | 13 / 11 / 10 | |
+
+rcS phase — module loads, **already backgrounded** in `rcS` (`( … ) &`), so
+they are off the critical path but still compete for CPU and I/O. They explain
+most of the ±0.1 s spread in `Linux to menu`:
+
+| initcall | ms |
+|---|---|
+| `deferred_probe_initcall` | **447** |
+| `rtw_8821cs_driver_init` | **144** |
+| `panfrost_driver_init` | 6 |
+
+What this rules out: there is no 300 ms initcall waiting to be blacklisted.
+The kernel's 1.05 s is spread across 828 of them plus 0.20 s of fbcon
+(`Console: switching to colour frame buffer device`) and 0.17 s of SD tuning.
+The only cheap kernel-side wins are ~108 ms: `CONFIG_CRYPTO_JITTERENTROPY`
+(70 ms — but check that crng init does not regress) and the debugfs clock
+summary (38 ms). Shrinking CMA trades GPU/video headroom for ~50 ms.
+
+So the remaining fat is in U-Boot, not the kernel: 302 ms of post-relocation
+init and ~0.36 s of scan/FAT overhead in the load segment.
+

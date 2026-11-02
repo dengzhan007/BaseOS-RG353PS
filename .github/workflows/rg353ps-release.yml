@@ -1,0 +1,127 @@
+name: RG353PS release build
+
+# Produces the two artifacts a user actually needs:
+#   baseos-rg353ps-<version>.img.gz   complete card image, for a new SD card
+#   baseos-rg353ps-<version>.bosupd   update payload, for a card already running
+# The bring-up workflow deliberately stops at the smoke image; this one also
+# runs build-update.sh and keeps the checksums next to the binaries.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag to attach the artifacts to (leave empty to keep them as workflow artifacts only)"
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rg353ps-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          version="$(tr -d ' \n' < VERSION)"
+          [ -n "$version" ] || { echo "VERSION is empty" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building BaseOS RG353PS $version"
+
+      - name: Enable ARM64 container emulation
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Check shell syntax
+        run: |
+          sh -n tools/common.sh
+          sh -n platforms/rg353ps/build-uboot.sh
+          sh -n platforms/rg353ps/build-firmware.sh
+          sh -n platforms/rg353ps/build-kernel.sh
+          sh -n platforms/rg353ps/build-rootfs.sh
+          sh -n platforms/rg353ps/build-image.sh
+          sh -n platforms/rg353ps/build-update.sh
+          sh -n platforms/rg353ps/rootfs/etc/init.d/rcS
+
+      - name: Build RG353PS U-Boot
+        run: ./platforms/rg353ps/build-uboot.sh
+
+      - name: Collect RTL8821CS firmware
+        run: ./platforms/rg353ps/build-firmware.sh
+
+      - name: Build RG353PS Linux kernel, DTB and modules
+        run: ./platforms/rg353ps/build-kernel.sh
+
+      - name: Build diagnostic rootfs and evdev UI
+        run: ./platforms/rg353ps/build-rootfs.sh
+
+      - name: Assemble SD card image
+        run: ./platforms/rg353ps/build-image.sh
+
+      - name: Build .bosupd update payload
+        run: ./platforms/rg353ps/build-update.sh
+
+      - name: Stage release files
+        id: stage
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          work=work/rg353ps
+          out=work/release
+          mkdir -p "$out"
+          cp "$work/baseos-rg353ps-smoke.img.gz" "$out/baseos-rg353ps-$version.img.gz"
+          cp "$work/baseos-rg353ps-$version.bosupd" "$out/baseos-rg353ps-$version.bosupd"
+          # One checksum file for both deliverables, relative to the download
+          # directory so it stays valid wherever the user unpacks it.
+          ( cd "$out" && sha256sum "baseos-rg353ps-$version.img.gz" "baseos-rg353ps-$version.bosupd" > "baseos-rg353ps-$version.sha256" )
+          {
+            echo "version: $version"
+            echo "commit: ${{ github.sha }}"
+            echo "ref: ${{ github.ref_name }}"
+            echo "kernel: $(python3 -c 'import json;print(json.load(open("work/rg353ps/kernel/output/kernel-build.json"))["kernel_release"])')"
+            echo "built: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > "$out/baseos-rg353ps-$version.build.txt"
+          ls -l "$out"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseos-rg353ps-${{ steps.version.outputs.version }}
+          if-no-files-found: error
+          retention-days: 30
+          path: |
+            work/release/baseos-rg353ps-${{ steps.version.outputs.version }}.img.gz
+            work/release/baseos-rg353ps-${{ steps.version.outputs.version }}.bosupd
+            work/release/baseos-rg353ps-${{ steps.version.outputs.version }}.sha256
+            work/release/baseos-rg353ps-${{ steps.version.outputs.version }}.build.txt
+
+      - name: Attach artifacts to a release
+        if: ${{ inputs.release_tag != '' || startsWith(github.ref, 'refs/tags/v') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          if [ -n "${{ inputs.release_tag }}" ]; then tag="${{ inputs.release_tag }}"; else tag="${GITHUB_REF_NAME}"; fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" work/release/* --clobber
+          else
+            gh release create "$tag" work/release/* \
+              --title "BaseOS RG353PS $version" \
+              --notes "Complete image and .bosupd update payload for $version." \
+              --verify-tag 2>/dev/null || \
+            gh release create "$tag" work/release/* \
+              --title "BaseOS RG353PS $version" \
+              --notes "Complete image and .bosupd update payload for $version."
+          fi

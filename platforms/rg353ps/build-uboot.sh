@@ -72,9 +72,14 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
   debian:bookworm-slim sh -euc '
     export DEBIAN_FRONTEND=noninteractive
     if [ -n "${DEBIAN_MIRROR:-}" ]; then
-      sed -i "s#http://deb.debian.org/debian#${DEBIAN_MIRROR}#g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
-      sed -i "s#http://deb.debian.org/debian#${DEBIAN_MIRROR}#g" /etc/apt/sources.list 2>/dev/null
-      echo "debian apt repositories now use mirror: ${DEBIAN_MIRROR}"
+      MIRROR="$DEBIAN_MIRROR"
+      # No CA bundle in the slim image: an https mirror fails peer verification
+      # before ca-certificates can be installed. Use http for the index fetch;
+      # package signatures are still checked.
+      [ -e /etc/ssl/certs/ca-certificates.crt ] || MIRROR=$(echo "$MIRROR" | sed "s#^https://#http://#")
+      sed -i "s#http://deb.debian.org/debian#${MIRROR}#g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+      sed -i "s#http://deb.debian.org/debian#${MIRROR}#g" /etc/apt/sources.list 2>/dev/null
+      echo "debian apt repositories now use mirror: ${MIRROR}"
     fi
     apt-get -qq update
     apt-get -qq install -y --no-install-recommends \

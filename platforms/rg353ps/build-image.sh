@@ -59,15 +59,29 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
   -e ROOT_PARTUUID="$ROOT_PARTUUID" \
   -e DEBIAN_MIRROR="${DEBIAN_MIRROR:-}" \
   debian:bookworm-slim sh -euc '
+    # Step clock. The image build is I/O and CPU spread over a container, and
+    # when it drifts the question is always "which step"; a timestamp per phase
+    # answers it without a profiler.
+    T0=$(date +%s)
+    ts() { echo "  [$(date +%H:%M:%S) +$(( $(date +%s) - T0 ))s] $*"; }
+    ts "container start"
     export DEBIAN_FRONTEND=noninteractive
     if [ -n "${DEBIAN_MIRROR:-}" ]; then
-      sed -i "s#http://deb.debian.org/debian#${DEBIAN_MIRROR}#g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
-      sed -i "s#http://deb.debian.org/debian#${DEBIAN_MIRROR}#g" /etc/apt/sources.list 2>/dev/null
-      echo "debian apt repositories now use mirror: ${DEBIAN_MIRROR}"
+      MIRROR="$DEBIAN_MIRROR"
+      # The slim image ships no CA bundle, so an https mirror fails peer
+      # verification before ca-certificates could ever be installed. Fall back
+      # to http for the index fetch; apt still verifies package signatures, so
+      # this does not weaken what gets installed.
+      [ -e /etc/ssl/certs/ca-certificates.crt ] || MIRROR=$(echo "$MIRROR" | sed "s#^https://#http://#")
+      sed -i "s#http://deb.debian.org/debian#${MIRROR}#g" /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+      sed -i "s#http://deb.debian.org/debian#${MIRROR}#g" /etc/apt/sources.list 2>/dev/null
+      echo "debian apt repositories now use mirror: ${MIRROR}"
     fi
+    ts "apt update start"
     apt-get -qq update
     apt-get -qq install -y --no-install-recommends \
       gdisk dosfstools mtools e2fsprogs coreutils gzip util-linux
+    ts "apt done"
 
     IMG=/work/baseos-rg353ps-smoke.img
     BOOTFS=/work/boot-fat.img
@@ -131,6 +145,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
     ROOT_BYTES=$(( (ROOT_END - ROOT_START + 1) * 512 ))
 
     # FAT boot partition follows the ROCKNIX Generic extlinux layout.
+    ts "boot vfat start"
     truncate -s "$BOOT_BYTES" "$BOOTFS"
     mkfs.vfat -F 32 -n BASEOS_BOOT "$BOOTFS"
     mmd -i "$BOOTFS" ::/extlinux
@@ -167,16 +182,27 @@ EOF
     # single 4 KiB reads when it does replay, so the size is what a dirty mount
     # would cost: 16 MiB of default journal was 2.8 s.
     truncate -s "$ROOT_BYTES" "$ROOTFS_IMG"
+    ts "rootfs ext4 start"
     mkfs.ext4 -F -L BASEOS_ROOT -J size=4 -d /work/rootfs "$ROOTFS_IMG"
+    ts "rootfs ext4 done"
 
     # The combined bootloader is a raw region, never a full disk image. Place it
     # at LBA 64, then write filesystems into their GPT partition extents.
-    dd if=/work/rg353ps-uboot.bin of="$IMG" bs=512 seek=64 \
-      conv=notrunc,fsync status=none
-    dd if="$BOOTFS" of="$IMG" bs=512 seek="$BOOT_START" \
-      conv=notrunc,fsync status=none
-    dd if="$ROOTFS_IMG" of="$IMG" bs=512 seek="$ROOT_START" \
-      conv=notrunc,fsync status=none
+    #
+    # bs=1M with oflag=seek_bytes, not bs=512 seek=<sector>: writing the 512 MiB
+    # rootfs in 512-byte blocks is a million write() calls, and on the
+    # Windows-backed mount this repository lives on each one crosses to the host
+    # — 340 s against 5 s for the same 512 MiB. Offsets stay in bytes so the
+    # partition starts do not have to be MiB-aligned.
+    ts "dd start"
+    dd if=/work/rg353ps-uboot.bin of="$IMG" bs=1M oflag=seek_bytes \
+      seek=$((64 * 512)) conv=notrunc status=none
+    dd if="$BOOTFS" of="$IMG" bs=1M oflag=seek_bytes \
+      seek=$((BOOT_START * 512)) conv=notrunc status=none
+    dd if="$ROOTFS_IMG" of="$IMG" bs=1M oflag=seek_bytes \
+      seek=$((ROOT_START * 512)) conv=notrunc status=none
+    sync
+    ts "dd done"
 
     sgdisk --verify "$IMG"
     echo "Partition layout:"
@@ -202,9 +228,11 @@ EOF
   "hardware_tested": false
 }
 EOF
+    ts "gzip start"
     gzip -1 -c "$IMG" > "$IMG.gz"
     cd /work
     sha256sum "$(basename "$IMG")" "$(basename "$IMG.gz")" > "$(basename "$IMG").sha256"
+    ts "gzip done"
     echo "Created SD-card smoke-test image:"
     ls -lh "$IMG" "$IMG.gz" "$IMG.sha256" /work/image-build.json
   '

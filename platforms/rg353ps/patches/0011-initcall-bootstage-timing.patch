@@ -1,0 +1,77 @@
+Record a bootstage mark before every post-relocation initcall, off by default.
+
+bootstage only marks board_init_f, board_init_r, main_loop and the bootm
+stages, so on this board the whole post-relocation init is a single 302 ms
+step between two records - five times what the same U-Boot and SoC take on
+a trimmed tree, with nothing in the configuration to explain it.
+
+With CONFIG_BASEOS_INITCALL_TIMING the initcall sequence in board_r.c records
+the arch counter before each call, so one boot gives the split from
+/proc/device-tree/bootstage/record@*/name + mark. Diagnostic builds only: it
+costs one timer read per initcall and pushes the record list past its
+default 50, so raise CONFIG_BOOTSTAGE_RECORD_COUNT with it.
+
+The decoration is applied in board_r.c, not in INITCALL() itself. board_f.c
+uses the same macro 68 times before relocation, where the timebase and the
+driver model are not up yet; marking there hangs the board before it can
+report anything.
+
+BOOTSTAGE_ID_ALLOC rather than a fixed id: bootstage_add_record() keeps only
+the first record for a given id, so a fixed id would collapse the whole
+sequence into one entry.
+
+diff --git a/boot/Kconfig b/boot/Kconfig
+--- a/boot/Kconfig
++++ b/boot/Kconfig
+@@ -1297,6 +1297,18 @@
+ 		};
+ 
+ 	  Code in the Linux kernel can find this in /proc/devicetree.
++
++config BASEOS_INITCALL_TIMING
++	bool "Record a bootstage mark before every initcall"
++	depends on BOOTSTAGE
++	help
++	  Record the timer before each entry in the post-relocation initcall
++	  sequence, named after the function. Bootstage otherwise only marks
++	  the start of board_init_r and of main_loop, which hides the whole
++	  sequence behind one number.
++
++	  Diagnostic builds only: this costs a timer read per initcall and
++	  needs CONFIG_BOOTSTAGE_RECORD_COUNT raised to fit the sequence.
+ 
+ config BOOTSTAGE_STASH
+ 	bool "Stash the boot timing information in memory before booting OS"
+diff --git a/common/board_r.c b/common/board_r.c
+--- a/common/board_r.c
++++ b/common/board_r.c
+@@ -598,6 +598,29 @@
+  * TODO: perhaps reset the watchdog in the initcall function after each call?
+  */
+ 
++#ifdef CONFIG_BASEOS_INITCALL_TIMING
++/*
++ * Record the arch counter before each call in this sequence, named after the
++ * function. Done here rather than in INITCALL() itself: board_f.c uses the
++ * same macro and runs before the timebase and driver model are up, where a
++ * mark hangs the board before it can report anything.
++ *
++ * BOOTSTAGE_ID_ALLOC gives each record a fresh id, because
++ * bootstage_add_record() keeps only the first record per id and a fixed one
++ * would collapse the whole sequence into a single entry.
++ */
++#undef INITCALL
++#define INITCALL(_call) \
++	do { \
++		bootstage_mark_name(BOOTSTAGE_ID_ALLOC, #_call); \
++		if (_call()) { \
++			printf("%s(): initcall %s() failed\n", __func__, \
++			       #_call); \
++			hang(); \
++		} \
++	} while (0)
++#endif
++
+ static void initcall_run_r(void)
+ {
+ 	/*

@@ -59,26 +59,68 @@ bootstage, stable to 1 ms across the three boots:
 |---|---|---|
 | `reset` | 0 ms | counter origin |
 | `board_init_f` | 7 ms | entry to `board_init_f` |
-| `board_init_r` | 52 ms | pre-relocation init = **45 ms** |
-| `main_loop` | 354 ms | post-relocation init + driver model = **302 ms** |
+| first `board_r` initcall | 31 ms | pre-relocation init = **24 ms** |
+| `initr_bootstage` | 53 ms | labelled `board_init_r`, but the mark is inside `initr_bootstage()`, not at entry |
+| `main_loop` | 354 ms | post-relocation init + driver model = **323 ms** |
 | `bootm_start` | 1556 ms | **extlinux scan + FAT + reading 21.6 MB = 1202 ms** |
 | `start_kernel` | 1566 ms | bootm prep = 10 ms |
 
-- The data cache is doing its job: pre-relocation init is **45 ms**. Upstream
-  measured 570 ms with the MMU off and 40 ms with it on; this is the same
-  number on the same SoC.
+- The data cache is doing its job: pre-relocation init is **24 ms**. Upstream
+  measured 570 ms with the MMU off and 40 ms with it on; this is better than
+  theirs on the same SoC. (The 45 ms this document used to claim came from
+  reading the `board_init_r` record as the entry — it is not.)
 - Kernel entry → timekeeping origin is 324 ms (`1890 − 1566`), inside the
   `before Linux` figure but outside bootstage.
-- **The load segment is now the largest item, and it is not all card read.**
-  21.6 MB at the measured 24.6 MB/s is 0.84 s, so ~0.35 s is GPT walking,
-  `bootflow scan -lb`, `extlinux.conf` parsing and the FAT metadata.
+- **The load segment is the largest single block, and it is not all card
+  read.** 21.6 MB at the measured 24.6 MB/s is 0.84 s, so ~0.35 s is GPT
+  walking, `bootflow scan -lb`, `extlinux.conf` parsing and FAT metadata.
+- Of the 323 ms of post-relocation init, one call accounts for 235 ms; the
+  next section splits it.
+
+## U-Boot post-relocation init, attributed
+
+bootstage only marks `board_init_f`, `board_init_r`, `main_loop` and the bootm
+stages, and the `board_init_r` mark sits inside `initr_bootstage()`, so the
+whole post-relocation init used to be one number. Patch `0011` adds
+`CONFIG_BASEOS_INITCALL_TIMING`, which records a mark before every `INITCALL()`
+in `initcall_run_r()`; one boot then gives the split. Build it with
+`CONFIG_BOOTSTAGE_RECORD_COUNT=120` as well — 45 marks do not fit in the
+default 50 alongside the existing ones.
+
+Warm reboot, arch counter in ms, deltas are the time spent in the call that
+precedes each mark:
+
+| call | ms | note |
+|---|---|---|
+| `board_late_init` | **234.8** | `rgxx3_detect_display()`: DSI PHY + panel probe + a DCS read of the panel ID |
+| `initr_dm` | 39.2 | bind and probe 37 devices |
+| `initr_malloc` | 20.7 | |
+| `power_init_board` | 16.1 | regulator init over I2C |
+| `initr_of_live` | 7.9 | |
+| pre-relocation sequence (68 calls) | 24.0 | measured from the `board_init_f` mark to the first `board_r` call |
+| everything else | ~13 | `initr_env` 1.4, `initr_reloc` 0.9, the remaining 33 under 1 ms |
+
+The panel detection is the only large item, and **nothing consumes its
+result**: it ends in `env_set("panel", …)`, and neither `extlinux.conf` nor
+the kernel command line references `${panel}` (checked on the device: 0
+occurrences). It exists because the 353 series shipped two different panels
+and the boot script used to patch the DT with the detected one; this platform
+ships a single DTB and the kernel probes the panel itself.
+
+`startup_buzz()` is *not* the cost, despite its `mdelay(200)`: it returns
+immediately because the PWM node it looks for (`pwm@fe6e0010`) is not in this
+board's device tree.
+
+Note the diagnostic build costs ~40 ms of its own (1.890 → 1.930 s): every
+mark is a DM timer read plus `show_boot_progress()`, and there are 45 of them.
 
 ## What is worth doing next
 
 | lever | expected | cost |
 |---|---|---|
+| Skip the panel-ID detection in U-Boot (keep the VO power domain and the reset release) | **~0.23 s** | low, but it touches the display hand-off — verify the panel still comes up |
 | Raw FIT at a fixed sector, no scan and no filesystem (`mmc read` + `bootm`) | ~0.3 s of the 0.35 s load overhead | medium: touches build-image and the update path |
-| U-Boot control tree / `blkcache` for the GPT walk | ~0.1 s | low |
+| `blkcache` for the GPT walk | ~0.1 s | low |
 | Kernel compression | 0.06–0.26 s net | not worth it: changes the image format and A/B layout |
 | `initcall_blacklist` / kernel config trimming | only ~108 ms — measured below, no single expensive initcall | low |
 
@@ -123,6 +165,7 @@ The only cheap kernel-side wins are ~108 ms: `CONFIG_CRYPTO_JITTERENTROPY`
 (70 ms — but check that crng init does not regress) and the debugfs clock
 summary (38 ms). Shrinking CMA trades GPU/video headroom for ~50 ms.
 
-So the remaining fat is in U-Boot, not the kernel: 302 ms of post-relocation
-init and ~0.36 s of scan/FAT overhead in the load segment.
+So the remaining fat is in U-Boot, not the kernel: 323 ms of post-relocation
+init (235 ms of it one call) and ~0.36 s of scan/FAT overhead in the load
+segment.
 

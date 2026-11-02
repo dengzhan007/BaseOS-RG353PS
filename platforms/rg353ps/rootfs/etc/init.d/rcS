@@ -163,10 +163,20 @@ BOOT_LOGO_DRAWN=0
 # spent doing nothing. Mounting the volumes, loading the GPU and initialising user
 # storage are all independent of it, so they run inside that window.
 #
-# The boot logo is the one step that must stay after the wait: it may not be
-# painted over a USB storage session the sample is about to request.
+# The boot logo is drawn right here, not after the wait. The backlight came on
+# above and this is the first moment BASEOS_BOOT is readable, so waiting for
+# the 400 ms key sample left a lit screen black for that whole window. Painting
+# it early cannot hide a USB storage session: the helper for that starts later
+# and repaints over this. The copy after the wait stays as a fallback for boots
+# where the file could not be read here.
 /usr/sbin/baseos-mount-storage
 mark "storage mounted"
+
+if [ -x /usr/bin/fbsplash ] &&
+   BASEOS_CUSTOM_SPLASH_ONLY=1 /usr/bin/fbsplash 0 >/dev/null 2>&1; then
+  BOOT_LOGO_DRAWN=1
+  mark "boot logo drawn"
+fi
 
 # Keep boot diagnostics in the kernel ring buffer, not on the handheld screen.
 dmesg -n 1 2>/dev/null || :
@@ -305,7 +315,8 @@ if [ -e "$BOOT_USB_REQUEST" ]; then SHOW_STARTUP_STATUS=0; fi
 # logo, and nothing repaints the screen later in the boot. fbsplash accepts only
 # a plain 24-bit BMP and draws nothing when the file is absent or malformed,
 # which leaves U-Boot's black screen rather than some substitute artwork.
-if [ ! -e "$BOOT_USB_REQUEST" ] && [ -x /usr/bin/fbsplash ]; then
+if [ "$BOOT_LOGO_DRAWN" -eq 0 ] && [ ! -e "$BOOT_USB_REQUEST" ] &&
+   [ -x /usr/bin/fbsplash ]; then
   if BASEOS_CUSTOM_SPLASH_ONLY=1 /usr/bin/fbsplash 0 >/dev/null 2>&1; then
     BOOT_LOGO_DRAWN=1
   else

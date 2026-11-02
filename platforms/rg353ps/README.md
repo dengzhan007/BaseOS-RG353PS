@@ -215,6 +215,24 @@ invisible there.
 — so a U-Boot change has to be flashed separately, and it cannot be rolled back
 over SSH.
 
+### Reading the pre-kernel split
+
+`CONFIG_BOOTSTAGE_FDT` (patch `0009`) records each stage in the tree U-Boot
+hands to the kernel. After a boot, on the device:
+
+```sh
+for r in /proc/device-tree/bootstage/record@*; do
+    n=$(tr -d '\000' < "$r/name")
+    t=$(od -An -tx1 "$r/mark" | tr -d ' \n')
+    printf '%-26s %d ms\n' "$n" "$(( 0x$t / 1000 ))"
+done
+```
+
+`mark` is the arch counter in microseconds, so it is power-on-relative, the
+same clock the kernel's printk uses. `start_kernel` should land near the
+`before Linux` figure in `/mnt/SDCARD/Logs/boot.log`; the gaps between the
+records are what the unmeasured residual in the boot budget is made of.
+
 ## Build a first-boot SD smoke image
 
 The scripts are deliberately separated from the Miyoo Flip build. From the

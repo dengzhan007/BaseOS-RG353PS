@@ -2,7 +2,7 @@ name: RG353PS bring-up build
 
 on:
   push:
-    branches: [rg353ps-port]
+    branches: [main]
     paths:
       - "platforms/rg353ps/**"
       - "src/fbsplash.c"

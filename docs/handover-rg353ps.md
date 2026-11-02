@@ -6,7 +6,7 @@
 
 ## 1. 一句话现状
 
-仓库在 `rg353ps-port` 分支上已经能端到端产出 **2 GiB A/B 布局 SD 镜像**和配套 **`.bosupd` 升级包**；1.0.1 的镜像与升级包已构建、已离线逐项校验，**尚未在真机上验证这一版**（真机验证过的是更早的无 A/B 版本，V4L2/手柄/音量/关机都通过）。
+仓库在 `main` 分支上已经能端到端产出 **2 GiB A/B 布局 SD 镜像**和配套 **`.bosupd` 升级包**；1.0.1 的镜像与升级包已构建、已离线逐项校验，**尚未在真机上验证这一版**（真机验证过的是更早的无 A/B 版本，V4L2/手柄/音量/关机都通过）。
 
 ## 2. 已交付的东西在哪
 
@@ -51,7 +51,7 @@ find . -name '*.sh' -exec chmod +x {} +
 find platforms/rg353ps/rootfs/usr/sbin -type f -exec chmod +x {} +
 ```
 
-**镜像仓库给了远端**：`origin` 指向 `github.com/dengzhan007/baseos-my355`，分支 `rg353ps-port`。`.github/workflows/` 里有两个 CI（`rg353ps-uboot.yml`、`rg353ps-storage-mode-check.yml`）。
+**镜像仓库给了远端**：`origin` 指向 `github.com/dengzhan007/BaseOS-RG353PS`，只有 `main` 一个分支。`.github/workflows/` 里有三个 CI：`rg353ps-uboot.yml`（提交后跑完整构建）、`rg353ps-storage-mode-check.yml`（脚本与嵌入式 Python 语法检查）、`rg353ps-release.yml`（手动触发，产出完整镜像和 `.bosupd` 升级包）。
 
 ## 4. 构建怎么跑
 

@@ -2,7 +2,7 @@ name: RG353PS USB storage mode checks
 
 on:
   push:
-    branches: [rg353ps-port]
+    branches: [main]
     paths:
       - "platforms/rg353ps/src/rg353ps-hotkeyd.c"
       - "assets/boot.ttf"

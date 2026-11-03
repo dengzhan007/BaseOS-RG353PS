@@ -52,18 +52,12 @@ before the wait loop starts, so the screen goes straight from `WAITING` to
 USB2 PHY against the DWC3 bind; the recovery ladder (soft pulse, re-probe,
 unbind/rebind, re-probe) rescues most but not all cable/host combinations,
 and a failure there is indistinguishable from a real fault in the logs.
-Both cards are exported when both are inserted, as two disks: the second card
-as the first one, TF1's `BASEOS` user partition as the second, so a single
-session reaches either card without unplugging anything. Insert only the
-system card and the session exports just its user partition, exactly as
-before. Never the boot or root partition, and both volumes are unmounted on
-the device for the whole session. A session triggered at power-on mounts the
-second card itself, because the frontend session that normally owns it is
-held behind the storage request and the card does not enumerate until ~1.2 s
-into the boot; with no second card that costs a bounded 3 s wait.
-Some hosts (most BIOSes, many car head units and older Android devices) only
-read the first LUN, so they will show one disk even with two exported;
-Windows, macOS and Linux show both.
+One volume is exported, and the second card wins when one is inserted: the
+session exports `/mnt/TF2` if it can mount it, otherwise TF1's `BASEOS` user
+partition. A session triggered at power-on does that mount itself, because
+the frontend session that normally owns it is held behind the storage
+request and the card does not enumerate until ~1.2 s into the boot. With no
+second card inserted this adds nothing beyond a bounded 3 s wait.
 Unplugging does not need an eject first: pending writes are flushed after
 two idle seconds.
 

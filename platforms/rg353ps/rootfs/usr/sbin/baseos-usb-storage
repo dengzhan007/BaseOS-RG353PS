@@ -27,15 +27,6 @@ HAD_ADB=0
 MOUNTPOINT=
 DEVICE=
 FSTYPE=
-MP0=
-DEV0=
-FS0=
-MP1=
-DEV1=
-FS1=
-PART_NAME=
-FLUSH_PARTS=
-LUN_WANT=0
 BOUND=0
 CABLE_TRIGGERED=0
 CREATED_GADGET=0
@@ -545,28 +536,15 @@ diagnose_usb_state_change() {
 # and the next quiet window triggers the next flush, so a transfer in progress
 # keeps flushing as it finishes rather than at an arbitrary tick.
 #
-# With two volumes exported, a host that writes only to the second disk would
-# never move the first one's counter, so the counters are summed: idle means
-# nothing was written anywhere.
-#
 # This gives a USB stick's guarantee, not a stronger one: unplug once the copy
 # has settled is safe, unplug mid-write is not, because the host still holds
 # data that never reached us.
-write_sectors_now() {
-  ws_total=0
-  for ws_part in $FLUSH_PARTS; do
-    ws_val="$(awk -v p="$ws_part" '$3 == p {print $10; exit}' /proc/diskstats 2>/dev/null)"
-    case "${ws_val:-}" in ''|*[!0-9]*) continue ;; esac
-    ws_total=$((ws_total + ws_val))
-  done
-  printf '%s' "$ws_total"
-}
 flush_on_idle() {
   flush_last=
   flush_idle=0
   flush_dirty=0
   while :; do
-    flush_now="$(write_sectors_now)"
+    flush_now="$(awk -v p="$PART_NAME" '$3 == p {print $10; exit}' /proc/diskstats 2>/dev/null)"
     if [ -n "$flush_now" ] && [ "$flush_now" = "$flush_last" ]; then
       flush_idle=$((flush_idle + 1))
     else
@@ -655,26 +633,15 @@ cleanup() {
   fi
 
   if [ "$UNBIND_OK" -eq 1 ]; then
-    # Restore the local filesystems only after UDC unbind returned successfully.
+    # Restore the local filesystem only after UDC unbind returned successfully.
     log "cleanup step=local-remount begin"
-    i=0
-    remount_missing=0
-    while [ "$i" -lt "$LUN_WANT" ]; do
-      eval "rm_mp=\$MP$i"
-      eval "rm_dev=\$DEV$i"
-      eval "rm_fs=\$FS$i"
-      if [ -n "$rm_mp" ] && [ -n "$rm_dev" ] && ! is_mounted "$rm_mp"; then
-        mount -t "$rm_fs" -o rw,noatime "$rm_dev" "$rm_mp" 2>/dev/null || \
-          log "WARNING: could not remount $rm_dev at $rm_mp"
-      fi
-      if [ -n "$rm_mp" ] && is_mounted "$rm_mp"; then
-        log "cleanup step=local-remount complete mountpoint=$rm_mp"
-      else
-        remount_missing=1
-      fi
-      i=$((i+1))
-    done
-    if [ "$remount_missing" -ne 0 ]; then
+    if [ -n "$MOUNTPOINT" ] && [ -n "$DEVICE" ] && ! is_mounted "$MOUNTPOINT"; then
+      mount -t "$FSTYPE" -o rw,noatime "$DEVICE" "$MOUNTPOINT" 2>/dev/null || \
+        log "WARNING: could not remount $DEVICE at $MOUNTPOINT"
+    fi
+    if [ -n "$MOUNTPOINT" ] && is_mounted "$MOUNTPOINT"; then
+      log "cleanup step=local-remount complete mountpoint=$MOUNTPOINT"
+    else
       log "WARNING: local data partition is not mounted; avoid further writes until recovery"
     fi
   else
@@ -743,80 +710,40 @@ if [ "$BOOT_MODE" -eq 1 ] && ! is_mounted /mnt/TF2 && [ -x /usr/sbin/baseos-tf2-
     log "no second card mounted after 3 s; the session will export the user partition"
   fi
 fi
-# Which volumes this session exports. The second card comes first when it is
-# present, because that is where the frontend and the games usually live; the
-# system card's user partition follows, so a single session reaches both cards
-# without unplugging anything. With only the system card inserted this degrades
-# to exactly the single-LUN export it was before.
-MP0=; DEV0=; FS0=
-MP1=; DEV1=; FS1=
+# Prefer the removable frontend card (usually the left TF slot). If absent,
+# export only the dedicated BASEOS_DATA partition, never the boot/root system.
 if is_mounted /mnt/TF2; then
-  MP0=/mnt/TF2
+  MOUNTPOINT=/mnt/TF2
 else
-  MP0=/mnt/SDCARD
+  MOUNTPOINT=/mnt/SDCARD
 fi
 if [ "$BOOT_MODE" -eq 1 ]; then
   i=0
-  while ! is_mounted "$MP0" && [ "$i" -lt 120 ]; do sleep 1; i=$((i+1)); done
+  while ! is_mounted "$MOUNTPOINT" && [ "$i" -lt 120 ]; do sleep 1; i=$((i+1)); done
 fi
-if ! is_mounted "$MP0"; then log "$MP0 is not mounted; refusing storage mode"; exit 1; fi
-if [ "$MP0" = /mnt/TF2 ]; then
-  if is_mounted /mnt/SDCARD; then MP1=/mnt/SDCARD; fi
-else
-  if is_mounted /mnt/TF2; then MP1=/mnt/TF2; fi
-fi
+if ! is_mounted "$MOUNTPOINT"; then log "$MOUNTPOINT is not mounted; refusing storage mode"; exit 1; fi
+DEVICE=$(awk -v m="$MOUNTPOINT" '$2 == m { print $1; exit }' /proc/mounts)
+FSTYPE=$(awk -v m="$MOUNTPOINT" '$2 == m { print $3; exit }' /proc/mounts)
+case "$DEVICE" in /dev/mmcblk*p[0-9]*) ;; *) log "unsupported block source '$DEVICE'; refusing"; exit 1 ;; esac
+case "$FSTYPE" in vfat|exfat) ;; *) log "filesystem '$FSTYPE' is not supported for PC storage mode"; exit 1 ;; esac
 # Which partition number carries BASEOS_DATA is a property of the layout, not
 # a constant: it was p3 before BASEOS_UBOOT took slot 1 and became p4 with the
 # A/B layout. Match the GPT name so a future layout move cannot silently turn
 # storage mode into an "USB STORAGE FAILED" pill again.
-#
-# The rules are per volume, not per session: only the user partition of the
-# system card may be shared, while the second card shares whatever its first
-# partition is. Sets av_dev and av_fs for the caller.
-accept_volume() {
-  av_mp=$1
-  av_dev=$(awk -v m="$av_mp" '$2 == m { print $1; exit }' /proc/mounts)
-  av_fs=$(awk -v m="$av_mp" '$2 == m { print $3; exit }' /proc/mounts)
-  case "$av_dev" in /dev/mmcblk*p[0-9]*) ;; *) log "unsupported block source '$av_dev' at $av_mp; refusing"; return 1 ;; esac
-  case "$av_fs" in vfat|exfat) ;; *) log "filesystem '$av_fs' at $av_mp is not supported for PC storage mode"; return 1 ;; esac
-  av_name=${av_dev#/dev/}
-  av_partname=$(sed -n 's/^PARTNAME=//p' "/sys/class/block/$av_name/uevent" 2>/dev/null | head -1)
-  case "$av_mp" in
-    /mnt/SDCARD)
-      case "$av_partname" in
-        BASEOS|BASEOS_DATA) ;;
-        "") log "WARNING: $av_dev has no PARTNAME; assuming the user partition by mount point" ;;
-        *) log "refusing to export $av_dev (PARTNAME=$av_partname); only the user partition may be shared"; return 1 ;;
-      esac
-      ;;
-    /mnt/TF2) ;;
-    *) log "refusing unexpected mount source $av_dev at $av_mp"; return 1 ;;
-  esac
-  return 0
-}
-accept_volume "$MP0" || exit 1
-DEV0=$av_dev; FS0=$av_fs
-if [ -n "$MP1" ]; then
-  if accept_volume "$MP1"; then
-    DEV1=$av_dev; FS1=$av_fs
-  else
-    log "not exporting $MP1 in this session"
-    MP1=
-  fi
-fi
-# Most of this helper predates the second LUN and talks about "the volume": keep
-# those names pointing at lun.0 so the on-screen prompt, the diagnostics and the
-# write-idle flusher keep describing the card most likely being written to.
-MOUNTPOINT=$MP0
-DEVICE=$DEV0
-FSTYPE=$FS0
-PART_NAME=${DEV0#/dev/}
-FLUSH_PARTS=$PART_NAME
-if [ -n "$MP1" ]; then FLUSH_PARTS="$FLUSH_PARTS ${DEV1#/dev/}"; fi
-LUN_WANT=1
-if [ -n "$MP1" ]; then LUN_WANT=2; fi
+PART_NAME=${DEVICE#/dev/}
+DEV_PARTNAME=$(sed -n 's/^PARTNAME=//p' "/sys/class/block/$PART_NAME/uevent" 2>/dev/null | head -1)
+case "$MOUNTPOINT:$DEVICE" in
+  /mnt/SDCARD:/dev/mmcblk*p[0-9]*)
+    case "$DEV_PARTNAME" in
+      BASEOS|BASEOS_DATA) ;;
+      "") log "WARNING: $DEVICE has no PARTNAME; assuming the user partition by mount point" ;;
+      *) log "refusing to export $DEVICE (PARTNAME=$DEV_PARTNAME); only the user partition may be shared"; exit 1 ;;
+    esac
+    ;;
+  /mnt/TF2:/dev/mmcblk*p[0-9]*) ;;
+  *) log "refusing unexpected mount source $DEVICE at $MOUNTPOINT"; exit 1 ;;
+esac
 log "requested storage for $DEVICE mounted at $MOUNTPOINT"
-if [ "$LUN_WANT" -eq 2 ]; then log "second volume for this session: $DEV1 mounted at $MP1"; fi
 if [ "$BOOT_MODE" -eq 0 ]; then
   printf '%s\n' "$MOUNTPOINT" > "$REQUEST"
   i=0
@@ -856,35 +783,19 @@ report_mount_users() {
     done
   done
 }
-release_local_volume() {
-  rl_mp=$1
-  umount_msg=
-  if ! umount_msg="$(umount "$rl_mp" 2>&1)"; then
-    log "first unmount of $rl_mp failed (${umount_msg:-no message}); retrying after a grace period"
-    report_mount_users "$rl_mp"
-    sleep 1
-    if ! umount_msg="$(umount "$rl_mp" 2>&1)"; then
-      log "could not unmount $rl_mp (${umount_msg:-no message}); refusing to export"
-      return 1
-    fi
+umount_msg=
+if ! umount_msg="$(umount "$MOUNTPOINT" 2>&1)"; then
+  log "first unmount of $MOUNTPOINT failed (${umount_msg:-no message}); retrying after a grace period"
+  report_mount_users "$MOUNTPOINT"
+  sleep 1
+  if ! umount_msg="$(umount "$MOUNTPOINT" 2>&1)"; then
+    log "could not unmount $MOUNTPOINT (${umount_msg:-no message}); refusing to export"
+    /usr/bin/baseos-splash --important -1 "USB STORAGE: PARTITION BUSY" 2>/dev/null || :
+    sleep 2
+    exit 1
   fi
-  log "unmounted $rl_mp"
-  return 0
-}
-release_local_volume "$MOUNTPOINT" || {
-  /usr/bin/baseos-splash --important -1 "USB STORAGE: PARTITION BUSY" 2>/dev/null || :
-  sleep 2
-  exit 1
-}
-# Both volumes have to be off the kernel before either is handed to the host:
-# a second LUN backed by a filesystem the device still has mounted is the same
-# corruption risk the single volume always carried, only harder to notice.
-if [ -n "$MP1" ] && ! release_local_volume "$MP1"; then
-  /usr/bin/baseos-splash --important -1 "USB STORAGE: PARTITION BUSY" 2>/dev/null || :
-  sleep 2
-  exit 1
 fi
-log "preparing USB mass storage"
+log "unmounted $MOUNTPOINT; preparing USB mass storage"
 # Nothing is connected yet: the gadget is still being assembled and the UDC is
 # not bound for another second or two. Saying "CONNECTING" here made the screen
 # read CONNECTING then WAITING, which looks like the device tried to connect and
@@ -946,14 +857,14 @@ printf 'BaseOS' > "$G/strings/0x409/manufacturer" 2>/dev/null || :
 printf 'RG353PS USB Storage' > "$G/strings/0x409/product" 2>/dev/null || :
 printf 'storage' > "$G/configs/b.1/strings/0x409/configuration" 2>/dev/null || :
 printf '500' > "$G/configs/b.1/MaxPower" 2>/dev/null || :
-# One LUN per volume. The directories have to exist before the function is bound:
-# configfs refuses a LUN on an attached function, and the count present at bind
-# time is what decides how many disks the host sees.
-#
+LUN="$G/functions/mass_storage.0/lun.0"
+printf '1' > "$LUN/removable" 2>/dev/null || :
+printf '0' > "$LUN/ro" 2>/dev/null || :
+
 # Windows normally sends SCSI WRITE commands with FUA for removable media,
 # making each write synchronous and preventing block-layer request merging.
 # The Linux MSG documentation explicitly warns that this can dramatically
-# reduce performance. Ignore per-write FUA for these SD-card-backed LUNs; normal
+# reduce performance. Ignore per-write FUA for this SD-card-backed LUN; normal
 # SYNCHRONIZE CACHE requests are still handled by the gadget.
 #
 # The cost of that choice is that the host's writes can sit in the page cache,
@@ -961,40 +872,15 @@ printf '500' > "$G/configs/b.1/MaxPower" 2>/dev/null || :
 # partition is flushed two seconds after its write counter stops moving, so a
 # copy is on the card by the time the progress dialog closes. Pulling the cable
 # mid-write is still losing data, and no device can do better.
-i=0
-while [ "$i" -lt "$LUN_WANT" ]; do
-  eval "lun_mp=\$MP$i"
-  eval "lun_dev=\$DEV$i"
-  LUN="$G/functions/mass_storage.0/lun.$i"
-  mkdir -p "$LUN" 2>/dev/null || :
-  printf '1' > "$LUN/removable" 2>/dev/null || :
-  printf '0' > "$LUN/ro" 2>/dev/null || :
-  if [ -w "$LUN/nofua" ] && printf '1' > "$LUN/nofua" 2>/dev/null; then
-    log "lun.$i backing=$lun_dev ($lun_mp): nofua=1; per-write FUA disabled to avoid synchronous SD-card writes"
-  else
-    log "WARNING: lun.$i could not enable nofua; writes may be very slow with Windows removal-optimized policy"
-  fi
-  printf '%s' "$lun_dev" > "$LUN/file" || {
-    log "could not assign $lun_dev to lun.$i"; exit 1;
-  }
-  i=$((i+1))
-done
-# The configfs function outlives a session, so a lun.1 left behind by a session
-# that had two cards would be exported again, backed by a partition this boot
-# does not have. Clear its backing file instead of removing the directory: the
-# exit path already refuses to rmdir configfs objects after a UDC unbind, and an
-# empty drive is a harmless thing for the host to find.
-for stale in "$G/functions/mass_storage.0"/lun.*; do
-  [ -d "$stale" ] || continue
-  stale_n=${stale##*.}
-  case "$stale_n" in ''|*[!0-9]*) continue ;; esac
-  if [ "$stale_n" -lt "$LUN_WANT" ]; then continue; fi
-  if [ -n "$(cat "$stale/file" 2>/dev/null)" ]; then
-    printf '\n' > "$stale/file" 2>/dev/null || :
-    log "cleared stale backing file left on lun.$stale_n by an earlier session"
-  fi
-done
-LUN="$G/functions/mass_storage.0/lun.0"
+if [ -w "$LUN/nofua" ] && printf '1' > "$LUN/nofua" 2>/dev/null; then
+  log "mass-storage nofua=1; per-write FUA disabled to avoid synchronous SD-card writes"
+else
+  log "WARNING: could not enable mass-storage nofua; writes may be very slow with Windows removal-optimized policy"
+fi
+
+printf '%s' "$DEVICE" > "$LUN/file" || {
+  log "could not assign $DEVICE to mass-storage gadget"; exit 1;
+}
 if [ -L "$G/configs/b.1/f-mass_storage.0" ]; then
   existing_target="$(readlink "$G/configs/b.1/f-mass_storage.0" 2>/dev/null || :)"
   if [ "$existing_target" = "$G/functions/mass_storage.0" ]; then
@@ -1035,7 +921,7 @@ grep -q " /sys/kernel/debug " /proc/mounts 2>/dev/null ||
 # case instead of the broken one.
 sleep 3
 if [ "$DEBUG" -eq 1 ]; then snapshot "three-seconds-after-bind"; fi
-SESSION_WRITE_SECTORS="$(write_sectors_now)"
+SESSION_WRITE_SECTORS="$(awk -v p="$PART_NAME" '$3 == p {print $10; exit}' /proc/diskstats 2>/dev/null)"
 log "USB gadget bound for $DEVICE; waiting for PC data cable"
 /usr/bin/baseos-splash --important -1 "WAITING FOR DATA CABLE" 2>/dev/null || :
 
@@ -1103,7 +989,7 @@ while [ "$i" -lt 3600 ]; do
     fi
     log "transfer heartbeat elapsed=$i seconds udc_state=$hb_state speed=$hb_speed data_cable=$hb_cable"
     hb_disk="$(grep -E ' mmcblk0(p[0-9]+)? ' /proc/diskstats 2>/dev/null | tr '\n' ';')"
-    hb_write_sectors="$(write_sectors_now)"
+    hb_write_sectors="$(awk -v p="$PART_NAME" '$3 == p {print $10; exit}' /proc/diskstats 2>/dev/null)"
     hb_write_delta=unknown
     case "$SESSION_WRITE_SECTORS:$hb_write_sectors" in
       *[!0-9:]*|:*|*:) ;;

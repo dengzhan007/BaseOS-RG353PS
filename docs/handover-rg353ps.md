@@ -232,7 +232,7 @@ U-Boot 补丁里，与启动时间相关的是 0008–0014：
 
 ### 10.1 产品侧
 
-1. **装载段 ~0.3 s**：raw FIT 固定扇区读取，跳过 bootflow scan 与 FAT 解析。这是启动时间剩下的唯一大块。
+1. **装载段：已收尾。** raw FIT 固定扇区装载已实测**否决**（上限 306 ms，实际因 `bootm` 搬运 + sha256 反而慢 613 ms），分析与被否的依据留在 `platforms/rg353ps/RAW-FIT.md` 与 `RAW-FIT-FEASIBILITY.md`。装载段真正拿到的是 U-Boot 的 GPT 遍历：`blkcache configure 32 32`，`before Linux` 1.658 → **1.475 s**（−182 ms），冷热启动一致，已进 `uboot.config`。
 2. 内核侧 ~108 ms 可选优化：`CONFIG_CRYPTO_JITTERENTROPY`（70 ms，注意 crng 初始化不能退化）、debugfs 时钟汇总（38 ms）。
 3. WiFi 关联与蓝牙音频实机未过；音频出声未验证。
 4. 电池/充电读数准确性；HDMI；3D 加速（Panfrost 已装，未证明硬件加速）。

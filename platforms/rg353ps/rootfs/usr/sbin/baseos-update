@@ -83,6 +83,8 @@ splash() {
 }
 
 field() { sed -n "s/^$2=//p" "$1" 2>/dev/null | head -1; }
+
+is_mounted() { grep -q " $1 " /proc/mounts; }
 cleanup() { return 0; }
 
 # One release of this port recorded the trial under /mnt/boot, where the flip
@@ -181,7 +183,7 @@ ensure_frontend_card() {
 		return 1
 	fi
 	i=0
-	while [ "$i" -lt 10 ]; do
+	while [ "$i" -lt 5 ]; do
 		/usr/sbin/baseos-tf2-mount >/dev/null 2>&1 || :
 		is_mounted "$FRONTEND_MNT" && return 0
 		sleep 0.1

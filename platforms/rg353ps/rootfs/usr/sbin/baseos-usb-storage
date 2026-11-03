@@ -722,6 +722,7 @@ fi
 ACTIVE_CARD=
 if [ "$BOOT_MODE" -eq 0 ]; then
   active_target=$(readlink -f /mnt/sdcard 2>/dev/null || :)
+  [ -n "$active_target" ] || active_target=$(cd /mnt/sdcard 2>/dev/null && pwd -P)
   case "$active_target" in
     /mnt/TF2|/mnt/TF2/*) ACTIVE_CARD=/mnt/TF2 ;;
     /mnt/SDCARD|/mnt/SDCARD/*) ACTIVE_CARD=/mnt/SDCARD ;;

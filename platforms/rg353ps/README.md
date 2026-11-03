@@ -126,8 +126,10 @@ That copy is read before the image one and only overrides the keys it contains,
 so editing it needs no rebuild and no update file. It is seeded once and never
 rewritten; delete it and reboot to get the defaults back.
 
-The key baked into the image is only reachable while the switch is on. Replace
-it by dropping your own at `BASEOS/baseos-ssh/authorized_keys`. Setting
+Root logs in with either the key or the password `root` (the hash is baked into
+`/etc/shadow` by `build-rootfs.sh`). A key dropped at
+`BASEOS/baseos-ssh/authorized_keys` replaces the one baked into the image and
+keeps working alongside the password. Setting
 `usb_debug=no` leaves the UDC unbound, so the port behaves like a plain USB
 device port again — and still enters mass storage with Function + plug:
 `baseos-usb-storage` releases this gadget first and restarts it from its cleanup

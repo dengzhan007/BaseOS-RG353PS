@@ -263,7 +263,19 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     ln -sfn /mnt/SDCARD "$R/mnt/sdcard"
     printf "root:x:0:0:root:/root:/bin/sh\n" > "$R/etc/passwd"
     printf "root:x:0:\n" > "$R/etc/group"
-    printf "root:*:19000:0:99999:7:::\n" > "$R/etc/shadow"
+    # Root carries a password so the USB debug channel can be entered without
+    # the key: login as root with password root. The hash is baked in rather
+    # than computed here because the build container (alpine:3.22) has neither
+    # mkpasswd nor openssl, and a random salt would make every build differ.
+    # The channel is still bound to the RNDIS address 192.168.42.1 and only
+    # exists while baseos.conf has usb_debug=yes, so this is not a Wi-Fi
+    # surface. To change the password, regenerate with the same fixed salt:
+    #     openssl passwd -6 -salt baseosrg <new-password>
+    # and replace the hash below. To go back to key-only logins, put * here
+    # (dropbear is not started with -s, so a locked hash is what disables
+    # password auth).
+    BASEOS_ROOT_HASH="\$6\$baseosrg\$ZjVux5iPKMrAFlY4uyVHbIxb.NTUSifHTjYkVcmdQc9sCCS0ZsTZaZZzL51lBu6k6D2.J7X9B5IitsGVmat9j/"
+    printf "root:%s:19000:0:99999:7:::\n" "$BASEOS_ROOT_HASH" > "$R/etc/shadow"
     ln -sfn /proc/mounts "$R/etc/mtab"
     ln -sfn /run/resolv.conf "$R/etc/resolv.conf"
     # baseos-audio-init writes the softvol definition at boot, and the root

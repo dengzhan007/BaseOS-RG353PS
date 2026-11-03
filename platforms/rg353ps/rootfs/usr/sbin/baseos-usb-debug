@@ -688,8 +688,11 @@ start_sshd() {
     fi
     chmod 600 /root/.ssh/authorized_keys 2>/dev/null || :
     [ -s /root/.ssh/authorized_keys ] || say "WARNING: no authorized_keys; ssh logins will be refused"
-    # -R generates host keys on first run, -s refuses password auth outright.
-    if dropbear -R -s -p "$ADDR:22" -P "$PIDFILE_DROPBEAR" >/dev/null 2>&1; then
+    # -R generates host keys on first run. Password auth is NOT refused (-s is
+    # deliberately absent) so a unit whose key is lost can still be reached as
+    # root with the password baked into /etc/shadow. The listener is bound to
+    # the RNDIS address only, so this never opens on Wi-Fi.
+    if dropbear -R -p "$ADDR:22" -P "$PIDFILE_DROPBEAR" >/dev/null 2>&1; then
         say "sshd listening on $ADDR:22"
     else
         say "dropbear failed to start"

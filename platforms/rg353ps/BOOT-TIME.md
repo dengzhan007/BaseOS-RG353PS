@@ -51,6 +51,27 @@ Same unit, same rootfs; only U-Boot changed (0009 bootstage + 0010 dcache).
 | `Linux to menu` | 2.16–2.60 s | 2.23–2.37 s | ≈ −0.1 s |
 | `total` | 4.706–5.145 s | **4.120–4.261 s** | **−0.68 s** (mean) |
 
+## Final state (1.2.3)
+
+Two more U-Boot changes landed after the measurement above: `0012` skips the
+display-ID probe (the panel is selected from the DTB path already) and `0014`
+drops the 200 ms startup buzz. Both live inside `board_late_init`, which the
+next section splits into 235 ms.
+
+| | 1.2.2 | +0009/0010 | +0012/0014 (1.2.3) |
+|---|---|---|---|
+| `before Linux` | 2.545–2.546 s | 1.890–1.891 s | **1.654–1.655 s** |
+| `Linux to menu` | 2.16–2.60 s | 2.23–2.37 s | 2.12–2.37 s |
+| `total` | 4.706–5.145 s | 4.120–4.261 s | **3.75–3.92 s** |
+
+Three balanced warm boots on 1.2.3 read 1.657 / 2.14 / 3.797 s. The boot logo
+now appears at 1.50 s instead of ~1.9 s, because rcS draws it as soon as
+storage is mounted rather than after the 400 ms key-sampling window.
+
+The sections below still describe the 1.890 s boot. Their per-stage numbers
+were taken in that configuration; nothing since has moved those stages, the
+two extra patches only removed calls from the end of `board_late_init`.
+
 ## Where the remaining 1.890 s goes
 
 bootstage, stable to 1 ms across the three boots:

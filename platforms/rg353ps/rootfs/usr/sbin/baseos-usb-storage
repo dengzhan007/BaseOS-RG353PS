@@ -710,9 +710,31 @@ if [ "$BOOT_MODE" -eq 1 ] && ! is_mounted /mnt/TF2 && [ -x /usr/sbin/baseos-tf2-
     log "no second card mounted after 3 s; the session will export the user partition"
   fi
 fi
-# Prefer the removable frontend card (usually the left TF slot). If absent,
-# export only the dedicated BASEOS_DATA partition, never the boot/root system.
-if is_mounted /mnt/TF2; then
+# Export the card the frontend is actually reading games from, never the
+# boot/root system. /mnt/sdcard is the compatibility alias
+# baseos-frontend-session repoints at the selected card, so resolving it is the
+# only way to agree with what is on screen: a session started from the menu used
+# to export the second card even when the frontend had fallen back to TF1.
+#
+# A boot-triggered session runs before that selection exists -- the frontend is
+# held behind this session's own boot request -- so it keeps the old rule and
+# prefers a mounted second card, which is the card a frontend would be found on.
+ACTIVE_CARD=
+if [ "$BOOT_MODE" -eq 0 ]; then
+  active_target=$(readlink -f /mnt/sdcard 2>/dev/null || :)
+  case "$active_target" in
+    /mnt/TF2|/mnt/TF2/*) ACTIVE_CARD=/mnt/TF2 ;;
+    /mnt/SDCARD|/mnt/SDCARD/*) ACTIVE_CARD=/mnt/SDCARD ;;
+  esac
+  if [ -n "$ACTIVE_CARD" ]; then
+    log "frontend reads games from $active_target; exporting $ACTIVE_CARD"
+  else
+    log "cannot resolve the frontend card from /mnt/sdcard ($active_target); using card presence"
+  fi
+fi
+if [ -n "$ACTIVE_CARD" ] && is_mounted "$ACTIVE_CARD"; then
+  MOUNTPOINT=$ACTIVE_CARD
+elif is_mounted /mnt/TF2; then
   MOUNTPOINT=/mnt/TF2
 else
   MOUNTPOINT=/mnt/SDCARD

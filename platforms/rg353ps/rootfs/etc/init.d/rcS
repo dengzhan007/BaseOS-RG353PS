@@ -389,9 +389,11 @@ if [ -e /mnt/SDCARD/.baseos/update/state ] && [ -x /usr/sbin/baseos-update ]; th
   /usr/sbin/baseos-update boot-check
 fi
 
-# A *.bosupd sitting on either volume means the owner asked for an update: it is
-# written into the reserved half of boot and rootfs, read back and verified, and
-# only then does the GPT flip commit. baseos-update reboots the unit itself.
+# A *.bosupd sitting on any of the volumes the owner can reach means an update
+# was asked for: it is written into the reserved half of boot and rootfs, read
+# back and verified, and only then does the GPT flip commit. baseos-update
+# mounts the frontend card itself when a payload may be there and reboots the
+# unit itself.
 if [ ! -e "$BOOT_USB_REQUEST" ] && [ -x /usr/sbin/baseos-update ]; then
   /usr/sbin/baseos-update apply
 fi

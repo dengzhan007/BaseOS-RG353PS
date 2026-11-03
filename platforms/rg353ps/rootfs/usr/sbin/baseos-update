@@ -34,6 +34,9 @@ REGIONS="boot rootfs"
 DISK=
 BOOT_MNT=/mnt/boot
 CARD=/mnt/SDCARD
+# The second card: the frontend and the games live there when one is inserted,
+# and USB storage mode exports it, so a payload copied over the cable lands here.
+FRONTEND_MNT=/mnt/TF2
 # Trial state must not live on a volume that an update moves.
 #
 # It used to sit in /mnt/boot/update. BASEOS_BOOT is one of the two regions the
@@ -120,11 +123,71 @@ load_geometry() {
 	[ -n "${SLOT_ROOTFS_SECTORS:-}" ]
 }
 
-# Where payloads may sit: the visible data volume, then the boot volume. Both
-# are mounted before apply runs, so neither needs a temporary mount of its own.
+# Where payloads may sit: the visible data volume, the card the frontend was
+# selected from, then the boot volume.
 scan_dirs() {
-	DIRS="$CARD $BOOT_MNT"
+	DIRS="$CARD $FRONTEND_MNT $BOOT_MNT"
 	return 0
+}
+
+# The frontend card is TF2 on this platform, and it is the card USB storage mode
+# exports, so it is where an owner who copies a payload over the cable will put
+# it. It is mounted by the frontend session, which has not run yet here, so this
+# is the one directory apply() has to mount for itself.
+#
+# It also enumerates late: mmc1 appears about a second into the boot, roughly
+# when rcS reaches this point, so a single attempt at the wrong moment finds no
+# block node and the payload is never seen. Waiting is only paid when a card is
+# really in the slot. The mmc host publishes <host>:<id>/type as soon as it sees
+# a card -- before mmcblk1 exists -- and publishes nothing for an empty slot.
+# SDIO functions (the Wi-Fi card) report type=SDIO, which is why the type is read
+# rather than the directory merely tested.
+second_card_present() {
+	sc_disk=
+	for event_file in /sys/class/block/*p*/uevent; do
+		[ -r "$event_file" ] || continue
+		sc_dev=
+		sc_part=
+		while IFS= read -r event_line || [ -n "$event_line" ]; do
+			case "$event_line" in
+				DEVNAME=*) sc_dev=${event_line#DEVNAME=} ;;
+				PARTNAME=*) sc_part=${event_line#PARTNAME=} ;;
+			esac
+		done < "$event_file"
+		if [ "$sc_part" = "BASEOS_ROOT" ] && [ -n "$sc_dev" ]; then
+			sc_disk=${sc_dev%p[0-9]*}
+			break
+		fi
+	done
+	for card_dir in /sys/class/mmc_host/mmc*/*:*; do
+		[ -e "$card_dir/type" ] || continue
+		sc_type=$(cat "$card_dir/type" 2>/dev/null || :)
+		case "$sc_type" in SD|MMC) ;; *) continue ;; esac
+		sc_host=$(basename "$(dirname "$card_dir")")
+		if [ -n "$sc_disk" ] && [ "mmc${sc_disk#mmcblk}" = "$sc_host" ]; then
+			continue
+		fi
+		return 0
+	done
+	return 1
+}
+
+ensure_frontend_card() {
+	is_mounted "$FRONTEND_MNT" && return 0
+	[ -x /usr/sbin/baseos-tf2-mount ] || return 1
+	if ! second_card_present; then
+		/usr/sbin/baseos-tf2-mount >/dev/null 2>&1 || :
+		is_mounted "$FRONTEND_MNT" && return 0
+		return 1
+	fi
+	i=0
+	while [ "$i" -lt 10 ]; do
+		/usr/sbin/baseos-tf2-mount >/dev/null 2>&1 || :
+		is_mounted "$FRONTEND_MNT" && return 0
+		sleep 0.1
+		i=$((i + 1))
+	done
+	return 1
 }
 
 # Is $1 a strictly newer dotted version than $2? Missing fields count as zero,
@@ -319,6 +382,7 @@ claim_payload() {
 }
 
 apply() {
+	ensure_frontend_card || :
 	scan_dirs
 	# Ordinary boot: no payload anywhere, and nothing else runs.
 	first_payload || { cleanup; return 0; }
@@ -443,7 +507,7 @@ boot_check() {
 remove_payload() {
 	case "$1" in
 		"") return 0 ;;
-		"$BOOT_MNT"/*|"$CARD"/*) ;;
+		"$BOOT_MNT"/*|"$CARD"/*|"$FRONTEND_MNT"/*) ;;
 		*) return 0 ;;
 	esac
 	for candidate in "$1" "$1.applied"; do
@@ -497,6 +561,7 @@ status() {
 		printf "trial:   none (committed)\n"
 	fi
 
+	ensure_frontend_card || :
 	scan_dirs
 	any=0
 	for dir in $DIRS; do

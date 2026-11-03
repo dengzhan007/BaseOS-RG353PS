@@ -686,6 +686,30 @@ trap cleanup EXIT
 set_storage_console_quiet
 HELPER_CKSUM="$(cksum "$0" 2>/dev/null | awk '{print $1 ":" $2}')"
 log "helper_revision=usb-high-speed-dwc3-v34-simple-exit-cleanup cksum=$HELPER_CKSUM"
+# A boot-triggered session starts long before the rest of userspace is done:
+# hotkeyd forks this helper as soon as the key sample lands, and the script that
+# normally mounts the second card -- baseos-frontend-session -- is held behind
+# this session's own boot request marker, so it has not run and will not run
+# until the session ends. The card also enumerates late (mmcblk1 appears at
+# ~1.2 s on this unit, the key sample is done at ~0.4 s), so a single attempt
+# would lose the race even if it were made. Left alone, the session exported TF1
+# and the second card was simply not on the PC, with nothing in the log saying
+# why. Bound the wait at 3 s: no card at all is the common case and must not
+# stall the session.
+if [ "$BOOT_MODE" -eq 1 ] && ! is_mounted /mnt/TF2 && [ -x /usr/sbin/baseos-tf2-mount ]; then
+  tf2_wait=0
+  while [ "$tf2_wait" -lt 30 ] && ! is_mounted /mnt/TF2; do
+    /usr/sbin/baseos-tf2-mount >/dev/null 2>&1 || :
+    is_mounted /mnt/TF2 && break
+    sleep 0.1
+    tf2_wait=$((tf2_wait+1))
+  done
+  if is_mounted /mnt/TF2; then
+    log "second card mounted for this session after $((tf2_wait*100)) ms"
+  else
+    log "no second card mounted after 3 s; the session will export the user partition"
+  fi
+fi
 # Prefer the removable frontend card (usually the left TF slot). If absent,
 # export only the dedicated BASEOS_DATA partition, never the boot/root system.
 if is_mounted /mnt/TF2; then

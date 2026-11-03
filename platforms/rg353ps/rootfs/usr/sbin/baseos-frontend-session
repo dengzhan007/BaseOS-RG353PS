@@ -143,89 +143,19 @@ diagnostic() {
   done
 }
 
-parent_disk_name() {
-  case "$1" in
-    *p[0-9]*) printf '%s' "${1%p[0-9]*}" ;;
-    *) return 1 ;;
-  esac
-}
-
-# Identify the physical card containing BASEOS_ROOT so it can never be
-# mistaken for TF2 while scanning removable-card partitions.
-SYSTEM_DISK=
-for event_file in /sys/class/block/*p*/uevent; do
-  [ -r "$event_file" ] || continue
-  event_dev=
-  event_part=
-  while IFS= read -r event_line || [ -n "$event_line" ]; do
-    case "$event_line" in
-      DEVNAME=*) event_dev=${event_line#DEVNAME=} ;;
-      PARTNAME=*) event_part=${event_line#PARTNAME=} ;;
-    esac
-  done < "$event_file"
-  if [ "$event_part" = "BASEOS_ROOT" ] && [ -n "$event_dev" ]; then
-    SYSTEM_DISK=$(parent_disk_name "$event_dev") || SYSTEM_DISK=
-    break
-  fi
-done
-
 mkdir -p "$TF1" "$TF2"
 ln -sfn "$TF1" /mnt/sdcard
 
-# Mount the second TF card at a separate path, probing its filesystem instead
-# of assuming FAT. Prefer the historical RG353PS device node, then discover
-# other mmcblkXp1 partitions without ever mounting a partition on TF1's disk.
-try_mount_tf2() {
-  candidate_device=$1
-  [ -b "$candidate_device" ] || return 1
-  candidate_name=${candidate_device#/dev/}
-  candidate_parent=$(parent_disk_name "$candidate_name") || return 1
-  if [ -n "$SYSTEM_DISK" ] && [ "$candidate_parent" = "$SYSTEM_DISK" ]; then
-    return 1
-  fi
-  if is_mounted "$TF2"; then
-    return 0
-  fi
-  if grep -q " $candidate_device " /proc/mounts; then
-    return 1
-  fi
-
-  candidate_type=$(blkid -p -s TYPE -o value "$candidate_device" 2>/dev/null || :)
-  case "$candidate_type" in
-    vfat|exfat|ext4) ;;
-    *) log "skipping $candidate_device: unsupported or unknown filesystem '$candidate_type'"; return 1 ;;
-  esac
-  /sbin/modprobe "$candidate_type" 2>/dev/null || :
-  if mount -t "$candidate_type" -o rw,noatime "$candidate_device" "$TF2" 2>/dev/null; then
-    log "mounted TF2 candidate $candidate_device ($candidate_type) at $TF2"
-    return 0
-  fi
-  log "could not mount TF2 candidate $candidate_device"
-  return 1
-}
-
-TF2_DEVICE=$(setting frontend_device /dev/mmcblk2p1)
-if ! is_mounted "$TF2"; then
-  try_mount_tf2 "$TF2_DEVICE" || :
-  if ! is_mounted "$TF2"; then
-    for event_file in /sys/class/block/mmcblk*p1/uevent; do
-      [ -r "$event_file" ] || continue
-      candidate_name=
-      candidate_part=
-      while IFS= read -r event_line || [ -n "$event_line" ]; do
-        case "$event_line" in
-          DEVNAME=*) candidate_name=${event_line#DEVNAME=} ;;
-          PARTNAME=*) candidate_part=${event_line#PARTNAME=} ;;
-        esac
-      done < "$event_file"
-      [ -n "$candidate_name" ] || continue
-      case "$candidate_part" in BASEOS_BOOT|BASEOS_ROOT|BASEOS_DATA) continue ;; esac
-      [ "/dev/$candidate_name" = "$TF2_DEVICE" ] && continue
-      if try_mount_tf2 "/dev/$candidate_name"; then
-        break
-      fi
-    done
-  fi
+# TF2 is normally mounted by rcS before hotkeyd can open a storage session: a
+# boot-triggered export takes whatever is mounted when it starts, so the mount
+# cannot wait for this script, which that session blocks. Retrying here covers
+# what rcS cannot: a first attempt that lost a race with the filesystem module,
+# and the re-probe this supervisor does after every storage session. The probing
+# rules -- configured node first, never the disk BASEOS_ROOT lives on, then any
+# mmcblkXp1 that is not a BASEOS_* partition -- live in that one script so the
+# two callers cannot drift apart.
+if ! is_mounted "$TF2" && [ -x /usr/sbin/baseos-tf2-mount ]; then
+  /usr/sbin/baseos-tf2-mount || :
 fi
 if ! is_mounted "$TF2"; then
   log "TF2 not present or not mountable; TF1 user data will be checked"

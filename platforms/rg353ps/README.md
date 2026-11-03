@@ -52,8 +52,14 @@ before the wait loop starts, so the screen goes straight from `WAITING` to
 USB2 PHY against the DWC3 bind; the recovery ladder (soft pulse, re-probe,
 unbind/rebind, re-probe) rescues most but not all cable/host combinations,
 and a failure there is indistinguishable from a real fault in the logs.
-The card appears as a single removable `BASEOS` exFAT volume. Unplugging does
-not need an eject first: pending writes are flushed after two idle seconds.
+One volume is exported, and the second card wins when one is inserted: the
+session exports `/mnt/TF2` if it can mount it, otherwise TF1's `BASEOS` user
+partition. A session triggered at power-on does that mount itself, because
+the frontend session that normally owns it is held behind the storage
+request and the card does not enumerate until ~1.2 s into the boot. With no
+second card inserted this adds nothing beyond a bounded 3 s wait.
+Unplugging does not need an eject first: pending writes are flushed after
+two idle seconds.
 
 ## USB debug channel: a shell without pulling the card
 
@@ -63,7 +69,8 @@ device with a dropbear listener, which gives the same practical result: a shell
 on the unit over the cable.
 
 On by default in this bring-up build. The unit takes `192.168.42.1`, hands the
-PC `192.168.42.100` over DHCP, and listens on port 22 with key-only root login:
+PC `192.168.42.100` over DHCP, and listens on port 22 for root, with either the
+key in the image or the password `root`:
 
 ```sh
 ssh -o StrictHostKeyChecking=no -i baseos-debug root@192.168.42.1

@@ -1,0 +1,127 @@
+#!/bin/sh
+# Mount the second TF card at /mnt/TF2, probing its filesystem instead of
+# assuming FAT.
+#
+# This lives in its own script because rcS and baseos-frontend-session both need
+# it, and they need it at different times. rcS runs it before hotkeyd, because a
+# boot-triggered USB storage session exports exactly what is mounted at that
+# moment: with the mount left to the frontend session, that session was blocked
+# on /run/baseos-usb-storage.boot-request, so TF2 was never mounted and the
+# session silently fell back to TF1 -- "storage mode does not show my second
+# card". The frontend session runs it again afterwards for discovery; when the
+# card is already mounted this is a no-op.
+#
+# Idempotent and non-fatal by design: no card, an unreadable filesystem or a
+# failed mount all leave /mnt/TF2 unmounted and exit 0, which is the state both
+# callers already handle.
+set -u
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH
+
+TF2=/mnt/TF2
+
+log() {
+  printf 'baseos-tf2-mount: %s\n' "$*" > /dev/kmsg 2>/dev/null || :
+  return 0
+}
+
+is_mounted() { grep -q " $1 " /proc/mounts; }
+
+parent_disk_name() {
+  case "$1" in
+    *p[0-9]*) printf '%s' "${1%p[0-9]*}" ;;
+    *) return 1 ;;
+  esac
+}
+
+# The card carrying BASEOS_ROOT is the one the system runs from. It must never be
+# mounted at /mnt/TF2, and no partition of it may be picked as a candidate.
+system_disk() {
+  for event_file in /sys/class/block/*p*/uevent; do
+    [ -r "$event_file" ] || continue
+    sd_dev=
+    sd_part=
+    while IFS= read -r event_line || [ -n "$event_line" ]; do
+      case "$event_line" in
+        DEVNAME=*) sd_dev=${event_line#DEVNAME=} ;;
+        PARTNAME=*) sd_part=${event_line#PARTNAME=} ;;
+      esac
+    done < "$event_file"
+    if [ "$sd_part" = "BASEOS_ROOT" ] && [ -n "$sd_dev" ]; then
+      parent_disk_name "$sd_dev"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# frontend_device is the historical RG353PS node; the card copy of baseos.conf
+# wins over the image copy, the same order the frontend session uses. Only the
+# value is read -- the file is never sourced.
+configured_device() {
+  for conf in /mnt/SDCARD/baseos.conf /mnt/boot/baseos.conf /etc/baseos.conf; do
+    [ -r "$conf" ] || continue
+    conf_value=$(sed -n 's/^[[:space:]]*frontend_device[[:space:]]*=[[:space:]]*//p' "$conf" 2>/dev/null | head -1 | tr -d '\r')
+    [ -n "${conf_value:-}" ] && { printf '%s' "$conf_value"; return 0; }
+  done
+  printf '%s' /dev/mmcblk2p1
+}
+
+try_mount_tf2() {
+  candidate_device=$1
+  [ -b "$candidate_device" ] || return 1
+  candidate_name=${candidate_device#/dev/}
+  candidate_parent=$(parent_disk_name "$candidate_name") || return 1
+  if [ -n "$SYSTEM_DISK" ] && [ "$candidate_parent" = "$SYSTEM_DISK" ]; then
+    return 1
+  fi
+  if is_mounted "$TF2"; then
+    return 0
+  fi
+  if grep -q " $candidate_device " /proc/mounts; then
+    return 1
+  fi
+
+  candidate_type=$(blkid -p -s TYPE -o value "$candidate_device" 2>/dev/null || :)
+  case "$candidate_type" in
+    vfat|exfat|ext4) ;;
+    *) log "skipping $candidate_device: unsupported or unknown filesystem '$candidate_type'"; return 1 ;;
+  esac
+  /sbin/modprobe "$candidate_type" 2>/dev/null || :
+  if mount -t "$candidate_type" -o rw,noatime "$candidate_device" "$TF2" 2>/dev/null; then
+    log "mounted $candidate_device ($candidate_type) at $TF2"
+    return 0
+  fi
+  log "could not mount $candidate_device"
+  return 1
+}
+
+mkdir -p "$TF2" 2>/dev/null || :
+is_mounted "$TF2" && exit 0
+
+SYSTEM_DISK=$(system_disk) || SYSTEM_DISK=
+TF2_DEVICE=$(configured_device)
+try_mount_tf2 "$TF2_DEVICE" || :
+
+if ! is_mounted "$TF2"; then
+  for event_file in /sys/class/block/mmcblk*p1/uevent; do
+    [ -r "$event_file" ] || continue
+    candidate_name=
+    candidate_part=
+    while IFS= read -r event_line || [ -n "$event_line" ]; do
+      case "$event_line" in
+        DEVNAME=*) candidate_name=${event_line#DEVNAME=} ;;
+        PARTNAME=*) candidate_part=${event_line#PARTNAME=} ;;
+      esac
+    done < "$event_file"
+    [ -n "$candidate_name" ] || continue
+    case "$candidate_part" in BASEOS_BOOT|BASEOS_ROOT|BASEOS_DATA) continue ;; esac
+    [ "/dev/$candidate_name" = "$TF2_DEVICE" ] && continue
+    if try_mount_tf2 "/dev/$candidate_name"; then
+      break
+    fi
+  done
+fi
+
+is_mounted "$TF2" || log "no second card mounted at $TF2"
+exit 0

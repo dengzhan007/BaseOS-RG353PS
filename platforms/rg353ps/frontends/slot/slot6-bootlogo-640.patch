@@ -1,7 +1,7 @@
 diff --git a/slot-main-640/crates/slot/src/bootlogo.rs b/slot-main-640/crates/slot/src/bootlogo.rs
 --- a/slot-main-640/crates/slot/src/bootlogo.rs
 +++ b/slot-main-640/crates/slot/src/bootlogo.rs
-@@ -52,5 +52,5 @@
+@@ -44,5 +44,5 @@
 -/// 屏是 720x480，开机图必须**整幅**：宽、高、24 位。
 -pub const W: u32 = 720;
 +/// RG353PS panel is 640x480. The boot partition accepts a full-frame, 24-bit BMP.

@@ -8,12 +8,13 @@
 > [dengzhan007/slot-6](https://github.com/dengzhan007/slot-6/tree/main/packaging/rg353ps)。
 > 本仓库仅保留设备适配文件；BaseOS 的系统 CI 不再触发或检查 Slot 打包。
 
-> **当前 ZIP 的适配范围：** `slot-6` 的 RG353PS package workflow 目前只应用已按当前
-> 640 源码重基线的 `slot-rg353ps.patch`（实体按键映射、左摇杆数字菜单导航）和
-> `slot-power.patch`（KEY_POWER 交给前端）。旧版 `slot-analog.patch` 与
-> `slot-bootlogo.patch` 的目标源码结构不兼容，**当前 workflow 不应用它们**。
-> 因此当前 ZIP 尚不包含游戏内左右摇杆模拟轴直通，也没有验证 RG353PS 启动分区的
-> boot-logo 写回；不能将这两项标记为已实现。
+> **当前 ZIP 的适配范围：** workflow 应用已按当前源码重基线的
+> `slot-rg353ps.patch`（实体按键映射、左摇杆数字菜单导航）与
+> `slot-power.patch`（KEY_POWER 交给前端）。boot-logo 写回已直接集成在
+> `slot-6/slot-main-640/crates/slot/src/bootlogo.rs`，不再应用历史版
+> `slot-bootlogo.patch`。它按 640×480、24 位未压缩 BMP 校验，并通过已挂载的
+> `BASEOS_BOOT` 写入 `/mnt/boot/bootlogo.bmp`；首次写入前备份至用户卡
+> `System/bootlogo-original.bmp`。游戏内左右摇杆模拟轴直通仍未包含。
 
 目标不是"把某一个 fork 编出来"，而是沉淀一套**换 fork 只改极少文件**的方法论。
 
@@ -45,7 +46,7 @@
 | 示例按键 patch | `platforms/rg353ps/frontends/slot/slot-rg353ps.patch` | 本 fork 专用按键/摇杆映射（**换 fork 要重做**） |
 | **摇杆模拟轴补丁（旧版）** | `platforms/rg353ps/frontends/slot/slot-analog.patch` | 历史实现；当前 `slot-6` 源码结构不兼容，暂不进入 RG353PS ZIP，需重基线后才能启用 |
 | **电源键补丁** | `platforms/rg353ps/frontends/slot/slot-power.patch` | KEY_POWER 交给前端，并让 `doze()` 通过 `BASEOS_SLEEP` 真正挂起整机（**改法固定，但要按 fork 的 `Btn` 枚举与 `doze` 名字对一遍**，见 §2.1 E） |
-| **boot logo 补丁（旧版）** | `platforms/rg353ps/frontends/slot/slot-bootlogo.patch` | 历史实现；当前 `slot-6` 的 `bootlogo.rs` 结构不同，分区/分辨率尚未按 RG353PS 验证，暂不进入 ZIP |
+| **boot logo 写回（当前实现）** | `slot-6/slot-main-640/crates/slot/src/bootlogo.rs` | 直接集成在 Slot-6 源码；按 GPT 分区名 `BASEOS_BOOT` 复用 `/mnt/boot`，要求 640×480/24 位/未压缩 BMP；旧 `slot-bootlogo.patch` 仅保留作历史参考 |
 | 模拟核心 | mGBA / gpSP 的 `.so`（aarch64 musl） | 与前端 fork 无关，通常直接复用 |
 
 ---
@@ -62,7 +63,7 @@
 | 6 | 设备脚本 | `led.sh`/`lid.sh` + `AGS_*` 环境变量 | 否（设备相关） | 提供 RK817 / 无 hall 传感器的版本或 stub |
 | 7 | 分辨率 | `fbdev.rs` 读 `fb0`，fallback 640×480 | 否 | 通常不动；若 fork 硬写分辨率再调 |
 | 8 | **电源键归前端** | `slot-power.patch`（`evdev.rs` + `app.rs`）+ `launch.sh` | **是（每个 fork 必做）** | 三处改动，见 §2.1 E |
-| 9 | **boot logo 写盘** | `slot-bootlogo.patch`（`bootlogo.rs`） | 否（前提是 fork 自带该模块） | 改分区名 + 复用挂载点，见 §2.1 F |
+| 9 | **boot logo 写盘** | Slot-6 的 `crates/slot/src/bootlogo.rs` | 是（当前 fork 有 Bootlogos 设置入口） | 按 `BASEOS_BOOT` 与 RG353PS 面板规格实现，复用 BaseOS 的既有挂载，见 §2.1 F |
 
 > 经验值：**第 4、5、8 项是每个 fork 真正要写的东西**，其余都是复制粘贴。
 
@@ -256,38 +257,40 @@ hotkeyd 靠 marker 决定要不要动作。**别指望前端"独占设备"，也
 验证时可以顺带看 `ls -l /proc/$(cat /run/baseos-power-frontend)/fd` 里有没有 `event1`。
 hotkeyd 让位后不再打动作日志，但它的 `KEY_EVENT` 行里仍会出现该键，这不代表失败。
 
-### F. boot logo 写回启动分区（`slot-bootlogo.patch`）
+### F. RG353PS boot logo 写回（Slot-6 当前源码）
 
-上游的契约是：logo 文件在**启动分区**根目录（`bootlogo.bmp`），用户想换图就把图放进
-数据分区的 `Config/bootlogo.bmp`，前端启动时把它写进启动分区，原图另存为
-`bootlogo.baseos.bmp`。Slot 自带这套逻辑，但在本移植上**两处都会失败**：
+当前 Slot-6 的设置页提供 Boot logo 列表切换。候选图片放在用户分区根目录的
+`Bootlogos/*.bmp`，在设置页按 A 切换到下一张并立即写入启动分区；不是旧版单文件
+`Config/bootlogo.bmp` 的启动时自动导入流程。
 
-1. **分区名不对**：它找的是 `boot-resource`，这个移植的 FAT 分区叫 `BASEOS_BOOT`，
-   于是 `partition()` 返回 `None`，直接静默放弃（只有 stderr 一行）。
-   → 加一个回退常量，`partition(PARTITION).or_else(|| partition(PORT_PARTITION))`。
-   **换机型只改这一行常量。**
-2. **二次挂载 `EBUSY`**：它无条件 `mount -t vfat` 到 `/tmp/slot-boot-resource`，
-   而 `rcS` 从开机起就把这个分区挂在 `/mnt/boot`。vfat 不允许同一设备挂两次，
-   照上游写的代码到这里必然失败。
-   → `mounted_at()` 读 `/proc/mounts` 找该设备已有的挂载点；找到就直接在里面操作，
-   并且**跳过 remount rw 和 umount**（那两个动作作用在别人的挂载点上，会把 `rcS`
-   的挂载改成 rw 或直接摘掉）。找不到才走原来的 mount/remount/umount 三步。
+目标文件仍是启动分区根目录的 `bootlogo.bmp`。RG353PS 的实际布局为：
+GPT 分区名 `BASEOS_BOOT`，BaseOS 在启动阶段已将它以可写方式挂载到 `/mnt/boot`。
+Slot-6 按 `/sys/class/block/*/uevent` 中的 `PARTNAME=BASEOS_BOOT` 找设备，
+再从 `/proc/mounts` 找到该设备已有的挂载点。它**不再二次 mount、不 remount、
+也不 umount**；如果分区没有按预期挂载或不是 rw，直接返回失败，不触碰分区。
 
-**底座侧的对应契约**（改前端时不用动，但要知道）：`rcS` 在挂上 `BASEOS_BOOT` 之后
-立刻用 `BASEOS_CUSTOM_SPLASH_ONLY=1 fbsplash 0` 画一次 `/mnt/boot/bootlogo.bmp`，
-整个启动只画这一次，不存在"用户分区挂上后再重绘"的第二遍。所以前端写盘要到
-**下一次开机**才看得到，这与上游一致。U-Boot 在本移植不驱动 VOP2，不读这个文件。
+候选图片必须为 **640×480、24 位、BI_RGB（未压缩）BMP**，包含完整像素数据。
+成功写入后会读回整份文件并逐字节比对。首次替换前，原图备份到用户分区
+`System/bootlogo-original.bmp`，之后不覆盖这份初始备份；成功选择的文件名保存在
+`System/bootlogo.txt`。目标写入路径是 `/mnt/boot/bootlogo.bmp`。
 
-**状态：写盘路径尚未上机验证。** 已验的是：补丁能干净应用到目标 commit、整条 patch
-链顺序无冲突、`rcS` 正常画出该文件、开机后 `vcsa1` 无残留文字。**未验的是**
-"Slot 把 `Config/bootlogo.bmp` 真的写进 `BASEOS_BOOT`" 这一步——当前这个 Slot 版本
-没有更换 logo 的 UI 入口，触发不到 `refresh()`。换到带入口的 fork 时补测，检查点：
+底座侧不用修改：`rcS` 在挂载 `BASEOS_BOOT` 后通过
+`BASEOS_CUSTOM_SPLASH_ONLY=1 fbsplash 0` 绘制 `/mnt/boot/bootlogo.bmp`。
+该图在启动阶段只绘制一次，所以设置页写入成功后需要**重新启动**才会看到新画面。
+历史文件 `slot-bootlogo.patch` 不再进入当前 Slot-6 package；实际实现已进入 Slot-6
+源码的 `crates/slot/src/bootlogo.rs`。
+
+**验证状态：** 源码已提交；还需等待当前 AArch64 package workflow 通过，并在 RG353PS
+上确认写入与下一次启动显示。真机验证时建议检查：
+
 ```sh
-ls -l /mnt/boot/bootlogo.bmp /mnt/boot/bootlogo.baseos.bmp
-cat /mnt/SDCARD/Logs/slot.log | grep bootlogo     # 期望 "installed"
+ls -l /mnt/boot/bootlogo.bmp /mnt/SDCARD/System/bootlogo-original.bmp
+sha256sum /mnt/boot/bootlogo.bmp /mnt/SDCARD/Bootlogos/<selected>.bmp
+grep -E 'BASEOS_BOOT|/mnt/boot' /proc/mounts
 ```
-若出现 `could not mount` / `EBUSY`，说明 `mounted_at()` 没命中——先确认
-`/proc/mounts` 里该设备名与 `/sys/class/block/*/uevent` 的 `DEVNAME` 一致。
+
+若设置页报告失败，优先检查 `BASEOS_BOOT` 是否存在、是否仍挂载在 `/mnt/boot`、
+以及挂载选项是否包含 `rw`。
 
 ### G. 不要做的事
 
@@ -438,17 +441,13 @@ RG353PS 实测参考值：`adc-joystick` 是 **event4**（`event1` 是电源键�
   所以顺序不能换。逐条改法见 §2.1 E。hotkeyd 看到
   `/run/baseos-power-frontend` 就让位，前端退出/暂停/崩溃时电源键自动回到 hotkeyd。
   移植别的 fork 时，同样要先有「doze 能挂起整机」这条路，再声明 power-owned。
-- **bootlogo 放在启动分区**：和上游 BaseOS 一致，开机画面是启动分区上的一个文件，
-  数据分区里既没有这个目录、也没有改它的入口。上游由 U-Boot 直接读 p2 的
-  `bootlogo.bmp`；这个移植的 U-Boot 不驱动 VOP2（屏幕全黑），改由 `rcS` 在挂载
-  `BASEOS_BOOT` 之后画一次 `fbsplash 0`，整个启动只画这一次。换图有两条路：卡根目录放
-  `Config/bootlogo.bmp`，Slot 启动时把它写进 `BASEOS_BOOT`（原图留作
-  `bootlogo.baseos.bmp`）；或在 PC 上把 640×480、24 位、未压缩的 BMP 直接写进该分区
-  根目录。`slot-bootlogo.patch` 让 Slot 认 `BASEOS_BOOT` 这个分区名，并在分区已经被
-  `rcS` 挂载时复用挂载点——vfat 不允许同一设备挂两次，照上游那样再 mount 一次只会
-  拿到 EBUSY。逐条改法见 §2.1 F。
-  **这一条只验到"补丁能应用、rcS 能画出 logo"，写盘那一步还没上机验证**：当前
-  Slot 版本没有更换 logo 的 UI 入口，`refresh()` 触发不到。换到带入口的 fork 再补测。
+- **bootlogo 的存储位置与绘制时机**：实际显示文件是启动分区上的
+  `/mnt/boot/bootlogo.bmp`；用户分区只保存候选图片 `Bootlogos/*.bmp`，Slot 设置页
+  负责选择并写回。当前 Slot-6 要求 640×480、24 位、未压缩 BMP，备份写到
+  `System/bootlogo-original.bmp`。本移植的 U-Boot 不驱动 VOP2，屏幕交接时保持黑屏；
+  `rcS` 在挂载 `BASEOS_BOOT` 后只绘制一次。写回后需重启才能看到新图。旧版
+  `Config/bootlogo.bmp` + `refresh()` 说明不适用于当前 Slot-6 Bootlogos 设置入口；
+  具体挂载保护、校验和检查步骤见 §2.1 F。
 - **音频**：不要指望前端自己设混音器。`baseos-audio-init` 在开机时、前端之前把
   `rk817_ext` 声卡的 ALSA `default`、DAC 音量和 Speaker Amp 开关都设好并存进
   `alsactl`；Slot 只会打开 ALSA 播放，从不碰控件。排查用 `baseos-audio-check`。
@@ -901,7 +900,8 @@ done
 - 摇杆模拟轴 patch（跨 15 个文件，与 DTS 无关）：`platforms/rg353ps/frontends/slot/slot-analog.patch`
 - 电源键归前端 patch（`evdev.rs` + `app.rs`，与 fork 的 `Btn` 枚举有关）：
   `platforms/rg353ps/frontends/slot/slot-power.patch`
-- boot logo 写回启动分区 patch（`bootlogo.rs`，只改分区名与挂载复用）：
+- boot logo 写回实现（当前在 Slot-6 主仓库，不再通过 BaseOS patch 注入）：
+  `slot-main-640/crates/slot/src/bootlogo.rs`；历史补丁：
   `platforms/rg353ps/frontends/slot/slot-bootlogo.patch`
 - 音量/电源归属实现：`platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session`
   （`claim_volume_for_frontend` / `release_power_owner`）与 `src/rg353ps-hotkeyd.c`

@@ -2397,6 +2397,37 @@ for diag_path in DIAG_FILES:
     print("RG353PS diagnostics behind dynamic debug: " + str(gated) + " call(s) in " + diag_path)
 PYCODE
 
+      # Make an already-pending OTG state-machine poll run immediately when
+      # BVALID reports a disconnect. schedule_delayed_work() does not move an
+      # existing timer; mod_delayed_work() does, including when delay is zero.
+      python3 - <<PYCODE
+from pathlib import Path
+
+source = Path("$SRC/drivers/phy/rockchip/phy-rockchip-inno-usb2.c")
+text = source.read_text()
+
+start = text.index("static void rockchip_usb2phy_otg_sm_work(struct work_struct *work)")
+end = text.index("static const char *chg_to_string", start)
+func = text[start:end]
+
+old = "\tif (sch_work)\n\t\tschedule_delayed_work(&rport->otg_sm_work, delay);"
+new = "\tif (sch_work)\n\t\tmod_delayed_work(system_wq, &rport->otg_sm_work, delay);"
+count = func.count(old)
+if count == 1:
+    func = func.replace(old, new, 1)
+elif func.count(new) == 1:
+    pass
+else:
+    raise SystemExit(
+        "Could not uniquely replace OTG delayed-work reschedule: "
+        f"old={count}, new={func.count(new)}"
+    )
+
+text = text[:start] + func + text[end:]
+source.write_text(text)
+print("Applied RG353PS OTG immediate reschedule fix using mod_delayed_work")
+PYCODE
+
     cd "$SRC"
     export ARCH=arm64 CROSS_COMPILE="$CROSS" SOURCE_DATE_EPOCH=0
     export KBUILD_BUILD_USER=baseos KBUILD_BUILD_HOST=rg353ps

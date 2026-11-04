@@ -16,6 +16,7 @@ on:
   push:
     branches:
       - main
+      - "feature/**"
     paths:
       - ".github/workflows/rg353ps-release.yml"
       - "src/fbsplash.c"
@@ -65,6 +66,9 @@ jobs:
           sh -n platforms/rg353ps/build-image.sh
           sh -n platforms/rg353ps/build-update.sh
           sh -n platforms/rg353ps/rootfs/etc/init.d/rcS
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-debug
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-mtp
+          sh tests/test-rg353ps-usb-mtp.sh
 
       - name: Build RG353PS U-Boot
         run: ./platforms/rg353ps/build-uboot.sh
@@ -76,7 +80,13 @@ jobs:
         run: ./platforms/rg353ps/build-kernel.sh
 
       - name: Build diagnostic rootfs and evdev UI
-        run: ./platforms/rg353ps/build-rootfs.sh
+        run: |
+          case "$GITHUB_REF" in
+            refs/heads/feature/*) profile=development ;;
+            *) profile=release ;;
+          esac
+          echo "Building USB profile: $profile"
+          BASEOS_USB_PROFILE="$profile" ./platforms/rg353ps/build-rootfs.sh
 
       - name: Assemble SD card image
         run: ./platforms/rg353ps/build-image.sh

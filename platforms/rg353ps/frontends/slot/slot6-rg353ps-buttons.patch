@@ -1,8 +1,7 @@
 diff --git a/slot-main-640/crates/slot/src/input/evdev.rs b/slot-main-640/crates/slot/src/input/evdev.rs
 --- a/slot-main-640/crates/slot/src/input/evdev.rs
 +++ b/slot-main-640/crates/slot/src/input/evdev.rs
-@@ -195,22 +195,27 @@
- pub fn code_to_btn(code: u16) -> Option<Btn> {
+@@ -195,21 +195,26 @@
      Some(match code {
 -        0x130 => Btn::A,
 -        0x131 => Btn::B,
@@ -35,7 +34,6 @@ diff --git a/slot-main-640/crates/slot/src/input/evdev.rs b/slot-main-640/crates
          115 => Btn::VolUp,
          114 => Btn::VolDown,
 -        116 => Btn::Power,
-+        // KEY_POWER (116) remains with rg353ps-hotkeyd in this milestone.
          // 0x162 arrives immediately behind 0x138 on one press of MENU. Mapping it too would
          // make every menu press a double tap, which is the gesture the state switcher opens
          // on, so it is deliberately nothing.

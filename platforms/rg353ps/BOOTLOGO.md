@@ -1,0 +1,233 @@
+# RG353PS boot-logo persistence and frontend contract
+
+This document defines how an RG353PS frontend can offer boot-logo selection
+without losing the selection during a BaseOS system update. It is a BaseOS
+platform contract, not a Slot-only implementation guide.
+
+## The rule: the boot partition is a cache, not the source of truth
+
+The RG353PS BaseOS layout has three relevant volumes:
+
+| Volume | Mount point | Role | Update behavior |
+|---|---|---|---|
+| BASEOS_BOOT | /mnt/boot | FAT boot files, including the active bootlogo.bmp | An A/B system update replaces the active BOOT slot |
+| BASEOS_ROOT | root filesystem | Linux userspace and services | An A/B system update replaces the active ROOTFS slot |
+| BASEOS | /mnt/SDCARD | Persistent user data, frontend files and settings | Not written by a .bosupd update |
+
+The active image consumed by BaseOS is:
+
+~~~text
+/mnt/boot/bootlogo.bmp
+~~~
+
+That file is only the current boot-slot copy. It must **not** be the only
+persistent copy of a user's selection. The .bosupd payload contains both
+BASEOS_BOOT and BASEOS_ROOT; the updater writes the inactive halves,
+verifies them, then flips the GPT. The old active BOOT filesystem is therefore
+replaced just like the old ROOTFS. A custom image stored only on
+BASEOS_BOOT is expected to be replaced by the image shipped in the update.
+
+The persistent user volume is not part of that update. Frontends must store the
+selected image and its selection record there, then let BaseOS restore the
+active /mnt/boot/bootlogo.bmp from that durable state during startup.
+
+## Persistent state contract
+
+For RG353PS, the shared BaseOS restore contract is currently:
+
+~~~text
+/mnt/SDCARD/
+├── Bootlogos/
+│   └── <image-name>.bmp
+└── System/
+    ├── bootlogo.txt
+    └── bootlogo-original.bmp
+~~~
+
+| Path | Owner | Purpose |
+|---|---|---|
+| /mnt/SDCARD/Bootlogos/<image-name>.bmp | Frontend / user | Durable source image for the selected logo |
+| /mnt/SDCARD/System/bootlogo.txt | Frontend / user | One-line selected filename, including .bmp, without a directory component |
+| /mnt/SDCARD/System/bootlogo-original.bmp | Frontend | One-time backup of the image that was installed before the first custom selection |
+| /mnt/boot/bootlogo.bmp | BaseOS | Active copy read by fbsplash on the next boot |
+
+The selection record must contain only a basename, for example:
+
+~~~text
+neon-grid.bmp
+~~~
+
+Do not store an absolute path, a mount point, or a path containing slash or
+backslash. The startup restore code treats this value as a filename below
+/mnt/SDCARD/Bootlogos/; it must never be able to escape that directory.
+
+**Important for frontend authors:** the durable source and selection record
+must be on the system's persistent BASEOS volume at /mnt/SDCARD, not only
+inside /mnt/boot, a temporary directory, or a frontend-specific cache that
+BaseOS cannot read before frontend launch. This keeps the selection independent
+of which frontend is installed and of which A/B system slot is active.
+
+The current Slot implementation uses the compatible names Bootlogos/ and
+System/bootlogo.txt. When Slot is installed on TF1, its frontend root
+(/mnt/sdcard) resolves to the same persistent system-card data. When a
+frontend is launched from TF2, its /mnt/sdcard root can instead be TF2; the
+current BaseOS early restore path reads TF1's /mnt/SDCARD, not TF2. A
+frontend running from TF2 must therefore write the shared boot-logo state to
+/mnt/SDCARD explicitly if it wants the BaseOS update-restore behavior.
+Do not assume that /mnt/sdcard and /mnt/SDCARD are interchangeable.
+
+## Image format
+
+The RG353PS panel is 640 × 480. A supported boot image is:
+
+- Windows BMP, 640 × 480 pixels (positive bottom-up or negative top-down height).
+- 24 bits per pixel, one plane.
+- BI_RGB / uncompressed (compression field = 0).
+- Complete pixel array and valid BMP/DIB headers.
+- No palette, RLE, bitfields, or 32-bit BMP.
+
+For a standard 54-byte header, the expected pixel payload is 921,600 bytes and
+the minimum complete file size is 921,654 bytes. The row size is already
+4-byte aligned at this resolution. The frontend must validate the file before
+installing or recording it as the selected image. Do not infer format from the
+filename extension alone.
+
+## Frontend write protocol
+
+A frontend that implements boot-logo selection must:
+
+1. **Validate first.** Accept only the RG353PS BMP format above. Reject a
+   malformed, truncated, wrong-resolution, compressed, or wrong-bit-depth file
+   without changing the current selection.
+2. **Keep a durable source.** Copy the candidate into
+   /mnt/SDCARD/Bootlogos/<image-name>.bmp. The frontend may offer its own
+   picker and presentation, but BaseOS must be able to find the selected
+   source independently of the frontend process.
+3. **Reuse the mounted boot volume.** Use BASEOS_BOOT=/mnt/boot (or the
+   documented mount point) and verify that it is already mounted read-write
+   from the GPT partition named BASEOS_BOOT. Do not mount it a second time,
+   remount it, or unmount it. Its lifecycle belongs to BaseOS.
+4. **Preserve the original once.** Before the first custom replacement, save
+   the original active image as
+   /mnt/SDCARD/System/bootlogo-original.bmp. Never overwrite this backup
+   on later selections.
+5. **Install and verify.** Write the requested image to
+   /mnt/boot/bootlogo.bmp, then read it back and compare the complete byte
+   contents. Prefer writing a temporary file on the same FAT volume, verifying
+   it, and renaming it over the target so a power loss cannot leave a partially
+   written target. Call sync before reporting success.
+6. **Commit the selection last.** Only after the boot-volume write and read-back
+   succeed, write the selected basename to
+   /mnt/SDCARD/System/bootlogo.txt and flush it. If installation fails,
+   retain the previous selection and report failure; do not update the
+   selection record optimistically.
+7. **Do not repaint from the frontend.** The file is consumed by BaseOS at
+   startup. Tell the user the change takes effect on the next boot; do not
+   fight the active DRM/KMS display or draw a second splash from the frontend.
+
+The original image backup and selected image source both belong on the
+persistent data volume. A frontend may keep extra metadata or thumbnails, but
+those files are not part of the BaseOS restore contract.
+
+## BaseOS startup restore sequence
+
+The RG353PS rcS path owns restoration and boot-time display:
+
+1. Mount BASEOS_BOOT at /mnt/boot and make an early splash attempt using
+   the current slot's bootlogo.bmp.
+2. Mount/initialize the persistent BASEOS user volume at /mnt/SDCARD.
+3. Unless this is a Function-triggered USB-storage boot, read
+   System/bootlogo.txt, validate the selected basename, and look for the
+   corresponding file under Bootlogos/.
+4. If the source differs from /mnt/boot/bootlogo.bmp, stage it on the boot
+   filesystem, compare the staged bytes against the persistent source, and
+   rename it into place. The restore is skipped when the source is missing or
+   the current boot image already matches.
+5. Mark the early splash as stale and call fbsplash again so the selected
+   image, rather than the image embedded in the newly activated BOOT slot, is
+   what the panel shows before the frontend starts.
+
+The early draw keeps the display useful while user storage is being prepared.
+If a system update supplied a new default image, it can appear briefly before
+the persistent custom image has been restored and redrawn. This is expected in
+the current startup ordering; the final startup image is the selected image.
+
+If the selection record or its source file is absent, BaseOS does not invent a
+selection. The current active boot image remains in use; the separate legacy
+fallback may seed a missing bootlogo.bmp from an older data-card location
+or the bundled default. USB-storage boot intentionally skips logo restoration
+so that boot's storage workflow retains display ownership.
+
+## Update lifecycle
+
+The expected lifecycle for a normal .bosupd update is:
+
+~~~text
+Before update:
+  BASEOS_BOOT/bootlogo.bmp             active custom image
+  BASEOS/Bootlogos/neon-grid.bmp       durable source
+  BASEOS/System/bootlogo.txt           neon-grid.bmp
+
+A/B update:
+  write inactive BASEOS_BOOT + BASEOS_ROOT
+  verify both regions
+  flip GPT to the new slots
+  leave BASEOS user data untouched
+
+Next boot:
+  mount new BASEOS_BOOT at /mnt/boot
+  mount BASEOS user data at /mnt/SDCARD
+  restore Bootlogos/neon-grid.bmp -> /mnt/boot/bootlogo.bmp
+  draw selected image
+~~~
+
+This is why a manually copied image on /mnt/boot alone is not update-safe.
+For a selection to survive an update, both its durable source and the selected
+filename record must exist on BASEOS before the update begins.
+
+## BaseOS interface available to adapters
+
+The RG353PS frontend session exports these environment variables to an adapter:
+
+| Variable | Meaning |
+|---|---|
+| PLATFORM | rg353ps |
+| BASEOS_BOOT | /mnt/boot, the already-mounted boot partition |
+| BASEOS_FRONTEND_ROOT | Root of the selected frontend card (TF2 or TF1) |
+| BASEOS_DATA_DIR | Frontend-specific persistent data directory |
+| BASEOS_USERDATA_DIR | Frontend-specific persistent userdata directory |
+
+Those frontend-root variables are useful for frontend-owned settings, but they
+do not change the shared boot-logo restore location: the current BaseOS
+startup restore contract reads the shared files from /mnt/SDCARD.
+
+## Adding another frontend
+
+A new RG353PS frontend should implement the same user-facing selection behavior
+but does not need to duplicate BaseOS's boot restore logic. It should:
+
+- Read candidate BMPs from a user-facing folder or import them into
+  /mnt/SDCARD/Bootlogos/.
+- Write the selected filename using the shared
+  /mnt/SDCARD/System/bootlogo.txt contract.
+- Reuse /mnt/boot/bootlogo.bmp only for the immediate active copy, and follow
+  the write/verify/backup rules above.
+- Leave restoration and the actual boot-time draw to BaseOS.
+- Preserve the shared files during frontend upgrades and uninstallation unless
+  the user explicitly asks to remove their boot-logo settings.
+
+A frontend that invents a different state path must also provide a migration to
+the shared contract or request a corresponding BaseOS platform change. The OS
+must not need to understand each frontend's private settings format.
+
+## Implementation references
+
+- BaseOS startup and recovery: platforms/rg353ps/rootfs/etc/init.d/rcS
+  (restore_selected_bootlogo).
+- Boot-volume mount: platforms/rg353ps/rootfs/usr/sbin/baseos-mount-storage.
+- A/B update region definition: platforms/rg353ps/rootfs/usr/sbin/baseos-update
+  (REGIONS="boot rootfs").
+- Update payload composition: platforms/rg353ps/build-update.sh.
+- Initial boot partition and bundled logo: platforms/rg353ps/build-image.sh.
+- Current frontend implementation: [Slot-6 bootlogo module](https://github.com/dengzhan007/slot-6/blob/main/slot-main-640/crates/slot/src/bootlogo.rs)
+  and [RG353PS Slot porting guide](https://github.com/dengzhan007/slot-6/blob/main/PORTING-RG353PS-SLOT640.md).

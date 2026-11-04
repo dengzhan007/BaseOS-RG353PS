@@ -10,10 +10,9 @@ index 3db977b..b3e4045 100644
 -           action is a doze that only blanks the panel, while BaseOS suspends
 -           the whole unit for the same tap; with both claiming the key one tap
 -           blanked the screen and never slept. rg353ps-hotkeyd owns it now. */
-+        /* KEY_POWER. The frontend owns the key on this port - its launch script
-+           carries the baseos: power-owned marker - so a hold reaches Slot's own
-+           shutdown screen, which flushes its state, instead of a bare poweroff
-+           from the hotkey daemon, and a tap reaches App::doze(), which chooses between
++        /* KEY_POWER. The launcher marks Slot power-owned. A hold opens its
++           power menu; a confirmed choice performs the shutdown instead of a bare
++           hotkeyd poweroff. A tap reaches App::doze(), which chooses between
 +           screen-off music playback and the device suspend helper. */
 +        116 => Btn::Power,
          _ => return None,

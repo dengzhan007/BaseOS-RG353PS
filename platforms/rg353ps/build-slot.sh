@@ -37,8 +37,8 @@ fi
 baseos_require_aarch64
 if ! docker image inspect "$SLOT_BUILD_IMAGE" >/dev/null 2>&1; then
   echo "== preparing Slot-6 AArch64 musl build image =="
-  docker build --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \\
-    -f "$HERE/frontends/slot/Dockerfile.slot-build" \\
+  docker build --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
+    -f "$HERE/frontends/slot/Dockerfile.slot-build" \
     -t "$SLOT_BUILD_IMAGE" "$REPO_ROOT"
 fi
 

@@ -57,6 +57,15 @@ See the [RG353PS boot-logo persistence and frontend contract](BOOTLOGO.md)
 for the complete partition model, file layout, startup sequence, update
 lifecycle, BMP requirements and frontend implementation rules.
 
+## USB: composite MTP and development SSH
+
+The USB device port is managed below the frontend layer by one BaseOS Gadget.
+Development images default to USB network + SSH + MTP for remote debugging and
+transfer testing; release images default to MTP only. Mass Storage remains a
+separate, exclusive mode using the existing Function + Power / diagnostic
+controls. See [USB.md](USB.md) for the architecture, profiles, FunctionFS
+startup order, storage boundary and hardware validation checklist.
+
 ## USB storage mode: plug the cable first
 
 Connect the USB data cable **before** triggering storage mode (long-press

@@ -13,8 +13,8 @@ index 3db977b..b3e4045 100644
 +        /* KEY_POWER. The frontend owns the key on this port - its launch script
 +           carries the baseos: power-owned marker - so a hold reaches Slot's own
 +           shutdown screen, which flushes its state, instead of a bare poweroff
-+           from the hotkey daemon, and a tap reaches Slot's doze, which hands the
-+           unit to rg353ps-sleep for a real s2idle. */
++           from the hotkey daemon, and a tap reaches App::doze(), which chooses between
++           screen-off music playback and the device suspend helper. */
 +        116 => Btn::Power,
          _ => return None,
      })

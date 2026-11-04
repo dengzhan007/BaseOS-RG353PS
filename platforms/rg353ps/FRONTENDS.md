@@ -44,38 +44,73 @@ re-asserted after resume and before a frontend launches, so a codec re-probe
 cannot silently change the level.
 
 
-## First frontend target: Slot (experimental)
+## Slot frontend (experimental)
 
-SDL2 KMSDRM/EGL/GLES now initializes on the RG353PS and reports the Mali-G52
-Panfrost renderer. The first frontend adaptation target is Slot because its
-device UI is smaller than NextUI's H700-specific userspace. Upstream Slot
-currently targets Anbernic H700 devices and is Game Boy / Game Boy Color / Game
-Boy Advance focused; this is not an upstream-supported RG353PS port.
+The RG353PS Slot device adapter uses SDL2 KMSDRM + GLES on Mesa/Panfrost and
+ALSA direct output. This is a device-specific port of the Slot-6 fork; it is
+not an upstream-supported RG353PS target.
 
-The independent builder is:
+**Ownership and documentation:** Slot source, RG353PS packaging workflow,
+Dockerfile and build script are maintained in
+[dengzhan007/slot-6](https://github.com/dengzhan007/slot-6). The maintained
+porting guide is [slot-6/PORTING.md](https://github.com/dengzhan007/slot-6/blob/main/PORTING.md);
+the fork-specific implementation and real-device checklist are in
+[PORTING-RG353PS-SLOT640.md](https://github.com/dengzhan007/slot-6/blob/main/PORTING-RG353PS-SLOT640.md);
+build details are in
+[packaging/rg353ps/README.md](https://github.com/dengzhan007/slot-6/blob/main/packaging/rg353ps/README.md).
+This BaseOS repository supplies only the device runtime adapter:
+`fbdev.rs`, `launch.sh`, RG353PS input/power patches, sleep helper and system
+integration. It no longer stores a duplicate Slot porting guide or builds Slot.
 
-```sh
-./platforms/rg353ps/build-slot.sh
-```
+### Build and package
 
-It pins the upstream Slot source revision, replaces its device-specific EGL
-window with SDL2 KMSDRM, applies the RG353PS Nintendo-layout A/B mapping, and
-builds a separate frontend-card ZIP. The package builder is a separate CI job;
-it does not inject Slot into the default OS smoke image or alter the Miyoo Flip
-build. The bundle includes the exact patched Slot source plus corresponding
-mGBA/gpSP source archives and patch/license materials under
-`System/licenses/`. Do not consider the bundle device-validated until its CI
-build passes and it has been smoke-tested on the handheld.
+Run the **Slot-6 RG353PS package** workflow from the Slot-6 repository. The
+workflow checks out Slot-6 source and the selected BaseOS device-adapter ref,
+then produces a frontend install ZIP and SHA-256 file. It does not build a
+BaseOS system image.
 
-When a successful `baseos-rg353ps-slot` workflow artifact is available, back up the card and flash the new three-partition image if your current image predates `BASEOS`. Shut down after the first boot so the data partition can finish initializing.
+Routine builds default to `build_cores=false`: they compile the Slot frontend
+but do not fetch or rebuild the unchanged mGBA/gpSP cores. The ZIP is a
+frontend-only overlay; it does not include core `.so` files and does not delete
+existing `System/mgba_libretro.so` or `System/gpsp_libretro.so` when extracted
+over an existing installation. Set `build_cores=true` only when core revisions
+or build recipes intentionally change. Cargo registry/toolchain/target caches
+are maintained by the Slot-6 workflow.
 
-To install Slot on TF2, extract the ZIP contents directly into the root of the TF2 card (not into a containing folder, and not onto `BASEOS_BOOT`). To install it on TF1 instead, extract the same contents into the root of the `BASEOS` partition. No `baseos.conf` edits are required: BaseOS automatically chooses a usable frontend on TF2 first, then falls back to TF1 user data.
+### Current device scope
 
-Keep the original system card and your saves backed up while testing. Because the frontend adapter is a shell script executed with root privileges, only install packages you trust. exFAT/Windows extraction may not preserve Unix executable permissions, so the Slot adapter only checks that `System/slot` exists and copies it to writable `/tmp` before execution.
+- The frontend starts through SDL2 KMSDRM + GLES and uses ALSA direct output.
+- Ordinary physical buttons other than the analog sticks have been reported
+  working; audio and Wi-Fi have also been reported working.
+- RG353PS key mapping and left-stick digital menu navigation are applied by
+  `slot-rg353ps.patch`; `slot-power.patch` returns `KEY_POWER` to Slot.
+- Slot's power menu uses a roughly one-second hold; A confirms poweroff/restart
+  and B cancels. A short press while music is actually playing blanks the panel
+  but keeps playback alive; otherwise Slot calls
+  `/usr/sbin/rg353ps-sleep` for system suspend.
+- Boot-logo selection is in Slot-6 source. Candidate BMPs go in
+  `Bootlogos/*.bmp`; Slot writes the selected 640×480, 24-bit, uncompressed
+  BMP to `/mnt/boot/bootlogo.bmp` on the already-mounted `BASEOS_BOOT`
+  partition. The original image is backed up once to
+  `System/bootlogo-original.bmp`. Actual partition writeback and next-boot
+  display still require RG353PS hardware verification.
+- Game-level `RETRO_DEVICE_ANALOG` passthrough for left/right sticks and L3/R3
+  are not included in the current package.
 
-This first target is intentionally a limited milestone: successful compilation
-or menu launch does not establish correctness of all buttons, sound, battery,
-brightness, sleep/wake, emulator launch, saves, or long-duration behavior.
-NextUI remains a separate porting target; its H700 launcher currently assumes
-an H700-specific `mali` SDL backend and stock-OS services, so it needs its own
-adapter/runtime work rather than reusing the H700 zip as-is.
+### Installation
+
+To install Slot on TF2, extract the ZIP contents directly into the root of the
+TF2 card (not into a containing folder, and not onto `BASEOS_BOOT`). To install
+it on TF1 instead, extract the same contents into the root of the `BASEOS`
+partition. No `baseos.conf` edits are required: BaseOS automatically chooses a
+usable frontend on TF2 first, then falls back to TF1 user data.
+
+Keep the original system card and saves backed up while testing. Adapter
+scripts run with root privileges, so only use packages you trust. exFAT/Windows
+extraction may not preserve Unix executable permissions; the Slot launcher
+copies `System/slot` to writable `/tmp` before executing it.
+
+The current port remains experimental. Successful compilation or menu launch
+does not establish correctness of all inputs, sleep/wake, Bootlogo writeback,
+emulator launch, saves or long-duration behavior. NextUI remains a separate
+porting target and requires its own runtime adaptation.

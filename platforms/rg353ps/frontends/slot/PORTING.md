@@ -8,6 +8,13 @@
 > [dengzhan007/slot-6](https://github.com/dengzhan007/slot-6/tree/main/packaging/rg353ps)。
 > 本仓库仅保留设备适配文件；BaseOS 的系统 CI 不再触发或检查 Slot 打包。
 
+> **当前 ZIP 的适配范围：** `slot-6` 的 RG353PS package workflow 目前只应用已按当前
+> 640 源码重基线的 `slot-rg353ps.patch`（实体按键映射、左摇杆数字菜单导航）和
+> `slot-power.patch`（KEY_POWER 交给前端）。旧版 `slot-analog.patch` 与
+> `slot-bootlogo.patch` 的目标源码结构不兼容，**当前 workflow 不应用它们**。
+> 因此当前 ZIP 尚不包含游戏内左右摇杆模拟轴直通，也没有验证 RG353PS 启动分区的
+> boot-logo 写回；不能将这两项标记为已实现。
+
 目标不是"把某一个 fork 编出来"，而是沉淀一套**换 fork 只改极少文件**的方法论。
 
 ---
@@ -36,9 +43,9 @@
 | **显示后端替换** | `platforms/rg353ps/frontends/slot/fbdev.rs` | SDL2 KMSDRM+GLES 版 `fbdev.rs`，**fork 间基本直接复用** |
 | **运行环境** | `platforms/rg353ps/frontends/slot/launch.sh` | `SDL_VIDEODRIVER=kmsdrm` / `SDL_AUDIODRIVER=alsa` / 暂存二进制到 tmpfs / `--init-root` |
 | 示例按键 patch | `platforms/rg353ps/frontends/slot/slot-rg353ps.patch` | 本 fork 专用按键/摇杆映射（**换 fork 要重做**） |
-| **摇杆补丁** | `platforms/rg353ps/frontends/slot/slot-analog.patch` | 让摇杆真的成为模拟轴送到 libretro 核心，并把摇杆按压变成可绑定的 L3/R3（**通用，换 fork 一般直接可用**） |
+| **摇杆模拟轴补丁（旧版）** | `platforms/rg353ps/frontends/slot/slot-analog.patch` | 历史实现；当前 `slot-6` 源码结构不兼容，暂不进入 RG353PS ZIP，需重基线后才能启用 |
 | **电源键补丁** | `platforms/rg353ps/frontends/slot/slot-power.patch` | KEY_POWER 交给前端，并让 `doze()` 通过 `BASEOS_SLEEP` 真正挂起整机（**改法固定，但要按 fork 的 `Btn` 枚举与 `doze` 名字对一遍**，见 §2.1 E） |
-| **boot logo 补丁** | `platforms/rg353ps/frontends/slot/slot-bootlogo.patch` | 让前端认 `BASEOS_BOOT` 这个分区名，并复用 `rcS` 已建立的挂载点（**换机型只改一个常量**，见 §2.1 F） |
+| **boot logo 补丁（旧版）** | `platforms/rg353ps/frontends/slot/slot-bootlogo.patch` | 历史实现；当前 `slot-6` 的 `bootlogo.rs` 结构不同，分区/分辨率尚未按 RG353PS 验证，暂不进入 ZIP |
 | 模拟核心 | mGBA / gpSP 的 `.so`（aarch64 musl） | 与前端 fork 无关，通常直接复用 |
 
 ---

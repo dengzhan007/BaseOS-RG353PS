@@ -1,11 +1,8 @@
 diff --git a/slot-main-640/crates/slot/src/audio/alsa.rs b/slot-main-640/crates/slot/src/audio/alsa.rs
 --- a/slot-main-640/crates/slot/src/audio/alsa.rs
 +++ b/slot-main-640/crates/slot/src/audio/alsa.rs
-@@ -29,7 +29,10 @@ const CHANNELS: c_uint = 2;
- /// plug: wrapper is what makes default reachable at all, since it resolves to a raw
- /// hw: slave that cannot convert the GBA's 32768 Hz to the 32000 the codec runs at, and a
- /// bare default fails on the rate alone.
+@@ -34,1 +34,4 @@
 -const DEVICES: [&str; 4] = ["plug:default", "default", "plughw:0,0", "hw:0,0"];
-+/// RG353PS BaseOS routes default through RK817 + softvol. Do not fall through to
-+/// card-number-specific plughw/hw devices: those can bypass the system volume control.
++// RG353PS BaseOS routes default through RK817 + softvol. Avoid raw card-number
++// fallbacks: they can bypass the system volume control.
 +const DEVICES: [&str; 2] = ["plug:default", "default"];

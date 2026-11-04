@@ -59,4 +59,11 @@ unmount_line="$(grep -n '^umount_msg=' "$USB/rootfs/usr/sbin/baseos-usb-storage"
 grep -Fq 'BASEOS_USB_PROFILE' "$USB/build-rootfs.sh"
 grep -Fq 'BASEOS_USB_PROFILE="$profile"' "$ROOT/.github/workflows/rg353ps-release.yml"
 
+# Reconnect supervisor: sub-second sampling, short fault confirmation, and
+# asynchronous recovery so driver re-probes cannot block cable detection.
+grep -Fq 'sleep 0.5' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq '[ $((tick - stuck_since)) -ge 4 ]' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'RECOVERY_LOCK=/run/baseos-usb-debug.recovery.lock' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'refusing controller hand-off' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+
 echo "RG353PS USB MTP static checks passed"

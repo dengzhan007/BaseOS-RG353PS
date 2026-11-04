@@ -1,10 +1,7 @@
 diff --git a/slot-main-640/crates/slot/src/input/evdev.rs b/slot-main-640/crates/slot/src/input/evdev.rs
 --- a/slot-main-640/crates/slot/src/input/evdev.rs
 +++ b/slot-main-640/crates/slot/src/input/evdev.rs
-@@ -204,27 +204,39 @@ pub fn to_raw(ev: Ev) -> Option<RawEvent> {
- /// Read off the device with SLOT_TRACE_INPUT, pressing the buttons in a known order. The
- /// board does not use the kernel's names for its own layout — 0x137 is BTN_TR in the
- /// headers and START on the case — so these are transcribed rather than reasoned about.
+@@ -204,22 +204,27 @@
  pub fn code_to_btn(code: u16) -> Option<Btn> {
      Some(match code {
 -        0x130 => Btn::A,
@@ -18,7 +15,7 @@ diff --git a/slot-main-640/crates/slot/src/input/evdev.rs b/slot-main-640/crates
 -        0x138 => Btn::Menu,
 -        0x13a => Btn::L2,
 -        0x13b => Btn::R2,
-+        // RG353PS gpio-keys/gamepad layout. The face labels follow Nintendo order.
++        // RG353PS physical layout; face labels follow Nintendo order.
 +        0x130 => Btn::B,      // BTN_SOUTH
 +        0x131 => Btn::A,      // BTN_EAST
 +        0x133 => Btn::X,      // BTN_NORTH
@@ -30,7 +27,7 @@ diff --git a/slot-main-640/crates/slot/src/input/evdev.rs b/slot-main-640/crates
 +        0x13a => Btn::Select,
 +        0x13b => Btn::Start,
 +        0x13c => Btn::Menu,   // BTN_MODE / Function
-+        // D-pad may be reported as BTN_DPAD_* or as KEY_UP/DOWN/LEFT/RIGHT.
++        // D-pad as BTN_DPAD_* or KEY_UP/DOWN/LEFT/RIGHT.
 +        0x220 | 103 => Btn::Up,
 +        0x221 | 108 => Btn::Down,
 +        0x222 | 105 => Btn::Left,
@@ -38,14 +35,14 @@ diff --git a/slot-main-640/crates/slot/src/input/evdev.rs b/slot-main-640/crates
          115 => Btn::VolUp,
          114 => Btn::VolDown,
 -        116 => Btn::Power,
-+        // KEY_POWER (116) intentionally remains with rg353ps-hotkeyd for now.
++        // KEY_POWER (116) remains with rg353ps-hotkeyd in this milestone.
          // 0x162 arrives immediately behind 0x138 on one press of MENU. Mapping it too would
          // make every menu press a double tap, which is the gesture the state switcher opens
          // on, so it is deliberately nothing.
          _ => return None,
      })
  }
-@@
+@@ -233,5 +238,4 @@
 -const WANTED: [u16; 15] = [
 -    0x130, 0x131, 0x132, 0x133, 0x134, 0x135, 0x136, 0x137, 0x138, 0x13a, 0x13b, 0x162, 115, 114,
 -    116,

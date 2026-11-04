@@ -400,7 +400,7 @@ state_old = "\t\tif (rport->vbus_attached != vbus_attach) {"
 state_new = (
     "\t\tif (notify_charger || rport->vbus_attached != vbus_attach)\n"
     "\t\t\tdev_info(&rport->phy->dev, "
-    "\"RG353PS OTG VBUS decision: notify=%d chg_state=%d chg_type=%d old=%d new=%d\\n\", "
+    "\"RG353PS OTG VBUS decision: notify=%d chg_state=%d chg_type=%d old=%d new=%d" + chr(92) + "n\", "
     "notify_charger, rphy->chg_state, rphy->chg_type, "
     "rport->vbus_attached, vbus_attach);\n"
     "\t\tif (notify_charger && rport->vbus_attached != vbus_attach) {"

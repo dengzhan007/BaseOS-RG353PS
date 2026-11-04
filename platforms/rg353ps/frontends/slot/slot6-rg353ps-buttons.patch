@@ -1,7 +1,7 @@
 diff --git a/slot-main-640/crates/slot/src/input/evdev.rs b/slot-main-640/crates/slot/src/input/evdev.rs
 --- a/slot-main-640/crates/slot/src/input/evdev.rs
 +++ b/slot-main-640/crates/slot/src/input/evdev.rs
-@@ -195,21 +195,26 @@
+@@ -196,21 +196,26 @@
      Some(match code {
 -        0x130 => Btn::A,
 -        0x131 => Btn::B,

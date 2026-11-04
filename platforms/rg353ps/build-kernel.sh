@@ -482,13 +482,13 @@ extcon_new = r"""			if (notify_charger && rphy->edev) {
 				int extcon_ret;
 
 				dev_info(&rport->phy->dev,
-					 "RG353PS extcon notify before: cable=%d vbus=%d usb=%d\\n",
+					 "RG353PS extcon notify before: cable=%d vbus=%d usb=%d\n",
 					 cable, vbus_attach,
 					 extcon_get_state(rphy->edev, EXTCON_USB));
 				extcon_ret = extcon_set_state_sync(rphy->edev,
 							       cable, vbus_attach);
 				dev_info(&rport->phy->dev,
-					 "RG353PS extcon charger result: cable=%d state=%d ret=%d\\n",
+					 "RG353PS extcon charger result: cable=%d state=%d ret=%d\n",
 					 cable, vbus_attach, extcon_ret);
 
 				extcon_ret = extcon_set_state_sync(rphy->edev, EXTCON_USB,
@@ -496,7 +496,7 @@ extcon_new = r"""			if (notify_charger && rphy->edev) {
 							       (cable == EXTCON_CHG_USB_SDP ||
 							        cable == EXTCON_CHG_USB_CDP));
 				dev_info(&rport->phy->dev,
-					 "RG353PS extcon data result: usb=%d ret=%d\\n",
+					 "RG353PS extcon data result: usb=%d ret=%d\n",
 					 extcon_get_state(rphy->edev, EXTCON_USB), extcon_ret);
 			}
 """

@@ -815,15 +815,22 @@ do_stop() {
     if [ -e "$G/UDC" ]; then
         printf '\n' >"$G/UDC" 2>/dev/null || :
     fi
-    say "debug channel stopped; UDC released"
+    # Unbind first; only then release FunctionFS so Mass Storage can take UDC.
+    if [ -x /usr/sbin/baseos-usb-mtp ]; then
+        /usr/sbin/baseos-usb-mtp stop >/dev/null 2>&1 || :
+    fi
+    say "USB gadget stopped; UDC released"
     persist_log
 }
-
 do_status() {
     iface=$(cat /run/baseos-usb-debug.iface 2>/dev/null || find_iface || echo none)
     UDC=$(find_udc)
     printf 'usb_debug: %s\n' "$(config_value usb_debug || echo unset)"
+    printf 'usb_mtp:   %s\n' "$(config_value usb_mtp || echo unset)"
     printf 'gadget:    %s\n' "$([ -d "$G" ] && echo present || echo absent)"
+    if [ -x /usr/sbin/baseos-usb-mtp ]; then
+        /usr/sbin/baseos-usb-mtp status | sed 's/^/mtp:       /'
+    fi
     printf 'function:  %s\n' "$(config_value usb_debug_mode || echo rndis)"
     printf 'udc bound: %s\n' "$(cat "$G/UDC" 2>/dev/null || echo none)"
     printf 'udc state: %s\n' "$(udc_state)"

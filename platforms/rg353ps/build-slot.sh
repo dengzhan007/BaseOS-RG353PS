@@ -9,6 +9,7 @@ REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 
 WORK="${RG353PS_WORK:-$REPO_ROOT/work/rg353ps}"
 OUT="$WORK/frontends"
+SLOT_BUILD_IMAGE="${SLOT_BUILD_IMAGE:-rg353ps-slot-build:latest}"
 mkdir -p "$OUT"
 
 # Pin the exact source snapshot audited for this port. SLOT_SRC can point at an
@@ -33,6 +34,14 @@ else
   git -C "$SRC_HOST" checkout --detach "$SLOT_REV"
 fi
 
+baseos_require_aarch64
+if ! docker image inspect "$SLOT_BUILD_IMAGE" >/dev/null 2>&1; then
+  echo "== preparing Slot-6 AArch64 musl build image =="
+  docker build --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \\
+    -f "$HERE/frontends/slot/Dockerfile.slot-build" \\
+    -t "$SLOT_BUILD_IMAGE" "$REPO_ROOT"
+fi
+
 echo "== building Slot-6 RG353PS frontend-only bundle =="
 echo "   source: $SLOT_REPO @ $SLOT_REV"
 docker run --rm --network host --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
@@ -42,7 +51,7 @@ docker run --rm --network host --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
   -v rg353ps-slot-target:/cargo-target \
   -v "$SRC_HOST":/slot-up:ro \
   -e SLOT_REV="$SLOT_REV" \
-  "${SLOT_BUILD_IMAGE:-rg353ps-slot-build:latest}" sh -euc '
+  "$SLOT_BUILD_IMAGE" sh -euc '
     export RUSTFLAGS="-C target-feature=-crt-static"
     export CARGO_HOME=/usr/local/cargo
     if [ -n "'"${SLOT_TOOLCHAIN:-}"'" ]; then

@@ -10,14 +10,11 @@
 # Windows 10/11 binds it without a driver package, and `ssh root@192.168.42.1`
 # runs anything a local shell could. It costs about 400 KB of rootfs.
 #
-# The port is a network by default and mass storage on demand: baseos-usb-storage
-# calls "stop" before it takes the UDC and "start" again from its cleanup trap,
-# so Function + Mode storage requests keep working with this enabled.
-#
-# On by default on this bring-up build; baseos.conf can turn it off. Nothing
-# listens on Wi-Fi, the sshd binds the USB address only. The wire protocol is
-# RNDIS unless baseos.conf sets usb_debug_mode=ncm, which is what a Windows 11
-# host that no longer ships the RNDIS driver needs.
+# Development builds default to a composite network + MTP gadget; release
+# builds default to MTP only. Mass Storage remains on-demand and exclusive:
+# baseos-usb-storage stops this manager before it takes the UDC, then starts it
+# again during cleanup. SSH listens only on the USB network address; MTP exports
+# only /mnt/SDCARD. The network function defaults to RNDIS and can use NCM/ECM.
 #
 # Usage: baseos-usb-debug start|stop|restart|status
 
@@ -578,6 +575,14 @@ build_gadget() {
     printf 'BaseOS USB' >"$G/configs/c.1/strings/0x409/configuration" 2>/dev/null || :
 
     FUNC=
+    if [ "$NETWORK_ENABLED" -eq 0 ]; then
+        # A previous development-mode session may have left Microsoft OS
+        # descriptors enabled. Do not expose a stale RNDIS compatible-ID table
+        # on the MTP-only release gadget.
+        [ -w "$G/os_desc/use" ] && printf '0' >"$G/os_desc/use" 2>/dev/null || :
+        rm -f "$G/os_desc/c.1" 2>/dev/null || :
+    fi
+
     if [ "$NETWORK_ENABLED" -eq 1 ]; then
         case "$(config_value usb_debug_mode)" in
             ncm) fname=ncm.usb0 ;;

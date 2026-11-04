@@ -1,0 +1,13 @@
+diff --git a/slot-main-640/crates/slot/src/audio/alsa.rs b/slot-main-640/crates/slot/src/audio/alsa.rs
+--- a/slot-main-640/crates/slot/src/audio/alsa.rs
++++ b/slot-main-640/crates/slot/src/audio/alsa.rs
+@@ -33,5 +33,8 @@
+ /// reachable at all, since it resolves to a raw `hw:` slave that cannot convert the GBA's
+ /// 32768 Hz to the 32000 the codec runs at, and a bare `default` fails on the rate alone.
+-const DEVICES: [&str; 4] = ["plug:default", "default", "plughw:0,0", "hw:0,0"];
++
++// RG353PS BaseOS routes default through RK817 + softvol. Avoid raw card-number
++// fallbacks: they can bypass the system volume control.
++const DEVICES: [&str; 2] = ["plug:default", "default"];
+ 
+ type PcmOpen = unsafe extern "C" fn(*mut *mut c_void, *const c_char, c_int, c_int) -> c_int;

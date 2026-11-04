@@ -18,6 +18,12 @@ KERNEL_OUT="$WORK/kernel/output"
 KERNEL_META="$KERNEL_OUT/kernel-build.json"
 FIRMWARE_OUT="$WORK/firmware"
 ROOTFS="$WORK/rootfs"
+BASEOS_USB_PROFILE="${BASEOS_USB_PROFILE:-development}"
+UMTP_COMMIT="d3fe71b68e9af5472e72a843cda2c31c20167231"
+case "$BASEOS_USB_PROFILE" in
+  development|release) ;;
+  *) echo "BASEOS_USB_PROFILE must be development or release" >&2; exit 1 ;;
+esac
 
 for cmd in docker python3; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "missing required command: $cmd" >&2; exit 1; }
@@ -56,13 +62,15 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
   -e KREL="$KREL" \
   -e BASEOS_VERSION="$BASEOS_VERSION" \
   -e BASEOS_BUILD="$BASEOS_BUILD" \
+  -e BASEOS_USB_PROFILE="$BASEOS_USB_PROFILE" \
+  -e UMTP_COMMIT="$UMTP_COMMIT" \
   -e ALPINE_MIRROR="${ALPINE_MIRROR:-}" \
   alpine:3.22 sh -euc '
     if [ -n "${ALPINE_MIRROR:-}" ]; then
       printf "%s\n%s\n" "$ALPINE_MIRROR/main" "$ALPINE_MIRROR/community" > /etc/apk/repositories
       echo "apk repositories now:"; cat /etc/apk/repositories
     fi
-    apk add --no-cache busybox-static tar zstd build-base linux-headers sdl2-dev freetype-dev freetype-static zlib-static libpng-static bzip2-static brotli-static pkgconf
+    apk add --no-cache busybox-static tar zstd build-base linux-headers sdl2-dev freetype-dev freetype-static zlib-static libpng-static bzip2-static brotli-static pkgconf git ca-certificates
 
     R=/work/rootfs
     rm -rf "$R"
@@ -96,6 +104,32 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     cp -a /work/firmware/. "$R/lib/firmware/"
 
     cp -a /rootfs-src/. "$R/"
+
+    # Select the USB policy at image-build time. A card-side config may still
+    # override these defaults without rebuilding or updating the system.
+    case "$BASEOS_USB_PROFILE" in
+      development)
+        sed -i 's/^usb_profile=.*/usb_profile=development/; s/^usb_debug=.*/usb_debug=yes/; s/^usb_mtp=.*/usb_mtp=yes/' "$R/etc/baseos.conf"
+        ;;
+      release)
+        sed -i 's/^usb_profile=.*/usb_profile=release/; s/^usb_debug=.*/usb_debug=no/; s/^usb_mtp=.*/usb_mtp=yes/' "$R/etc/baseos.conf"
+        ;;
+    esac
+    echo "USB build profile: $BASEOS_USB_PROFILE"
+
+    # Build the lightweight C MTP responder for the target arm64 Alpine rootfs.
+    # Pin the upstream revision and include its GPL-3.0 license with the binary.
+    UMTP_SRC=/tmp/uMTP-Responder
+    git clone --quiet https://github.com/viveris/uMTP-Responder.git "$UMTP_SRC"
+    git -C "$UMTP_SRC" checkout --quiet --detach "$UMTP_COMMIT"
+    test "$(git -C "$UMTP_SRC" rev-parse HEAD)" = "$UMTP_COMMIT" || {
+      echo "uMTP-Responder checkout does not match pinned commit" >&2
+      exit 1
+    }
+    make -s -C "$UMTP_SRC" CC=gcc
+    install -D -m 0755 "$UMTP_SRC/umtprd" "$R/usr/sbin/umtprd"
+    install -D -m 0644 "$UMTP_SRC/LICENSE" "$R/usr/share/licenses/uMTP-Responder/LICENSE"
+    printf '%s\n' "$UMTP_COMMIT" > "$R/usr/share/licenses/uMTP-Responder/source-commit"
 
     # Install v4l-utils and its shared-library dependencies into the target
     # rootfs. The build container is arm64, matching the RG353PS target.
@@ -241,6 +275,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     chmod 0755 "$R/usr/sbin/baseos-audio-init"
     chmod 0755 "$R/usr/sbin/baseos-audio-check"
     chmod 0755 "$R/usr/sbin/baseos-usb-debug"
+    chmod 0755 "$R/usr/sbin/baseos-usb-mtp"
     chmod 0755 "$R/usr/sbin/rg353ps-sleep"
     chmod 0755 "$R/usr/sbin/rg353ps-wifi-connect"
     chmod 0755 "$R/usr/sbin/rg353ps-wifi-cycle"
@@ -324,7 +359,7 @@ EOF
     echo "rootfs prepared at $R"
   '
 
-for file in "$ROOTFS/usr/bin/busybox" "$ROOTFS/usr/bin/baseos-splash" "$ROOTFS/usr/bin/fbsplash" "$ROOTFS/sbin/init" "$ROOTFS/etc/init.d/rcS" "$ROOTFS/usr/sbin/baseos-mount-storage" "$ROOTFS/usr/sbin/baseos-init-userdata" "$ROOTFS/usr/sbin/baseos-usb-storage" "$ROOTFS/usr/sbin/baseos-frontend-session" "$ROOTFS/usr/sbin/baseos-slot-launcher" "$ROOTFS/usr/sbin/rg353ps-hotkeyd" "$ROOTFS/usr/sbin/rg353ps-hardware-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-test" "$ROOTFS/usr/sbin/rg353ps-graphics-stack-test" "$ROOTFS/usr/sbin/rg353ps-sdl2-test" "$ROOTFS/usr/sbin/rg353ps-control-center" "$ROOTFS/etc/baseos.conf" "$ROOTFS/etc/baseos-release" \
+for file in "$ROOTFS/usr/bin/busybox" "$ROOTFS/usr/bin/baseos-splash" "$ROOTFS/usr/bin/fbsplash" "$ROOTFS/sbin/init" "$ROOTFS/etc/init.d/rcS" "$ROOTFS/usr/sbin/baseos-mount-storage" "$ROOTFS/usr/sbin/baseos-init-userdata" "$ROOTFS/usr/sbin/baseos-usb-storage" "$ROOTFS/usr/sbin/baseos-usb-mtp" "$ROOTFS/usr/sbin/umtprd" "$ROOTFS/etc/umtprd/umtprd.conf" "$ROOTFS/usr/sbin/baseos-frontend-session" "$ROOTFS/usr/sbin/baseos-slot-launcher" "$ROOTFS/usr/sbin/rg353ps-hotkeyd" "$ROOTFS/usr/sbin/rg353ps-hardware-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-test" "$ROOTFS/usr/sbin/rg353ps-graphics-stack-test" "$ROOTFS/usr/sbin/rg353ps-sdl2-test" "$ROOTFS/usr/sbin/rg353ps-control-center" "$ROOTFS/etc/baseos.conf" "$ROOTFS/etc/baseos-release" \
   "$ROOTFS/etc/baseos/bootlogo.bmp" \
   "$ROOTFS/etc/dropbear/dropbear_ed25519_host_key" \
   "$ROOTFS/usr/sbin/baseos-update" "$ROOTFS/usr/sbin/gptslot" \

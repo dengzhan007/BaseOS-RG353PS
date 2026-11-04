@@ -44,38 +44,60 @@ re-asserted after resume and before a frontend launches, so a codec re-probe
 cannot silently change the level.
 
 
-## First frontend target: Slot (experimental)
+## First frontend target: Slot-6 (experimental)
 
-SDL2 KMSDRM/EGL/GLES now initializes on the RG353PS and reports the Mali-G52
-Panfrost renderer. The first frontend adaptation target is Slot because its
-device UI is smaller than NextUI's H700-specific userspace. Upstream Slot
-currently targets Anbernic H700 devices and is Game Boy / Game Boy Color / Game
-Boy Advance focused; this is not an upstream-supported RG353PS port.
+The first Slot target is now the private `dengzhan007/slot-6` fork, pinned at
+`acc4e91708cc21abf2321a3af279aae1b2f26d47`. Its Cargo workspace is nested
+under `slot-main-640/`; the build script accounts for that layout and builds
+the device binary in an AArch64 Alpine/musl container. The original H700 Mali
+fbdev EGL window is replaced by this port's SDL2 KMSDRM + Mesa/Panfrost
+surface. The BaseOS GPU stack is not changed.
 
-The independent builder is:
+The current milestone is intentionally frontend-only:
+
+- RG353PS physical face buttons, shoulders, triggers, Select/Start, Function,
+  D-pad and volume keys are mapped from the RG353PS input codes. KEY_POWER is
+  deliberately not consumed by Slot; `rg353ps-hotkeyd` retains suspend and
+  shutdown ownership.
+- Boot-logo validation is changed to **640x480, 24-bit, uncompressed BMP**.
+  The boot resource remains TF1's `BASEOS_BOOT` partition
+  (`/dev/mmcblk0p2`, mounted at `/mnt/boot`).
+- Audio tries only `plug:default` and `default`, preserving the RK817
+  `plug -> softvol -> codec` path. It no longer falls back to card-number-
+  specific `plughw` or `hw` devices that can bypass BaseOS volume control.
+- Wi-Fi, Bluetooth, firmware loading, and system network services remain
+  BaseOS-owned. This port does not add H700 radio scripts or alter the
+  platform's radio configuration.
+- Emulator cores, BIOS files, stick/analog support, sleep/doze integration,
+  and the external deploy art/overlay pack are not part of this first bundle.
+
+Build on a host with Docker and a local authenticated checkout of the private
+Slot-6 repository:
 
 ```sh
-./platforms/rg353ps/build-slot.sh
+SLOT_SRC=/path/to/slot-6 ./platforms/rg353ps/build-slot.sh
 ```
 
-It pins the upstream Slot source revision, replaces its device-specific EGL
-window with SDL2 KMSDRM, applies the RG353PS Nintendo-layout A/B mapping, and
-builds a separate frontend-card ZIP. The package builder is a separate CI job;
-it does not inject Slot into the default OS smoke image or alter the Miyoo Flip
-build. The bundle includes the exact patched Slot source plus corresponding
-mGBA/gpSP source archives and patch/license materials under
-`System/licenses/`. Do not consider the bundle device-validated until its CI
-build passes and it has been smoke-tested on the handheld.
+The local checkout must contain the pinned commit above. The script writes
+`work/rg353ps/frontends/baseos-rg353ps-slot.zip` and its SHA-256 file. It does
+not inject Slot into the OS image or alter the Miyoo Flip build. The package
+contains the Slot executable, adapter, source archive and main-program
+license; it intentionally does not claim to be a playable emulator bundle.
 
-When a successful `baseos-rg353ps-slot` workflow artifact is available, back up the card and flash the new three-partition image if your current image predates `BASEOS`. Shut down after the first boot so the data partition can finish initializing.
+Install the ZIP contents directly at the root of TF2 for priority use, or at
+the root of TF1's `BASEOS` user partition for fallback use. Do not put the
+package on `BASEOS_BOOT`. The frontend adapter stages the executable to
+`/tmp` before launch because exFAT does not preserve POSIX executable bits.
+BaseOS continues to own the power key and its Wi-Fi/Bluetooth services; the
+frontend session continues to manage the RK817 softvol handoff.
 
-To install Slot on TF2, extract the ZIP contents directly into the root of the TF2 card (not into a containing folder, and not onto `BASEOS_BOOT`). To install it on TF1 instead, extract the same contents into the root of the `BASEOS` partition. No `baseos.conf` edits are required: BaseOS automatically chooses a usable frontend on TF2 first, then falls back to TF1 user data.
+This is a source/build adaptation, not yet a successful build or a hardware
+validation. The first device test should establish that the UI opens, the
+listed physical keys navigate correctly, audio is audible and volume changes
+work, and Wi-Fi/Bluetooth remain available. Only after that baseline should
+we add game cores, stick support, power/doze integration or optional assets.
+Keep the original system card and saves backed up while testing.
 
-Keep the original system card and your saves backed up while testing. Because the frontend adapter is a shell script executed with root privileges, only install packages you trust. exFAT/Windows extraction may not preserve Unix executable permissions, so the Slot adapter only checks that `System/slot` exists and copies it to writable `/tmp` before execution.
-
-This first target is intentionally a limited milestone: successful compilation
-or menu launch does not establish correctness of all buttons, sound, battery,
-brightness, sleep/wake, emulator launch, saves, or long-duration behavior.
 NextUI remains a separate porting target; its H700 launcher currently assumes
 an H700-specific `mali` SDL backend and stock-OS services, so it needs its own
 adapter/runtime work rather than reusing the H700 zip as-is.

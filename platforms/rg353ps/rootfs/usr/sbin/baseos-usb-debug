@@ -223,8 +223,10 @@ rebind_gadget() {
     if printf '%s' "$UDC" >"$G/UDC" 2>/dev/null; then
         sleep 1
         say "recovery: rebind done state=$(udc_state)"
-        configure_iface || :
-        start_dhcp "$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)"
+        if network_enabled; then
+            configure_iface || :
+            start_dhcp "$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)"
+        fi
     else
         say "recovery: rebind failed"
     fi
@@ -266,8 +268,10 @@ reprobe_udc_driver() {
     # The fresh platform device comes back with power/control=auto, so the PHY
     # would be free to idle again the moment it is probed.
     disable_usb_runtime_pm
-    configure_iface || :
-    start_dhcp "$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)"
+    if network_enabled; then
+        configure_iface || :
+        start_dhcp "$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)"
+    fi
     sleep 1
     say "recovery: re-probe done state=$(udc_state) cable=$(cable_present && echo yes || echo no)"
     return 0
@@ -321,8 +325,10 @@ reprobe_usb_stack() {
         printf '%s' "$UDC" >"$G/UDC" 2>/dev/null || { say "recovery: gadget rebind failed"; return 1; }
     }
     disable_usb_runtime_pm
-    configure_iface || :
-    start_dhcp "$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)"
+    if network_enabled; then
+        configure_iface || :
+        start_dhcp "$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)"
+    fi
     sleep 1
     say "recovery: stack rebuild done state=$(udc_state) cable=$(cable_present && echo yes || echo no)"
     return 0
@@ -354,6 +360,7 @@ WATCH_PID=/run/baseos-usb-debug.watch.pid
 # yet, so the first attempt can be a no-op. This is the second half of that
 # setup, and it is written to be harmless when there is nothing to do.
 ensure_link_up() {
+    network_enabled || return 0
     iface=$(cat /run/baseos-usb-debug.iface 2>/dev/null || :)
     [ -n "$iface" ] || iface=$(find_iface) || return 1
     printf '%s\n' "$iface" >/run/baseos-usb-debug.iface 2>/dev/null || :
@@ -803,10 +810,12 @@ do_start() {
         say "USB network ready: $iface $ADDR/24; SSH on $ADDR:22"
         say "cable status at start: $(cable_present && echo present || echo absent) vbus=$(vbus_state) state=$(udc_state)"
         probe_dump "after start"
-        start_watch
     else
         say "MTP-only gadget bound; no network, DHCP or SSH listener started"
     fi
+    # The same DWC3/PHY recovery supervisor is useful in MTP-only mode. Its
+    # network-specific repair steps are guarded by usb_debug.
+    start_watch
     persist_log
 }
 do_stop() {

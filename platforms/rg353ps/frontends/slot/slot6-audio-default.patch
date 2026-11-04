@@ -1,7 +1,7 @@
 diff --git a/slot-main-640/crates/slot/src/audio/alsa.rs b/slot-main-640/crates/slot/src/audio/alsa.rs
 --- a/slot-main-640/crates/slot/src/audio/alsa.rs
 +++ b/slot-main-640/crates/slot/src/audio/alsa.rs
-@@ -34,1 +34,4 @@
+@@ -35,1 +35,3 @@
 -const DEVICES: [&str; 4] = ["plug:default", "default", "plughw:0,0", "hw:0,0"];
 +// RG353PS BaseOS routes default through RK817 + softvol. Avoid raw card-number
 +// fallbacks: they can bypass the system volume control.

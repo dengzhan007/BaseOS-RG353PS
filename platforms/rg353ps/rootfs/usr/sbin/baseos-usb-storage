@@ -806,6 +806,20 @@ report_mount_users() {
     done
   done
 }
+# The normal Gadget may include MTP, which performs file operations on
+# /mnt/SDCARD. Stop it and confirm FunctionFS is released BEFORE unmounting
+# the volume or exporting its raw block device. If release fails, the EXIT
+# cleanup returns to the frontend without exporting the partition.
+if [ -x /usr/sbin/baseos-usb-debug ]; then
+  log "releasing the normal USB gadget (network/MTP) before unmount"
+  if ! /usr/sbin/baseos-usb-debug stop >/dev/null 2>&1; then
+    log "ERROR: USB gadget or MTP did not stop cleanly; refusing Mass Storage"
+    /usr/bin/baseos-splash --important -1 "USB STORAGE: USB BUSY" 2>/dev/null || :
+    sleep 2
+    exit 1
+  fi
+fi
+
 umount_msg=
 if ! umount_msg="$(umount "$MOUNTPOINT" 2>&1)"; then
   log "first unmount of $MOUNTPOINT failed (${umount_msg:-no message}); retrying after a grace period"
@@ -832,13 +846,8 @@ grep -q " $CONFIGFS " /proc/mounts 2>/dev/null || mount -t configfs none "$CONFI
 log "available UDCs: $(ls /sys/class/udc 2>/dev/null | tr '\n' ' ')"
 UDC=$(ls /sys/class/udc 2>/dev/null | head -1)
 [ -n "$UDC" ] || { log "no USB device controller found"; exit 1; }
-# The debug network gadget (baseos-usb-debug) may be holding the UDC. Only one
-# gadget can bind a controller, so release it before this helper binds its own;
-# the cleanup trap hands the controller back afterwards.
-if [ -x /usr/sbin/baseos-usb-debug ]; then
-  log "releasing the USB debug channel so storage can take the UDC"
-  /usr/sbin/baseos-usb-debug stop >/dev/null 2>&1 || :
-fi
+# The normal gadget was stopped before the local volume was unmounted.
+# The cleanup trap restores the configured development/release USB profile.
 # Hold the controller and its PHY out of runtime power management.
 #
 # Storage mode entered right after boot has never failed; the same request made

@@ -23,6 +23,7 @@ on:
       - "platforms/rg353ps/build-*.sh"
       - "platforms/rg353ps/rootfs/**"
       - "platforms/rg353ps/src/**"
+      - "tests/**"
       - "tools/common.sh"
       - "VERSION"
     tags:

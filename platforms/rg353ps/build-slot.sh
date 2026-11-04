@@ -98,8 +98,8 @@ docker run --rm --network host --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     # slot-analog.patch: sticks reach the cores (RetroCore::set_analog, ANALOG
     # input_state) and the stick clicks become bindable L3/R3 buttons.
     # slot-power.patch: KEY_POWER goes back to the frontend (it must apply
-    # after slot-rg353ps.patch, which removed the mapping), and doze() runs
-    # BASEOS_SLEEP so a tap still suspends the unit for real.
+    # after slot-rg353ps.patch, which removed the mapping). The music-aware
+    # App::doze() policy lives in the selected Slot fork's source, not in this patch.
     for p in /slot-port/slot-rg353ps.patch /slot-port/slot-analog.patch \
              /slot-port/slot-power.patch /slot-port/slot-bootlogo.patch; do
       echo "applying $(basename "$p")"

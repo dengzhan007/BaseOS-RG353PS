@@ -1,11 +1,10 @@
 #!/bin/sh
 # BaseOS RG353PS launcher for the SDL2/KMSDRM Slot build.
 #
-# This frontend owns the power key. It draws its own shutdown screen and flushes
-# its saves before powering off, which is what a handheld user expects from a
-# hold, and nothing behind it can produce that picture. A tap still suspends the
-# whole unit: BASEOS_SLEEP points Slot's doze at rg353ps-sleep, so the tap costs
-# a real s2idle instead of a dark panel over a running CPU. rg353ps-hotkeyd sees
+# This frontend owns the power key. A hold opens Slot's power menu; its chosen
+# shutdown path flushes saves before powering off. A short tap uses rg353ps-sleep
+# when music is not playing (deep first, s2idle fallback); while music plays it
+# only blanks the panel so the decoder and ALSA output continue. hotkeyd sees
 # the marker below and keeps its hands off the key while this frontend runs.
 # baseos: power-owned
 set -eu

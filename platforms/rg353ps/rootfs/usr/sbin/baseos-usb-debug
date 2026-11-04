@@ -827,14 +827,30 @@ do_stop() {
     stop_watch
     stop_services
     if [ -e "$G/UDC" ]; then
-        printf '\n' >"$G/UDC" 2>/dev/null || :
+        if ! printf '\n' >"$G/UDC" 2>/dev/null; then
+            say "ERROR: could not unbind USB gadget from UDC; refusing hand-off"
+            persist_log force
+            return 1
+        fi
+        bound="$(cat "$G/UDC" 2>/dev/null || :)"
+        if [ -n "$bound" ]; then
+            say "ERROR: UDC still reports a bound controller ($bound); refusing hand-off"
+            persist_log force
+            return 1
+        fi
     fi
-    # Unbind first; only then release FunctionFS so Mass Storage can take UDC.
+    # MTP has access to the mounted user-data tree. It must exit and FunctionFS
+    # must unmount before the storage helper may unmount/export that partition.
     if [ -x /usr/sbin/baseos-usb-mtp ]; then
-        /usr/sbin/baseos-usb-mtp stop >/dev/null 2>&1 || :
+        if ! /usr/sbin/baseos-usb-mtp stop >/dev/null 2>&1; then
+            say "ERROR: MTP/FunctionFS did not stop cleanly; refusing Mass Storage hand-off"
+            persist_log force
+            return 1
+        fi
     fi
-    say "USB gadget stopped; UDC released"
+    say "USB gadget stopped; UDC and FunctionFS released"
     persist_log
+    return 0
 }
 do_status() {
     iface=$(cat /run/baseos-usb-debug.iface 2>/dev/null || find_iface || echo none)

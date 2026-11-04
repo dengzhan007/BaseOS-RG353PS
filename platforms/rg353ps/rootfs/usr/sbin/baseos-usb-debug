@@ -748,36 +748,67 @@ stop_services() {
 }
 
 do_start() {
-    if ! enabled; then
-        say "usb_debug is not enabled in baseos.conf; nothing to do"
+    NETWORK_ENABLED=0
+    MTP_ENABLED=0
+    network_enabled && NETWORK_ENABLED=1
+    mtp_enabled && MTP_ENABLED=1
+    if [ "$NETWORK_ENABLED" -eq 0 ] && [ "$MTP_ENABLED" -eq 0 ]; then
+        say "USB networking and MTP are both disabled; no gadget will be bound"
         persist_log
-        exit 0
+        return 0
     fi
-    UDC=$(wait_udc) || { say "no UDC after 10s; cannot bring the network up"; persist_log force; exit 1; }
-    say "starting on UDC $UDC"
+
+    UDC=$(wait_udc) || { say "no UDC after 10s; cannot bring USB functions up"; persist_log force; exit 1; }
+    say "starting USB gadget on UDC $UDC (network=$NETWORK_ENABLED mtp=$MTP_ENABLED)"
     disable_usb_runtime_pm
     build_gadget || { persist_log force; exit 1; }
+
+    # FunctionFS descriptors must be registered before binding the UDC.
+    if [ "$MTP_ENABLED" -eq 1 ]; then
+        if /usr/sbin/baseos-usb-mtp start; then
+            say "MTP FunctionFS descriptors and endpoints are ready"
+        else
+            say "WARNING: MTP failed to initialise"
+            /usr/sbin/baseos-usb-mtp stop >/dev/null 2>&1 || :
+            rm -f "$G/configs/c.1/ffs.mtp" 2>/dev/null || :
+            MTP_ENABLED=0
+            if [ "$NETWORK_ENABLED" -eq 1 ]; then
+                printf '0x0007' >"$G/idProduct" 2>/dev/null || :
+                say "falling back to the existing network-only gadget"
+            else
+                say "MTP is the only enabled function and could not start; leaving UDC unbound"
+                persist_log force
+                exit 1
+            fi
+        fi
+    fi
+
     current=$(cat "$G/UDC" 2>/dev/null || :)
     if [ "$current" != "$UDC" ]; then
         [ -n "$current" ] && printf '\n' >"$G/UDC" 2>/dev/null || :
         if ! printf '%s' "$UDC" >"$G/UDC" 2>/dev/null; then
-            say "cannot bind $UDC (another gadget holds it?)"; persist_log force; exit 1
+            say "cannot bind $UDC (another gadget holds it?)"
+            /usr/sbin/baseos-usb-mtp stop >/dev/null 2>&1 || :
+            persist_log force
+            exit 1
         fi
-        say "gadget ${FUNC:-rndis.usb0} bound to $UDC"
+        say "gadget bound to $UDC"
     fi
-    configure_iface || :
-    iface=$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)
-    start_dhcp "$iface"
-    start_sshd
-    # Cable may already be in, and may arrive later; either way the supervisor
-    # owns everything from here - including the case where plugging it in
-    # produces no event at all, which is what the field log showed.
-    say "cable status at start: $(cable_present && echo present || echo absent) vbus=$(vbus_state) state=$(udc_state)"
-    probe_dump "after start"
-    start_watch
+
+    if [ "$NETWORK_ENABLED" -eq 1 ]; then
+        configure_iface || :
+        iface=$(cat /run/baseos-usb-debug.iface 2>/dev/null || echo usb0)
+        start_dhcp "$iface"
+        start_sshd
+        say "USB network ready: $iface $ADDR/24; SSH on $ADDR:22"
+        say "cable status at start: $(cable_present && echo present || echo absent) vbus=$(vbus_state) state=$(udc_state)"
+        probe_dump "after start"
+        start_watch
+    else
+        say "MTP-only gadget bound; no network, DHCP or SSH listener started"
+    fi
     persist_log
 }
-
 do_stop() {
     stop_watch
     stop_services

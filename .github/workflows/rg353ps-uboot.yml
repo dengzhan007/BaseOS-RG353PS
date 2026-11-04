@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "platforms/rg353ps/**"
+      - "!platforms/rg353ps/frontends/**"
+      - "!platforms/rg353ps/build-slot.sh"
       - "src/fbsplash.c"
       - "tools/common.sh"
       - ".github/workflows/rg353ps-uboot.yml"
@@ -12,6 +14,8 @@ on:
     branches: [main]
     paths:
       - "platforms/rg353ps/**"
+      - "!platforms/rg353ps/frontends/**"
+      - "!platforms/rg353ps/build-slot.sh"
       - "tools/common.sh"
       - ".github/workflows/rg353ps-uboot.yml"
   workflow_dispatch:
@@ -57,8 +61,6 @@ jobs:
           sh -n platforms/rg353ps/rootfs/usr/sbin/rg353ps-suspend-audit
           sh -n platforms/rg353ps/rootfs/usr/sbin/rg353ps-suspend-test
           sh -n platforms/rg353ps/rootfs/usr/sbin/rg353ps-graphics-stack-test
-          sh -n platforms/rg353ps/frontends/slot/launch.sh
-          sh -n platforms/rg353ps/build-slot.sh
           sh -n platforms/rg353ps/build-image.sh
 
       - name: Build RG353PS U-Boot

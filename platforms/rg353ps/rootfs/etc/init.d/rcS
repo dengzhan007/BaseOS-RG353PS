@@ -444,12 +444,11 @@ if [ ! -e "$BOOT_USB_REQUEST" ] && [ -x /usr/sbin/baseos-update ]; then
   /usr/sbin/baseos-update apply
 fi
 
-# A card that was updated rather than reflashed still has no bootlogo.bmp on
-# BASEOS_BOOT: an update replaces the rootfs slots and never this partition. Fill
-# it once, from a logo an older build left on the data volume, or else from the
-# copy the image ships - the same state a reflashed card is in, where this
-# partition arrives with artwork. Draw it now if this boot showed nothing; the
-# repaint happens on that boot only.
+# Legacy/blank-slot fallback. Normal A/B updates replace BASEOS_BOOT too;
+# the selected Slot image has already been restored from BASEOS_DATA above.
+# Only seed a logo here when the active boot slot has no usable file at all,
+# using the older data-volume location first and the image's bundled artwork
+# second. This never overwrites a valid selected image.
 if [ ! -e "$BOOT_USB_REQUEST" ] && [ ! -s /mnt/boot/bootlogo.bmp ]; then
   for logo_source in /mnt/SDCARD/bootlogos/bootlogo.bmp /etc/baseos/bootlogo.bmp; do
     [ -s "$logo_source" ] || continue

@@ -2,7 +2,7 @@ name: RG353PS USB storage mode checks
 
 on:
   push:
-    branches: [main]
+    branches: [main, "feature/**"]
     paths:
       - "platforms/rg353ps/src/rg353ps-hotkeyd.c"
       - "assets/boot.ttf"
@@ -12,6 +12,16 @@ on:
       - "platforms/rg353ps/rootfs/etc/init.d/rcS"
       - "platforms/rg353ps/src/rg353ps-control-center.c"
       - "platforms/rg353ps/rootfs/usr/sbin/baseos-usb-storage"
+      - "platforms/rg353ps/rootfs/usr/sbin/baseos-usb-debug"
+      - "platforms/rg353ps/rootfs/usr/sbin/baseos-usb-mtp"
+      - "platforms/rg353ps/rootfs/etc/umtprd/umtprd.conf"
+      - "platforms/rg353ps/USB.md"
+      - "tests/test-rg353ps-usb-mtp.sh"
+      - "platforms/rg353ps/rootfs/usr/sbin/baseos-usb-debug"
+      - "platforms/rg353ps/rootfs/usr/sbin/baseos-usb-mtp"
+      - "platforms/rg353ps/rootfs/etc/umtprd/umtprd.conf"
+      - "platforms/rg353ps/USB.md"
+      - "tests/test-rg353ps-usb-mtp.sh"
       - "platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session"
       - "platforms/rg353ps/build-rootfs.sh"
       - "platforms/rg353ps/build-kernel.sh"
@@ -38,6 +48,9 @@ jobs:
       - name: Check shell syntax
         run: |
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-storage
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-debug
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-mtp
+          sh tests/test-rg353ps-usb-mtp.sh
           sh -n platforms/rg353ps/rootfs/etc/init.d/rcS
           sh -n platforms/rg353ps/rootfs/usr/bin/baseos-splash
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session

@@ -350,6 +350,7 @@ reprobe_usb_stack() {
 #
 # No soft_connect anywhere: see the note above rebind_gadget.
 WATCH_PID=/run/baseos-usb-debug.watch.pid
+RECOVERY_LOCK=/run/baseos-usb-debug.recovery.lock
 
 # Runs on every tick that finds the UDC configured. The address and the DHCP
 # server are set up by do_start, but do_start runs before the host has finished
@@ -376,51 +377,41 @@ watch_cable() {
     last_present=no
     attempt=0
     stuck_since=
-    # Twelve seconds of grace: a boot that has the cable already in is the one
-    # case that works on its own, and tearing the controller down while the
-    # host is mid-enumeration would turn a good boot bad.
+    # Keep a short startup grace, but sample cable/state every 500 ms.
+    # Recovery runs separately so driver-probe sleeps never pause polling.
     next_tick=6
     say "supervisor: started pid=$$ (state=$(udc_state) cable=$(cable_present && echo yes || echo no) vbus=$(vbus_state))"
     probe_dump "boot"
     while :; do
-        sleep 2
+        sleep 0.5
         tick=$((tick + 1))
         [ -e "$G/UDC" ] || { say "supervisor: gadget gone; exiting"; exit 0; }
         state=$(udc_state)
         present=no
         cable_present && present=yes
-        # The first few ticks prove the loop is alive; after that only changes
-        # are worth a line, otherwise the card copy is all heartbeat and the
-        # event that matters scrolls out of the 120-line tail.
-        if [ "$tick" -le 3 ] || [ "$state" != "$last_state" ] || [ "$present" != "$last_present" ]; then
+        if [ "$tick" -le 6 ] || [ "$state" != "$last_state" ] || [ "$present" != "$last_present" ]; then
             say "supervisor: tick=$tick state=$state cable=$present vbus=$(vbus_state) extcon=$(extcon_summary)"
         fi
         if [ "$present" != "$last_present" ]; then
             if [ "$present" = yes ]; then
                 say "supervisor: cable inserted (state=$state)"
-                # The cable's arrival is the moment the whole stack has to be
-                # rebuilt, so act on the next iteration rather than on a timer -
-                # but never inside the startup grace period.
                 next_tick=$tick
                 [ "$next_tick" -lt 6 ] && next_tick=6
                 attempt=0
+                stuck_since=$tick
             else
                 say "supervisor: cable removed (state=$state)"
+                stuck_since=
             fi
             last_present=$present
             probe_dump "cable $present"
             persist_log
         fi
         last_state=$state
-        # The field result that reordered all of this: a cable-present cold boot
-        # enumerates fine - Device Manager shows the RNDIS device - while the
-        # same cable plugged in later never leaves "not attached". So the ladder
-        # must never run during a live enumeration and must never run at all once
-        # the thing works. "configured" is success; default/address/powered mean
-        # the host is mid-conversation; only a controller parked in
-        # not attached/attached is stuck, and only after it has sat there.
         case "$state" in
             configured)
+                stuck_since=
+                attempt=0
                 ensure_link_up || :
                 continue ;;
             default|address|powered)
@@ -429,48 +420,39 @@ watch_cable() {
                 [ -z "$stuck_since" ] && stuck_since=$tick ;;
         esac
         [ -n "$stuck_since" ] || continue
+        # Two seconds of continuous non-enumerated state starts recovery.
+        # Unlike the old loop, recovery runs in the background.
+        [ "$tick" -ge "$next_tick" ] || continue
+        [ $((tick - stuck_since)) -ge 4 ] || continue
+        [ -d "$RECOVERY_LOCK" ] && continue
 
-        if [ "$tick" -ge "$next_tick" ] && [ $((tick - stuck_since)) -ge 6 ]; then
-            attempt=$((attempt + 1))
+        attempt=$((attempt + 1))
+        if mkdir "$RECOVERY_LOCK" 2>/dev/null; then
+            say "supervisor: launching asynchronous recovery attempt $attempt"
+            (
+                trap 'rmdir "$RECOVERY_LOCK" 2>/dev/null || :' 0
+                USB_TROUBLE=1
+                PROBE_PUSHED=0
+                if [ "$present" = yes ]; then
+                    case "$attempt" in
+                        1|2) reprobe_udc_driver || : ;;
+                        3)   rebind_gadget ;;
+                        *)   reprobe_usb_stack || : ;;
+                    esac
+                else
+                    reprobe_udc_driver || :
+                fi
+                say "supervisor: attempt $attempt done state=$(udc_state) cable=$(cable_present && echo yes || echo no)"
+                probe_dump "attempt $attempt"
+                persist_log force
+            ) >/dev/null 2>&1 &
             if [ "$present" = yes ]; then
-                # With a cable in, escalate quickly: two controller re-probes,
-                # then a gadget rebind, then rebuild PHY as well - the order a
-                # cable-present cold boot probes in, which is the sequence the
-                # field log shows dwc3 never got (it took the VBUS event with
-                # speed=0 and dropped straight to a disconnect).
-                case "$attempt" in
-                    1|2) reprobe_udc_driver || : ;;
-                    3)   rebind_gadget ;;
-                    *)   reprobe_usb_stack || : ;;
-                esac
+                next_tick=$((tick + 8))
             else
-                reprobe_udc_driver || :
+                next_tick=$((tick + 20))
             fi
-            say "supervisor: attempt $attempt done state=$(udc_state) cable=$(cable_present && echo yes || echo no)"
-            # A controller that needed a ladder step is the case the card copy
-            # exists for: mark the session as trouble, and let the probe report
-            # that was assembled in RAM go out with it. Resetting the pushed
-            # flag keeps one block per step, so the ladder stays readable.
-            USB_TROUBLE=1
-            PROBE_PUSHED=0
-            probe_dump "attempt $attempt"
-            persist_log force
-            # Four seconds between tries with a cable in, ten without, then a
-            # slower sweep for an hour before giving up.
-            if [ "$present" = yes ] && [ "$attempt" -le 60 ]; then
-                next_tick=$((tick + 2))
-            elif [ "$attempt" -le 12 ]; then
-                next_tick=$((tick + 5))
-            elif [ "$attempt" -le 72 ]; then
-                next_tick=$((tick + 30))
-            else
-                # Never give up: a cable that arrives an hour from now still
-                # resets the ladder through the insert event, and the channel
-                # exists precisely for the case where nobody is at the device.
-                [ "$attempt" = 73 ] &&
-                    say "supervisor: 72 attempts failed (state=$(udc_state)); dropping to a 5 minute sweep"
-                next_tick=$((tick + 150))
-            fi
+        else
+            say "supervisor: recovery lock already held"
         fi
     done
 }
@@ -503,6 +485,16 @@ stop_watch() {
     # Belt and braces: a supervisor whose pidfile was never written (setsid
     # forked and stop ran inside the same few milliseconds) still has to go.
     pkill -f 'baseos-usb-debug __supervise' 2>/dev/null || :
+    # Do not hand the UDC to Mass Storage while a recovery worker touches it.
+    wait_i=0
+    while [ -d "$RECOVERY_LOCK" ] && [ "$wait_i" -lt 60 ]; do
+        sleep 0.25
+        wait_i=$((wait_i + 1))
+    done
+    [ ! -d "$RECOVERY_LOCK" ] || {
+        say "ERROR: USB recovery still active; refusing controller hand-off"
+        return 1
+    }
 }
 
 # The channel exists to be inspected before a shell does, so its log has to be
@@ -824,7 +816,7 @@ do_start() {
     persist_log
 }
 do_stop() {
-    stop_watch
+    stop_watch || { persist_log force; return 1; }
     stop_services
     if [ -e "$G/UDC" ]; then
         if ! printf '\n' >"$G/UDC" 2>/dev/null; then

@@ -1,0 +1,105 @@
+#!/bin/sh
+# Manage uMTP-Responder FunctionFS. Start before binding the UDC; stop only
+# after the USB gadget manager has successfully released the UDC.
+set -u
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH
+
+MOUNTPOINT=/dev/ffs-mtp
+CONFIG=/etc/umtprd/umtprd.conf
+PIDFILE=/run/baseos-usb-mtp.pid
+LOG=/run/baseos-usb-mtp.log
+DAEMON=/usr/sbin/umtprd
+
+log() {
+    printf '%s baseos-usb-mtp: %s\n' "$(date '+%F %T' 2>/dev/null || echo uptime)" "$*" >>"$LOG" 2>/dev/null || :
+}
+mounted() { grep -q " $MOUNTPOINT " /proc/mounts 2>/dev/null; }
+
+start() {
+    [ -x "$DAEMON" ] || { log "missing daemon $DAEMON"; return 1; }
+    [ -r "$CONFIG" ] || { log "missing configuration $CONFIG"; return 1; }
+    if mounted && [ -s "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+        log "already running pid=$(cat "$PIDFILE")"
+        return 0
+    fi
+
+    mkdir -p "$MOUNTPOINT" || { log "cannot create $MOUNTPOINT"; return 1; }
+    if ! mounted; then
+        mount -t functionfs mtp "$MOUNTPOINT" 2>/dev/null || {
+            log "FunctionFS mount failed"
+            return 1
+        }
+    fi
+
+    rm -f "$PIDFILE"
+    "$DAEMON" -conf "$CONFIG" >>"$LOG" 2>&1 &
+    pid=$!
+    printf '%s\n' "$pid" >"$PIDFILE"
+
+    # The responder registers descriptors before UDC bind. Require all three
+    # MTP endpoints rather than accepting a partially initialised FunctionFS.
+    i=0
+    while [ "$i" -lt 100 ]; do
+        if [ -e "$MOUNTPOINT/ep1" ] && [ -e "$MOUNTPOINT/ep2" ] && [ -e "$MOUNTPOINT/ep3" ]; then
+            log "FunctionFS ready pid=$pid endpoints=ep1,ep2,ep3"
+            return 0
+        fi
+        if ! kill -0 "$pid" 2>/dev/null; then
+            log "daemon exited before registering endpoints"
+            rm -f "$PIDFILE"
+            umount "$MOUNTPOINT" 2>/dev/null || :
+            return 1
+        fi
+        sleep 0.1
+        i=$((i + 1))
+    done
+
+    log "timed out waiting for FunctionFS endpoints"
+    kill -TERM "$pid" 2>/dev/null || :
+    sleep 0.2
+    kill -KILL "$pid" 2>/dev/null || :
+    rm -f "$PIDFILE"
+    umount "$MOUNTPOINT" 2>/dev/null || :
+    return 1
+}
+
+stop() {
+    pid=
+    [ ! -s "$PIDFILE" ] || pid="$(cat "$PIDFILE" 2>/dev/null || :)"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        kill -TERM "$pid" 2>/dev/null || :
+        i=0
+        while [ "$i" -lt 30 ] && kill -0 "$pid" 2>/dev/null; do
+            sleep 0.1
+            i=$((i + 1))
+        done
+        kill -KILL "$pid" 2>/dev/null || :
+    fi
+    rm -f "$PIDFILE"
+    if mounted; then
+        umount "$MOUNTPOINT" 2>/dev/null || {
+            log "WARNING: FunctionFS remains mounted"
+            return 1
+        }
+    fi
+    log "stopped"
+}
+
+status() {
+    pid=
+    [ ! -s "$PIDFILE" ] || pid="$(cat "$PIDFILE" 2>/dev/null || :)"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        printf 'running pid=%s mounted=%s\n' "$pid" "$(mounted && echo yes || echo no)"
+    else
+        printf 'stopped mounted=%s\n' "$(mounted && echo yes || echo no)"
+    fi
+}
+
+case "${1:-status}" in
+    start) start ;;
+    stop) stop ;;
+    restart) stop && start ;;
+    status) status ;;
+    *) echo "usage: $0 start|stop|restart|status" >&2; exit 2 ;;
+esac

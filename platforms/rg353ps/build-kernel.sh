@@ -393,6 +393,23 @@ elif poll_count == 0 and poll_insert in otg:
 else:
     raise SystemExit("Could not uniquely locate OTG B_IDLE polling point: " + str(poll_count))
 
+# Do not commit vbus_attached while charger detection is still in progress.
+# A bouncing BVALID edge can otherwise consume the transition before
+# notify_charger becomes true and suppress the eventual extcon notification.
+state_old = "\t\tif (rport->vbus_attached != vbus_attach) {"
+state_new = (
+    "\t\tdev_info(&rport->phy->dev, "
+    "\"RG353PS OTG VBUS decision: notify=%d chg_state=%d chg_type=%d old=%d new=%d\\n\", "
+    "notify_charger, rphy->chg_state, rphy->chg_type, "
+    "rport->vbus_attached, vbus_attach);\n"
+    "\t\tif (notify_charger && rport->vbus_attached != vbus_attach) {"
+)
+state_count = otg.count(state_old)
+if state_count == 1:
+    otg = otg.replace(state_old, state_new, 1)
+elif otg.count(state_new) != 1:
+    raise SystemExit("Could not uniquely gate premature vbus_attached update: " + str(state_count))
+
 text = text[:otg_start] + otg + text[otg_end:]
 
 # Normalize this noisy informational trace even when SRC is restored from a
@@ -460,22 +477,27 @@ extcon_old = """			if (notify_charger && rphy->edev) {
 							      vbus_attach);
 			}
 """
-extcon_new = r"""			if (notify_charger && rphy->edev) {
-				dev_info(&rport->phy->dev,
-					 "RG353PS extcon notify before: cable=%d vbus=%d usb=%d\\n",
-					 cable, vbus_attach,
-					 extcon_get_state(rphy->edev, EXTCON_USB));
-				extcon_set_state_sync(rphy->edev,
-							cable, vbus_attach);
-				if (cable == EXTCON_CHG_USB_SDP)
-					extcon_set_state_sync(rphy->edev,
-							      EXTCON_USB,
-							      vbus_attach);
-				dev_info(&rport->phy->dev,
-					 "RG353PS extcon notify after: cable=%d vbus=%d usb=%d\\n",
-					 cable, vbus_attach,
-					 extcon_get_state(rphy->edev, EXTCON_USB));
-			}
+extcon_new = r"""\t\t\tif (notify_charger && rphy->edev) {
+\t\t\t\tint extcon_ret;
+
+\t\t\t\tdev_info(&rport->phy->dev,
+\t\t\t\t\t "RG353PS extcon notify before: cable=%d vbus=%d usb=%d\\n",
+\t\t\t\t\t cable, vbus_attach,
+\t\t\t\t\t extcon_get_state(rphy->edev, EXTCON_USB));
+\t\t\t\textcon_ret = extcon_set_state_sync(rphy->edev,
+\t\t\t\t\t\t\t       cable, vbus_attach);
+\t\t\t\tdev_info(&rport->phy->dev,
+\t\t\t\t\t "RG353PS extcon charger result: cable=%d state=%d ret=%d\\n",
+\t\t\t\t\t cable, vbus_attach, extcon_ret);
+
+\t\t\t\textcon_ret = extcon_set_state_sync(rphy->edev, EXTCON_USB,
+\t\t\t\t\t\t\t       vbus_attach &&
+\t\t\t\t\t\t\t       (cable == EXTCON_CHG_USB_SDP ||
+\t\t\t\t\t\t\t        cable == EXTCON_CHG_USB_CDP));
+\t\t\t\tdev_info(&rport->phy->dev,
+\t\t\t\t\t "RG353PS extcon data result: usb=%d ret=%d\\n",
+\t\t\t\t\t extcon_get_state(rphy->edev, EXTCON_USB), extcon_ret);
+\t\t\t}
 """
 extcon_count = text.count(extcon_old)
 if extcon_count == 1:

@@ -20,6 +20,13 @@ storage_count="$(grep -c '^storage ' "$USB/rootfs/etc/umtprd/umtprd.conf")"
 }
 grep -Fq '/usr/sbin/baseos-usb-mtp start' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 grep -Fq '/usr/sbin/baseos-usb-mtp stop' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'refusing Mass Storage hand-off' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+stop_line="$(grep -n 'releasing the normal USB gadget' "$USB/rootfs/usr/sbin/baseos-usb-storage" | cut -d: -f1)"
+unmount_line="$(grep -n '^umount_msg=' "$USB/rootfs/usr/sbin/baseos-usb-storage" | cut -d: -f1)"
+[ -n "$stop_line" ] && [ -n "$unmount_line" ] && [ "$stop_line" -lt "$unmount_line" ] || {
+    echo "Mass Storage must stop MTP before unmounting the user-data volume" >&2
+    exit 1
+}
 grep -Fq 'BASEOS_USB_PROFILE' "$USB/build-rootfs.sh"
 grep -Fq 'BASEOS_USB_PROFILE="$profile"' "$ROOT/.github/workflows/rg353ps-release.yml"
 

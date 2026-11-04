@@ -1,10 +1,7 @@
 diff --git a/slot-main-640/crates/slot/src/bootlogo.rs b/slot-main-640/crates/slot/src/bootlogo.rs
 --- a/slot-main-640/crates/slot/src/bootlogo.rs
 +++ b/slot-main-640/crates/slot/src/bootlogo.rs
-@@ -49,12 +49,12 @@ pub const PARTITION: &str = "/dev/mmcblk0p2";
- /// 分区上那张图的名字。8.3 全大写是官方写法，但两种拼写真机上都见过 ⇒ 一律不分大小写找。
- const NAME: &str = "bootlogo.bmp";
- 
+@@ -52,5 +52,5 @@
 -/// 屏是 720x480，开机图必须**整幅**：宽、高、24 位。
 -pub const W: u32 = 720;
 +/// RG353PS panel is 640x480. The boot partition accepts a full-frame, 24-bit BMP.
@@ -14,6 +11,3 @@ diff --git a/slot-main-640/crates/slot/src/bootlogo.rs b/slot-main-640/crates/sl
 -/// 54 字节头 + 720·480·3。行字节 2160 正好是 4 的倍数，24 位 bmp 没有行补齐。
 +/// 54-byte header + 640·480·3. Each 24-bit row is 1920 bytes, already 4-byte aligned.
  pub const BYTES: usize = 54 + (W as usize) * (H as usize) * 3;
-@@
--    /// 卡上那张不是 720x480 24 位的 bmp（或读不出来）。
-+    /// 卡上那张不是 640x480 24 位的 bmp（或读不出来）。

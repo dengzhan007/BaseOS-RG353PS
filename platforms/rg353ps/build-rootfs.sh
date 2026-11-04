@@ -129,7 +129,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     make -s -C "$UMTP_SRC" CC=gcc
     install -D -m 0755 "$UMTP_SRC/umtprd" "$R/usr/sbin/umtprd"
     install -D -m 0644 "$UMTP_SRC/LICENSE" "$R/usr/share/licenses/uMTP-Responder/LICENSE"
-    printf '%s\n' "$UMTP_COMMIT" > "$R/usr/share/licenses/uMTP-Responder/source-commit"
+    printf "%s\n" "$UMTP_COMMIT" > "$R/usr/share/licenses/uMTP-Responder/source-commit"
 
     # Install v4l-utils and its shared-library dependencies into the target
     # rootfs. The build container is arm64, matching the RG353PS target.

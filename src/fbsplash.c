@@ -884,7 +884,57 @@ static int panel_rotation(void) {
 	return normalise_rotation(rot);
 }
 
+
+static int clear_framebuffer(void) {
+	int fd = open("/dev/fb0", O_RDWR);
+	if (fd < 0)
+		return 1;
+
+	struct fb_var_screeninfo v;
+	struct fb_fix_screeninfo f;
+	if (ioctl(fd, FBIOGET_VSCREENINFO, &v) < 0 ||
+	    ioctl(fd, FBIOGET_FSCREENINFO, &f) < 0 ||
+	    (v.bits_per_pixel != 16 && v.bits_per_pixel != 24 && v.bits_per_pixel != 32) ||
+	    !v.xres || !v.yres || !f.line_length) {
+		close(fd);
+		return 1;
+	}
+
+	// Clear the complete framebuffer allocation, including any virtual pages,
+	// so fbdev cannot reveal an old startup logo after KMSDRM releases DRM master.
+	size_t visible_len = (size_t)f.line_length * v.yres;
+	size_t map_len = f.smem_len ? f.smem_len : visible_len;
+	if (map_len < visible_len) {
+		close(fd);
+		return 1;
+	}
+
+	uint8_t *fb = mmap(NULL, map_len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	if (fb == MAP_FAILED) {
+		close(fd);
+		return 1;
+	}
+
+	memset(fb, 0, map_len);
+	msync(fb, map_len, MS_SYNC);
+
+	// Explicitly restore fbdev scanout after the frontend has released KMSDRM.
+	ioctl(fd, FBIOBLANK, FB_BLANK_UNBLANK);
+	v.xoffset = 0;
+	v.yoffset = 0;
+	if (ioctl(fd, FBIOPAN_DISPLAY, &v) < 0) {
+		v.activate = FB_ACTIVATE_NOW | FB_ACTIVATE_FORCE;
+		ioctl(fd, FBIOPUT_VSCREENINFO, &v);
+	}
+
+	munmap(fb, map_len);
+	close(fd);
+	return 0;
+}
+
 int main(int argc, char **argv) {
+	if (argc == 2 && strcmp(argv[1], "--clear") == 0)
+		return clear_framebuffer();
 	if (reject_options(argc, argv)) {
 		fprintf(stderr, "fbsplash: no options are accepted\n");
 		return 2;

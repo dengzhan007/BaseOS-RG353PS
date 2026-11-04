@@ -4,4 +4,4 @@
 ttyS2::respawn:/bin/sh
 tty1::respawn:/usr/sbin/baseos-frontend-session
 ::ctrlaltdel:/sbin/reboot
-::shutdown:/bin/umount -a -r
+::shutdown:/bin/sh -c '/usr/bin/fbsplash --clear || :; /bin/umount -a -r'

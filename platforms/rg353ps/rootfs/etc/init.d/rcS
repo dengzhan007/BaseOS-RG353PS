@@ -173,7 +173,7 @@ restore_selected_bootlogo() {
   [ -f "$TARGET_LOGO" ] || return 0
   cmp -s "$SOURCE_LOGO" "$TARGET_LOGO" && return 0
 
-  TEMP_LOGO="/mnt/boot/.bootlogo-restore-$.bmp"
+  TEMP_LOGO=/mnt/boot/.bootlogo-restore.tmp
   if ! cp "$SOURCE_LOGO" "$TEMP_LOGO" 2>/dev/null ||
      ! cmp -s "$SOURCE_LOGO" "$TEMP_LOGO"; then
     rm -f "$TEMP_LOGO" 2>/dev/null || :

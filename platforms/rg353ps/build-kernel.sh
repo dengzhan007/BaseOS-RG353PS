@@ -377,21 +377,17 @@ elif len(vbus_matches) == 0 and vbus_marker in otg:
 else:
     raise SystemExit("Could not uniquely locate OTG state-machine VBUS read: " + str(len(vbus_matches)))
 
-# In B_IDLE, keep the fixed-peripheral PHY state machine polling at its normal
-# two-second cadence so VBUS can be detected without a working edge interrupt.
-poll_anchor = "\t\tif (rport->vbus_attached != vbus_attach) {"
+# Fixed-peripheral B_IDLE is event-driven: BVALID IRQ handles VBUS edges.
+# Remove the former two-second fallback poll if a cached source tree contains it.
 poll_insert = (
     "\t\tif (rport->mode == USB_DR_MODE_PERIPHERAL)\n"
     "\t\t\tsch_work = true;\n\n"
 )
-poll_count = otg.count(poll_anchor)
+poll_count = otg.count(poll_insert)
 if poll_count == 1:
-    if not otg.startswith(poll_insert, otg.find(poll_anchor)):
-        otg = otg.replace(poll_anchor, poll_insert + poll_anchor, 1)
-elif poll_count == 0 and poll_insert in otg:
-    pass
-else:
-    raise SystemExit("Could not uniquely locate OTG B_IDLE polling point: " + str(poll_count))
+    otg = otg.replace(poll_insert, "", 1)
+elif poll_count != 0:
+    raise SystemExit("Unexpected duplicate fixed-peripheral B_IDLE poll: " + str(poll_count))
 
 # Do not commit vbus_attached while charger detection is still in progress.
 # A bouncing BVALID edge can otherwise consume the transition before
@@ -2423,8 +2419,19 @@ else:
         f"old={count}, new={func.count(new)}"
     )
 
+# Stop periodic polling while a USB data connection is stable. Keep one
+# immediate follow-up after disconnect so B_IDLE can publish extcon=0.
+peripheral_old = "\t\t}\n\t\tsch_work = true;\n\t\tbreak;\n\tcase OTG_STATE_A_HOST:"
+peripheral_new = "\t\t}\n\t\tsch_work = !vbus_attach;\n\t\tbreak;\n\tcase OTG_STATE_A_HOST:"
+peripheral_count = func.count(peripheral_old)
+if peripheral_count == 1:
+    func = func.replace(peripheral_old, peripheral_new, 1)
+elif func.count(peripheral_new) != 1:
+    raise SystemExit("Could not uniquely disable stable B_PERIPHERAL polling: " + str(peripheral_count))
+
 text = text[:start] + func + text[end:]
 source.write_text(text)
+print("Applied RG353PS event-driven OTG polling policy")
 print("Applied RG353PS OTG immediate reschedule fix using mod_delayed_work")
 PYCODE
 

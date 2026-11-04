@@ -112,7 +112,7 @@ This is a frontend-only first-boot package. It contains the Slot executable
 and its BaseOS adapter, but intentionally does not include libretro emulator
 cores, BIOS files, game assets, theme packs or screen overlays.
 
-Extract the ZIP to the root of TF2 for priority use, or to the root of TF1's
+Extract the ZIP to the root of TF2 for priority use, or to the root of TF1
 BASEOS user partition for fallback use. BaseOS keeps its existing Wi-Fi,
 Bluetooth, RK817 audio, volume and power-key services.
 

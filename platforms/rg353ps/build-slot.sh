@@ -41,6 +41,7 @@ docker run --rm --network host --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
   -v rg353ps-slot-cargo:/usr/local/cargo \
   -v rg353ps-slot-target:/cargo-target \
   -v "$SRC_HOST":/slot-up:ro \
+  -e SLOT_REV="$SLOT_REV" \
   "${SLOT_BUILD_IMAGE:-rg353ps-slot-build:latest}" sh -euc '
     export RUSTFLAGS="-C target-feature=-crt-static"
     export CARGO_HOME=/usr/local/cargo

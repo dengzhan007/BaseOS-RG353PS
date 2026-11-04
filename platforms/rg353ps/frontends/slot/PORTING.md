@@ -31,7 +31,7 @@
 | 资产 | 路径 | 作用 |
 |---|---|---|
 | 构建镜像定义 | `slot-6/packaging/rg353ps/Dockerfile` | RG353PS 前端专用 AArch64/musl 构建镜像 |
-| 暖缓存脚本 | `diag/warm-slot-cache.sh` | 把 slot 依赖 + crates.io registry 固化进持久卷，避免每次全量编译 |
+| 构建缓存 | Docker named volumes（`rg353ps-slot-cargo` / `rg353ps-slot-target`） | 本地同一 Docker 主机可复用；GitHub-hosted runner 是临时机器，当前 workflow 不承诺跨运行缓存 |
 | 构建+打包主脚本 | `slot-6/packaging/rg353ps/build.sh` | 暂存 640 workspace、取得设备适配与核心构建资源、编译并生成 `baseos-rg353ps-slot.zip` |
 | **显示后端替换** | `platforms/rg353ps/frontends/slot/fbdev.rs` | SDL2 KMSDRM+GLES 版 `fbdev.rs`，**fork 间基本直接复用** |
 | **运行环境** | `platforms/rg353ps/frontends/slot/launch.sh` | `SDL_VIDEODRIVER=kmsdrm` / `SDL_AUDIODRIVER=alsa` / 暂存二进制到 tmpfs / `--init-root` |
@@ -292,12 +292,11 @@ cat /mnt/SDCARD/Logs/slot.log | grep bootlogo     # 期望 "installed"
 
 ## 3. 标准流程（适配 10 分钟 + 构建时间）
 
-1. **定目标**：fork 仓库 URL + 一个已知能跑的 commit（`SLOT_REV`）。
+1. **定目标**：确定 `slot-6` 的源码分支/commit；前端仓库负责该版本的构建与 ZIP 发布。
 2. **构建镜像**（首次/换 Rust 版本时）：
    在 `slot-6` 仓库根目录执行：
    `docker build --platform linux/arm64 -t rg353ps-slot-build:latest -f packaging/rg353ps/Dockerfile packaging/rg353ps`
-3. **暖缓存**（首次/换 fork 导致依赖树变化时）：`bash diag/warm-slot-cache.sh`
-   （取码已在宿主完成，容器无需联网；cargo registry/依赖产物固化进命名卷）。
+3. **缓存**：本地 Docker 构建可复用命名卷；GitHub Actions hosted runner 每次是干净环境，当前不跨 run 保存 Cargo target。若之后需要缩短 CI 时间，应在 `slot-6` workflow 增加 actions/cache，而不是让 BaseOS 管理前端缓存。
 4. **固定 Slot 源码版本**：运行 `slot-6` 的 RG353PS package workflow；push/PR 默认构建当前源码，手动运行时可指定 `baseos_ref`。设备补丁仍由本仓库提供。
 5. **为新 fork 生成按键 patch**：基于该 fork 的 `evdev.rs`，按 RG353PS 的 DTS
    （`rk3566-anbernic-rg353x.dtsi` + `rk3566-anbernic-rg353ps.dts`）映射：
@@ -399,7 +398,8 @@ RG353PS 实测参考值：`adc-joystick` 是 **event4**（`event1` 是电源键�
   必须 `RUSTFLAGS="-C target-feature=-crt-static"`（脚本已带）。
   **cargo 指纹含 RUSTFLAGS** —— 暖缓存时用的 RUSTFLAGS 必须与生产完全一致，否则缓存不命中。
 - **fat LTO 很慢**：`[profile.device]` 开 `lto="fat"` + `codegen-units=1`，干净编译在 QEMU arm64
-  模拟下极慢；靠 `warm-slot-cache.sh` 把依赖固化进命名卷，之后只重编 slot 自身一个 crate。
+  模拟下耗时较长。GitHub-hosted runner 的 Docker named volume 不跨运行持久化；CI 若需加速，应由
+  `slot-6` workflow 对 Cargo registry / target 目录建立独立缓存。
 - **exec 位**：TF/exFAT 不保 Unix exec 位，`launch.sh` 把二进制 `cp` 到 `/tmp` 再 `exec`；
   ROM/存档/core 留在用户分区。
 - **无 dbus**：rootfs 无 `dbus-daemon`，依赖系统总线的前端特性（如某些 audiomon）起不来；

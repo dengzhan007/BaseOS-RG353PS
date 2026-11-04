@@ -71,10 +71,10 @@ docker run --rm --network host --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       git -C "$SRC" apply "$p"
     done
 
-    cargo build --manifest-path "$WORKSPACE/Cargo.toml" \
-      --profile device --target-dir "$TARGET" -p slot \
+    cd "$WORKSPACE"
+    cargo build --release --target-dir "$TARGET" -p slot \
       --no-default-features --features device
-    BIN="$TARGET/device/slot"
+    BIN="$TARGET/release/slot"
     test -x "$BIN"
     readelf -l "$BIN" | grep -q "ld-musl-aarch64.so.1" || {
       echo "Slot executable is not dynamically linked for the BaseOS musl rootfs" >&2

@@ -476,11 +476,10 @@ fi
 # not started again here: a second copy would race the deferred restore pass for
 # the default PCM, which is the failure 1.1.2 fixed.
 
-# USB debug channel: RNDIS network plus a key-only dropbear, reachable over the
-# cable on 192.168.42.1. On by default in this bring-up build; baseos.conf can
-# turn it off. Started in the background because it waits for the UDC.
-# baseos-usb-storage releases and re-takes this gadget around a mass-storage
-# session, so a Function-triggered storage boot leaves the port alone.
+# USB Gadget manager: development images combine USB networking/SSH and MTP;
+# release images default to MTP only. It starts in the background so UDC
+# discovery and FunctionFS setup never block frontend hand-off. Mass Storage
+# releases the UDC before taking it, then restores the configured gadget.
 if [ ! -e "$BOOT_USB_REQUEST" ] && [ -x /usr/sbin/baseos-usb-debug ]; then
   /usr/sbin/baseos-usb-debug start >/dev/null 2>&1 &
 fi

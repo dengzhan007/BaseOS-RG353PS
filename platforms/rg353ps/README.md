@@ -31,22 +31,31 @@ For details, see [FRONTENDS.md](FRONTENDS.md).
 
 ## Boot logo
 
-The active boot logo is `bootlogo.bmp` in the root of `BASEOS_BOOT`, next to
-the kernel. BaseOS mounts that FAT partition at `/mnt/boot`; `rcS` draws the
-file once during startup with `fbsplash`. U-Boot leaves the RG353PS panel black,
-so changing the file takes effect on the next boot.
+BaseOS draws /mnt/boot/bootlogo.bmp from the active BASEOS_BOOT
+partition. This is an A/B-updated system slot, not durable user storage:
+.bosupd updates replace both BASEOS_BOOT and BASEOS_ROOT, while the
+BASEOS user-data volume at /mnt/SDCARD is left untouched. A custom image
+copied only to /mnt/boot is therefore replaced by a system update.
 
-When using the current Slot-6 frontend, place candidate images in
-`/mnt/SDCARD/Bootlogos/*.bmp`. The Settings boot-logo row cycles through the
-images and writes the chosen one to `/mnt/boot/bootlogo.bmp`. Images must be
-640x480, 24-bit, uncompressed BMP files. Slot reuses the already-mounted
-`BASEOS_BOOT` volume without remounting or unmounting it; the first image that
-gets replaced is backed up to `/mnt/SDCARD/System/bootlogo-original.bmp`.
-The selected filename is stored in `/mnt/SDCARD/System/bootlogo.txt`.
+The platform now restores the selected image from persistent user data during
+startup. The shared frontend contract is
+/mnt/SDCARD/Bootlogos/<filename>.bmp plus the selected basename in
+/mnt/SDCARD/System/bootlogo.txt. After user data is mounted, rcS copies
+the selected source back to /mnt/boot/bootlogo.bmp, verifies the bytes, and
+redraws it with fbsplash before the frontend starts. Slot-6 currently uses
+these names; other frontends should implement the same contract rather than
+inventing a private BaseOS integration.
 
-This behavior is implemented in the Slot-6 source. Other frontends may expose
-their own boot-logo workflow. A system update replaces the rootfs slots only,
-so the active logo on `BASEOS_BOOT` survives it.
+The RG353PS format is 640×480, 24-bit, uncompressed BMP. Frontends must reuse
+the already-mounted BASEOS_BOOT volume, preserve the original image once at
+/mnt/SDCARD/System/bootlogo-original.bmp, verify writes, and save the
+selection record only after a successful install. The current restore path
+reads TF1's /mnt/SDCARD; a frontend launched from TF2 must write the shared
+state there explicitly rather than only to its /mnt/sdcard frontend root.
+
+See the [RG353PS boot-logo persistence and frontend contract](BOOTLOGO.md)
+for the complete partition model, file layout, startup sequence, update
+lifecycle, BMP requirements and frontend implementation rules.
 
 ## USB storage mode: plug the cable first
 

@@ -109,10 +109,10 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     # override these defaults without rebuilding or updating the system.
     case "$BASEOS_USB_PROFILE" in
       development)
-        sed -i 's/^usb_profile=.*/usb_profile=development/; s/^usb_debug=.*/usb_debug=yes/; s/^usb_mtp=.*/usb_mtp=yes/' "$R/etc/baseos.conf"
+        sed -i "s/^usb_profile=.*/usb_profile=development/; s/^usb_debug=.*/usb_debug=yes/; s/^usb_mtp=.*/usb_mtp=yes/" "$R/etc/baseos.conf"
         ;;
       release)
-        sed -i 's/^usb_profile=.*/usb_profile=release/; s/^usb_debug=.*/usb_debug=no/; s/^usb_mtp=.*/usb_mtp=yes/' "$R/etc/baseos.conf"
+        sed -i "s/^usb_profile=.*/usb_profile=release/; s/^usb_debug=.*/usb_debug=no/; s/^usb_mtp=.*/usb_mtp=yes/" "$R/etc/baseos.conf"
         ;;
     esac
     echo "USB build profile: $BASEOS_USB_PROFILE"

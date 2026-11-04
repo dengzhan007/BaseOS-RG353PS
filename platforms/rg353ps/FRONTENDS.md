@@ -44,6 +44,22 @@ re-asserted after resume and before a frontend launches, so a codec re-probe
 cannot silently change the level.
 
 
+## Shared boot-logo contract
+
+BaseOS owns boot-logo restoration and boot-time display; a frontend owns only
+the selection UI and the persistent source/selection record. The active
+/mnt/boot/bootlogo.bmp lives on BASEOS_BOOT, which is replaced as part
+of the A/B .bosupd update along with BASEOS_ROOT. Therefore, a frontend
+must not treat the boot-partition copy as the only saved copy.
+
+For compatibility with the RG353PS BaseOS restore path, keep the durable image
+under /mnt/SDCARD/Bootlogos/ and the selected basename in
+/mnt/SDCARD/System/bootlogo.txt. Do not put the only copy on the active
+frontend root when that root may be TF2: /mnt/sdcard can point to TF2, while
+the early BaseOS restore currently reads the persistent TF1 volume at
+/mnt/SDCARD. The full format, write/verify protocol, startup sequence and
+A/B update behavior are specified in [BOOTLOGO.md](BOOTLOGO.md).
+
 ## Slot frontend (experimental)
 
 The RG353PS Slot device adapter uses SDL2 KMSDRM + GLES on Mesa/Panfrost and

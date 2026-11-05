@@ -234,7 +234,7 @@ Verify on RG353PS:
 - Large files transfer in both directions and compare byte-for-byte.
 - Chinese names, spaces, deep paths, create, rename and delete work.
 - Unexpected cable pull does not leave FunctionFS or UDC stuck.
-- Reconnect without reboot; repeat at least 20 times.
+- Reconnect without reboot; complete the 2-host × 2-cable matrix above (10 cycles per pairing).
 - MTP-only release profile enumerates without a network adapter.
 - Function + Power Mass Storage still enters/exits and passes existing safety tests.
 - Compare boot marks before/after; frontend hand-off must not regress.

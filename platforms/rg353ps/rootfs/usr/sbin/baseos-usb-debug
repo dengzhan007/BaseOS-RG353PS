@@ -203,11 +203,12 @@ disable_usb_runtime_pm() {
     done
 }
 
-# A previous soft_connect experiment is inconclusive: it reported
-# "failed to enable ep0out" and left the UDC at "not attached", but the cable
-# used for that experiment was later suspected of having signal-integrity
-# problems. The cable was replaced, but soft_connect was not retested.
-# Do not treat that log as proof that soft_connect is ineffective.
+# One known-good-cable test on ff88dd9 wrote both soft_connect
+# disconnect/connect commands successfully, but the UDC stayed at
+# "not attached" with speed=UNKNOWN for the full eight-second observation.
+# The supervisor's DWC3 driver re-probe then restored enumeration. This is
+# evidence for that failure signature, not proof that soft_connect is useless
+# in every possible controller state.
 #
 # The supervisor never uses soft_connect automatically. A one-shot test can
 # be armed while USB is healthy with:

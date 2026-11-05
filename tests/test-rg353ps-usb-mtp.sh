@@ -66,6 +66,16 @@ grep -Fq '[ $((tick - stuck_since)) -ge 4 ]' "$USB/rootfs/usr/sbin/baseos-usb-de
 grep -Fq 'RECOVERY_LOCK=/run/baseos-usb-debug.recovery.lock' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 grep -Fq 'refusing controller hand-off' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 
+# A one-shot soft_connect experiment is armed only from a healthy USB session.
+# It must not run on ordinary reconnects or become an automatic recovery step.
+grep -Fq 'soft_connect was not retested' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'soft-connect-test-arm' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'soft-connect-test-cancel' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq '[ "$(udc_state)" = configured ]' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'run_soft_connect_test || :' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'disconnect\\n' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'connect\\n' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+
 # An unplugged port sits in "not attached" by design, so recovery must never
 # start without a cable: re-probing there tears the PHY down and back up on
 # every retry and wakes an idle board forever.

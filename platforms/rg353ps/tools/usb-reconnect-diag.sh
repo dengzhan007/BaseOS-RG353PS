@@ -26,6 +26,8 @@ CONTROL="$DBG/dynamic_debug/control"
 LOG=
 DEBUGFS_OWNED=0
 RULES_ON=0
+RULE_OK=0
+RULE_FAILURES=
 KMSG_PID=
 SAMPLE_PID=
 KMSG_METHOD=N/A
@@ -133,12 +135,40 @@ release_snapshot() {
 # disable_rules() are mirror images; do not add one without the other.
 # Format strings were read back from the running kernel's
 # /sys/kernel/debug/dynamic_debug/control, not guessed from docs.
+# A write to control can succeed while matching no callsite at all (for
+# example a format string that no longer exists in this kernel), so check both
+# the write result and the flags read back from control.
+rule_is_enabled() {
+    case "$1" in
+        'file '*)   key=${1#file } ;;
+        'format '*) key=${1#format } ;;
+        *) return 1 ;;
+    esac
+    key=${key% +p}
+    key=$(printf '%s' "$key" | tr -d '"')
+    grep -F "$key" "$CONTROL" 2>/dev/null | grep -q '=p '
+}
+
+# RULES_ON is set by the caller BEFORE the first selector is written, so an
+# early exit or signal still makes cleanup() turn off all five selectors even
+# when only some of them were enabled successfully.
+enable_one_rule() {
+    one_rule=$1
+    if printf '%s\n' "$one_rule" >"$CONTROL" 2>/dev/null && rule_is_enabled "$one_rule"; then
+        RULE_OK=$((RULE_OK + 1))
+    else
+        RULE_FAILURES="${RULE_FAILURES}${RULE_FAILURES:+|}$one_rule"
+    fi
+}
+
 enable_rules() {
-    printf '%s\n' 'file phy-rockchip-inno-usb2.c +p' >"$CONTROL"
-    printf '%s\n' 'format "RG353PS DWC3 device DISCONNECT event" +p' >"$CONTROL"
-    printf '%s\n' 'format "RG353PS DWC3 device RESET event" +p' >"$CONTROL"
-    printf '%s\n' 'format "RG353PS DWC3 device-event raw" +p' >"$CONTROL"
-    printf '%s\n' 'format "RG353PS EP0 SETUP" +p' >"$CONTROL"
+    RULE_OK=0
+    RULE_FAILURES=
+    enable_one_rule 'file phy-rockchip-inno-usb2.c +p'
+    enable_one_rule 'format "RG353PS DWC3 device DISCONNECT event" +p'
+    enable_one_rule 'format "RG353PS DWC3 device RESET event" +p'
+    enable_one_rule 'format "RG353PS DWC3 device-event raw" +p'
+    enable_one_rule 'format "RG353PS EP0 SETUP" +p'
 }
 
 disable_rules() {
@@ -228,6 +258,12 @@ write_header() {
         echo "--- dynamic debug selectors enabled by this script ---"
     } >>"$LOG"
     list_rules
+    # Name every selector that failed to take effect, so a partial capture is
+    # never mistaken for a complete one. enabled_rule_ok= counts successes.
+    if [ -n "$RULE_FAILURES" ]; then
+        printf '%s\n' "$RULE_FAILURES" | tr '|' '\n' | sed 's/^/rule_enable_failed=/' >>"$LOG"
+    fi
+    echo "enabled_rule_ok=$RULE_OK/5" >>"$LOG"
     if [ -r "$CONTROL" ]; then
         n=$(grep 'RG353PS' "$CONTROL" 2>/dev/null | grep -c '=p ')
         echo "enabled_rule_count=$n" >>"$LOG"
@@ -251,7 +287,10 @@ write_footer() {
 
 # Final guard: the cap applies to the TOTAL number of lines in the file, not
 # just the kernel-stream section. Both producers already stop at the cap;
-# this truncation covers header/footer/sample lines too.
+# this truncation covers header/footer/sample lines too. It runs only after
+# both producers are stopped: truncating while two processes append to the
+# same file would replace the inode under an open fd and lose their writes.
+# This is a final-file limit, not a real-time disk-usage limit.
 enforce_limit() {
     [ -n "$LOG" ] && [ -f "$LOG" ] || return 0
     total=$(wc -l <"$LOG" 2>/dev/null || echo 0)
@@ -355,11 +394,25 @@ done
 # A long "sleep 60" would delay signal handling until it finished, leaving the
 # debug rules on for a minute after Ctrl+C. One-second slices bound that delay
 # to 1 s; the signal handler only sets a flag, and EXIT runs the real cleanup.
-enable_rules
+# RULES_ON goes high BEFORE the first selector is written: if only some rules
+# enable, cleanup() must still attempt to disable all five of them.
 RULES_ON=1
+enable_rules
+# Resolve the stream name before the header is written, so kernel_stream=
+# describes the stream that will actually be started below.
+if [ -r /proc/kmsg ]; then
+    KMSG_METHOD=/proc/kmsg
+else
+    KMSG_METHOD=N/A
+fi
+# Write the complete header first. The two background producers only append,
+# so their lines can never be interleaved ahead of the header.
+write_header
 start_kmsg
 start_sampling
-write_header
+if [ -n "$RULE_FAILURES" ]; then
+    echo "warning: some dynamic-debug rules did not enable; see rule_enable_failed= in the log" >&2
+fi
 
 echo ""
 echo "=== USB reconnect diagnostic (v$DIAG_VERSION, ${DIAG_SECONDS}s) ==="

@@ -277,8 +277,12 @@ messages, kernel warnings/errors, and tokenised generic USB subsystem events
 (usbcore, `usb 1-1:`, usb0, usb-phy, gadget, udc, xhci*, typec, ucsi,
 role-switch, rockchip_usb*). A bare `usb` is deliberately not matched, so
 ordinary prose is not collected. High-frequency EP2 / bulk-out data-plane
-lines are filtered out. The cap applies to the TOTAL number of lines written
-to the log file, 20,000 by default.
+lines are filtered out. The cap applies to the TOTAL number of lines in the
+FINAL log file, 20,000 by default; it is enforced after both background
+producers stop, not in real time. The header is written before either
+producer starts. Each dynamic-debug selector is verified after being
+written, and a partial failure is recorded while cleanup still disables
+all five selectors.
 
 Selector formats were read back from the running kernel's
 /sys/kernel/debug/dynamic_debug/control, not copied from older notes. One
@@ -292,5 +296,6 @@ it enables the per-packet EP2 traces that fill dmesg within seconds.
 programs from this script and checks the filters against sample kernel logs
 and a 4-CPU `/proc/interrupts` table; run it with `sh`. Static validation,
 local awk regression tests, environment probes and short no-unplug dry runs
-(normal exit, SIGTERM, preflight failures, log-line cap) have passed; a real
-unplug/replug capture on hardware is still required.
+(normal exit, SIGTERM, preflight failures, partial rule-enable failure, external
+rule protection, log-line cap) have passed; a real unplug/replug capture on
+hardware is still required.

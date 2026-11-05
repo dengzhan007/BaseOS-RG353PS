@@ -21,6 +21,12 @@ BASEOS_WORK="${RG353PS_WORK:-$REPO_ROOT/work/rg353ps}"
 WORK="${RG353PS_KERNEL_WORK:-$BASEOS_WORK/kernel}"
 FIRMWARE_OUT="$BASEOS_WORK/firmware"
 REGDB_CERT="$PLATFORM_DIR/kernel/certs/wens.x509.pem"
+# DWC3 reconnect diagnostic injector. It lives under kernel/ because the whole
+# kernel/ directory is bind-mounted read-only into the build container as
+# /inputs, so this host path is exactly /inputs/tools/inject-reconnect-diag.py
+# there. Its content participates in INPUT_KEY: editing the injector must
+# re-expand the kernel source tree and re-apply the tracing callsites.
+INJECTOR="$PLATFORM_DIR/kernel/tools/inject-reconnect-diag.py"
 TARBALL="$WORK/linux-${KERNEL_VERSION}.tar.xz"
 PATCHSET="$WORK/patches.rg353ps"
 INPUT_KEY_FILE="$WORK/inputs.sha256"
@@ -36,6 +42,9 @@ done
 mkdir -p "$WORK" "$OUTPUT"
 
 [ -s "$REGDB_CERT" ] || { echo "missing pinned Wens regulatory-database certificate: $REGDB_CERT" >&2; exit 1; }
+# baseos_sha256() swallows a missing file through its pipe and returns an empty
+# string, silently dropping the injector from INPUT_KEY. Require it explicitly.
+[ -s "$INJECTOR" ] || { echo "missing DWC3 reconnect diagnostic injector: $INJECTOR" >&2; exit 1; }
 if [ ! -s "$FIRMWARE_OUT/regulatory.db" ] || [ ! -s "$FIRMWARE_OUT/regulatory.db.p7s" ]; then
   echo "== collecting firmware, including early-boot regulatory database =="
   "$PLATFORM_DIR/build-firmware.sh"
@@ -64,9 +73,12 @@ cat "$PLATFORM_DIR"/kernel/patches/rk3566/*.patch \
 PATCH_SHA="$(baseos_sha256 "$PATCHSET")"
 CONFIG_SHA="$(baseos_sha256 "$PLATFORM_DIR/kernel/config/linux.aarch64.conf")"
 BUILDER_SHA="$(baseos_sha256 "$PLATFORM_DIR/build-kernel.sh")"
-printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+INJECTOR_SHA="$(baseos_sha256 "$PLATFORM_DIR/kernel/tools/inject-reconnect-diag.py")"
+[ -n "$INJECTOR_SHA" ] || { echo "cannot hash DWC3 reconnect diagnostic injector: $INJECTOR" >&2; exit 1; }
+printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
   "$KERNEL_VERSION" "$ROCKNIX_REF" "$PATCH_SHA" "$CONFIG_SHA" \
-  "$REGDB_SHA" "$REGDB_SIG_SHA" "$REGDB_CERT_SHA" "$BUILDER_SHA" > "$INPUT_KEY_FILE"
+  "$REGDB_SHA" "$REGDB_SIG_SHA" "$REGDB_CERT_SHA" "$BUILDER_SHA" \
+  "$INJECTOR_SHA" > "$INPUT_KEY_FILE"
 INPUT_KEY="$(baseos_sha256 "$INPUT_KEY_FILE")"
 
 echo "== building Linux $KERNEL_VERSION for RG353PS =="
@@ -2488,6 +2500,12 @@ PYCODE
       # the "RG353PS DWC3 RECONNECT " prefix. The injector is a separate file
       # because this whole block runs inside a single-quoted sh -euc string:
       # an embedded Python heredoc cannot contain a single quote here.
+      # It arrives via the read-only kernel/ bind mount (/inputs); fail loudly
+      # instead of skipping the tracing if the mount or the file is missing.
+      test -s /inputs/tools/inject-reconnect-diag.py || {
+        echo "missing DWC3 reconnect diagnostic injector: /inputs/tools/inject-reconnect-diag.py" >&2
+        exit 1
+      }
       python3 /inputs/tools/inject-reconnect-diag.py "$SRC"
 
     cd "$SRC"

@@ -59,7 +59,7 @@ format "RG353PS DWC3 RECONNECT SOFTCONNECT" +p
 | `bash -n build-kernel.sh` | 通过（曾因 `Path.write_text()` 写成 CRLF 与 heredoc 单引号冲突两次失败，均已定位并改用字节写入 + 独立脚本） |
 | `python3 -m py_compile inject-reconnect-diag.py` | 通过 |
 | 现有 `test-usb-reconnect-diag-awk.sh` | `PASS=24 FAIL=0` |
-| 新增 `test-kernel-input-key.sh` | 检查注入器路径、缺失/空文件失败保护、哈希输入链、容器挂载与执行路径；模拟仅修改注入器内容时 cache key 改变 |
+| 新增 `test-kernel-input-key.sh` | 覆盖注入器路径、缺失/空文件失败保护、哈希输入链、容器挂载与执行路径，并模拟仅修改注入器内容时 cache key 改变；**已做脚本语法/测试逻辑检查，但本轮未在完整仓库工作树中运行该脚本** |
 | 21 个既有源码改写块重放（pristine 7.2.7 副本） | 20 成功；唯一失败的是 Hantro 摄像头块（依赖先应用的 patch，与 USB 无关） |
 | 新注入块重放 | 9 条注入成功；重跑注入 0 条（幂等） |
 | 格式串唯一性 / 占位符-参数匹配 | 9 条全唯一、全部匹配 |
@@ -81,7 +81,7 @@ format "RG353PS DWC3 RECONNECT SOFTCONNECT" +p
 ## 6. 未覆盖风险与注意事项
 
 - 新诊断内核尚未构建、尚未刷机；本轮 9 条日志**没有在任何真机内核里产生过**。
-- **缓存键遗漏已修复并有回归测试覆盖**：`INPUT_KEY` 包含 `INJECTOR_SHA`，`test-kernel-input-key.sh` 检查该依赖并验证仅改变注入器内容会改变最终键。该测试是静态结构检查加 SHA-256 组合行为测试，不替代真实 Docker 构建验证。
+- **缓存键遗漏已修复并有回归测试覆盖**：`INPUT_KEY` 包含 `INJECTOR_SHA`，`test-kernel-input-key.sh` 检查该依赖并验证仅改变注入器内容会改变最终键。该测试是静态结构检查加 SHA-256 组合行为测试；脚本已写入分支，但本轮未在完整仓库工作树中执行，也不替代真实 Docker 构建验证。
 - `udc/core.c` 不在既有 `dev_info → dev_dbg` 降级列表里，因此该文件的日志必须直接写成 `dev_dbg`（本轮已如此）。
 - 内核 printk 时间轴与 `/proc/uptime` 在该平台分叉约 2 万秒，分析时仍应以 `[sample]` 墙钟为主轴。
 - 单次拔插样本不能代表统计特性；此前 40 次矩阵测试的 19/40 re-probe 比例仍有效。

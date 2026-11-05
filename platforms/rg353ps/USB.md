@@ -98,6 +98,52 @@ The rootfs build pins uMTP-Responder to upstream commit
 userspace, and installs its GPL-3.0 license at
 `/usr/share/licenses/uMTP-Responder/`.
 
+## Reconnect enumeration
+
+A replug does not always end in an enumerated port. Measured on commit
+`ff88dd9` with a known-good cable, ten unplug/replug cycles on the same host
+port and the same USB port gave ten working connects — RNDIS, MTP and DHCP all
+succeeded every time — but four of the ten settled in `not attached` instead of
+enumerating, and only recovered when the supervisor re-probed the UDC.
+
+| After replug | Count | Recovery |
+|---|---:|---|
+| `configured` immediately | 3 | none |
+| `addressed` then `configured` | 2 | none |
+| `not attached`, recovered by itself | 1 | none, under 2 s |
+| `not attached`, needed re-probe | 4 | 6–9 s |
+
+The wait is the re-probe itself: unbinding and rebinding the DWC3 driver is
+what makes the PHY re-run `rockchip_usb2phy_init()`, and only then does the host
+see the device again. DHCP survives it because dnsmasq answers the retry and the
+host keeps the same lease; a host that gives up earlier would show this as a
+failed network connect rather than a slow one.
+
+`soft_connect` does not help. An armed one-shot test wrote `disconnect` then
+`connect` to `/sys/class/udc/fcc00000.usb/soft_connect` while the port sat in
+`not attached` with the cable present. Both writes were accepted, and sixteen
+samples over eight seconds all reported `state=not attached speed=UNKNOWN`. The
+port came back only when the supervisor re-probed. Pullup alone is not enough;
+the PHY has to be re-initialised.
+
+The supervisor therefore keeps `soft_connect` out of its automatic path. The
+one-shot test stays as a manual diagnostic:
+
+```sh
+baseos-usb-debug soft-connect-test-arm      # next failed enumeration runs it once
+baseos-usb-debug soft-connect-test-cancel
+```
+
+Open directions, in increasing cost:
+
+1. Leave it. Re-probe works; the cost is 6–9 s on roughly four replugs in ten.
+2. Shorten the ladder. Attempt 1 and 2 both re-probe the driver; with
+   `soft_connect` ruled out, the first attempt could go straight to the
+   rebind that already works.
+3. Fix the cause in the kernel. DWC3 should re-arm its pullup and drive the PHY
+   through a fresh init when VBUS returns in peripheral mode. That is the real
+   fix and needs its own round of hardware validation.
+
 ## Hardware validation checklist
 
 This branch is an implementation candidate, not yet hardware-validated.

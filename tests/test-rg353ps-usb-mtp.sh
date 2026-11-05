@@ -66,6 +66,13 @@ grep -Fq '[ $((tick - stuck_since)) -ge 4 ]' "$USB/rootfs/usr/sbin/baseos-usb-de
 grep -Fq 'RECOVERY_LOCK=/run/baseos-usb-debug.recovery.lock' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 grep -Fq 'refusing controller hand-off' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 
+# The reconnect kernel candidate serializes both BVALID IRQ and charger
+# completion through one OTG delayed-work item; it must not change the
+# userspace recovery ladder or force a PHY/controller reset.
+grep -Fq 'serialize_otg_call(' "$USB/build-kernel.sh"
+grep -Fq 'mod_delayed_work(system_wq, &rport->otg_sm_work, 0);' "$USB/build-kernel.sh"
+grep -Fq '"usb_reconnect_kernel_revision": "bvalid-otg-sm-serialized-v1"' "$USB/build-kernel.sh"
+
 # A one-shot soft_connect experiment is armed only from a healthy USB session.
 # It must not run on ordinary reconnects or become an automatic recovery step.
 grep -Fq 'One known-good-cable test on ff88dd9' "$USB/rootfs/usr/sbin/baseos-usb-debug"

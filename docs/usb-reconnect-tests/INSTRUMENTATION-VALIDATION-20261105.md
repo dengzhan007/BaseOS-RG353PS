@@ -13,14 +13,14 @@
 | 文件 | 变更 |
 |---|---|
 | `platforms/rg353ps/kernel/tools/inject-reconnect-diag.py` | **新增**：幂等注入 9 条 `dev_dbg`（8 条 gadget.c、1 条 udc/core.c） |
-| `platforms/rg353ps/build-kernel.sh` | 末尾新增一行 `python3 /inputs/tools/inject-reconnect-diag.py "$SRC"`；其余 2553 行未动 |
+| `platforms/rg353ps/build-kernel.sh` | 执行独立注入器；将注入器 SHA-256 纳入 `INPUT_KEY`，缺失或无法计算哈希时失败退出 |
 | `platforms/rg353ps/tools/usb-reconnect-diag.sh` | 5 条 selector 扩到 9 条（启用/关闭/头部清单/冲突检查/`enabled_rule_ok=N/9`） |
 | `platforms/rg353ps/tools/usb-reconnect-diag.README.md` | 新增字段、事件顺序、四种情形的分析方法；修正旧版「真实拔插未实测」表述 |
 | `platforms/rg353ps/USB.md` | 诊断章节同步（原文前 11482 字节未改） |
 | `docs/usb-reconnect-tests/instrumentation-20261105.diff` | 本轮完整 diff（403 行 / 17 个 hunk） |
 | 本文件 | 验证记录 |
 
-内核源码改写放在独立文件而不是嵌入式 heredoc，原因是所有既有改写块都位于 `docker run ... sh -euc '...'` 的**单引号字符串**内，块内不能出现单引号；独立脚本通过 `/inputs`（`platforms/rg353ps/kernel` 的容器内挂载点）访问。`INPUT_KEY` 含 `build-kernel.sh` 的 SHA256，本轮改动会使缓存的源码树重新展开，注入得以执行。
+内核源码改写放在独立文件而不是嵌入式 heredoc，原因是所有既有改写块都位于 `docker run ... sh -euc '...'` 的**单引号字符串**内，块内不能出现单引号；独立脚本通过 `/inputs`（`platforms/rg353ps/kernel` 的容器内挂载点）访问。`INPUT_KEY` 同时包含 `build-kernel.sh` 与独立注入器 `inject-reconnect-diag.py` 的 SHA-256。注入器缺失、为空或无法计算哈希时构建会失败；因此仅修改注入器内容也会改变缓存键，迫使源码树重新展开并重新执行注入。
 
 ## 3. 新增日志对应的函数与判断分支
 
@@ -59,6 +59,7 @@ format "RG353PS DWC3 RECONNECT SOFTCONNECT" +p
 | `bash -n build-kernel.sh` | 通过（曾因 `Path.write_text()` 写成 CRLF 与 heredoc 单引号冲突两次失败，均已定位并改用字节写入 + 独立脚本） |
 | `python3 -m py_compile inject-reconnect-diag.py` | 通过 |
 | 现有 `test-usb-reconnect-diag-awk.sh` | `PASS=24 FAIL=0` |
+| 新增 `test-kernel-input-key.sh` | 检查注入器路径、缺失/空文件失败保护、哈希输入链、容器挂载与执行路径；模拟仅修改注入器内容时 cache key 改变 |
 | 21 个既有源码改写块重放（pristine 7.2.7 副本） | 20 成功；唯一失败的是 Hantro 摄像头块（依赖先应用的 patch，与 USB 无关） |
 | 新注入块重放 | 9 条注入成功；重跑注入 0 条（幂等） |
 | 格式串唯一性 / 占位符-参数匹配 | 9 条全唯一、全部匹配 |
@@ -80,7 +81,7 @@ format "RG353PS DWC3 RECONNECT SOFTCONNECT" +p
 ## 6. 未覆盖风险与注意事项
 
 - 新诊断内核尚未构建、尚未刷机；本轮 9 条日志**没有在任何真机内核里产生过**。
-- 独立注入脚本本身的内容变化时，`INPUT_KEY`（只含 `build-kernel.sh` 等哈希）不会变，缓存复用可能跳过注入；后续若修改该脚本，需同时触碰 `build-kernel.sh` 或清理 `work/rg353ps/kernel/src`。
+- **缓存键遗漏已修复并有回归测试覆盖**：`INPUT_KEY` 包含 `INJECTOR_SHA`，`test-kernel-input-key.sh` 检查该依赖并验证仅改变注入器内容会改变最终键。该测试是静态结构检查加 SHA-256 组合行为测试，不替代真实 Docker 构建验证。
 - `udc/core.c` 不在既有 `dev_info → dev_dbg` 降级列表里，因此该文件的日志必须直接写成 `dev_dbg`（本轮已如此）。
 - 内核 printk 时间轴与 `/proc/uptime` 在该平台分叉约 2 万秒，分析时仍应以 `[sample]` 墙钟为主轴。
 - 单次拔插样本不能代表统计特性；此前 40 次矩阵测试的 19/40 re-probe 比例仍有效。

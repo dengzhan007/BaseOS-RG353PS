@@ -2393,6 +2393,62 @@ for diag_path in DIAG_FILES:
     print("RG353PS diagnostics behind dynamic debug: " + str(gated) + " call(s) in " + diag_path)
 PYCODE
 
+      # Serialize BVALID IRQ and charger-detection events through the same
+      # delayed-work item. The upstream helper directly invokes the delayed-work
+      # callback from both paths, which can race a pending/running OTG state-machine
+      # callback during a bouncing VBUS transition. Queueing at delay zero preserves
+      # prompt handling while making all state transitions use one work item.
+      python3 - <<PYCODE
+from pathlib import Path
+import re
+
+source = Path("$SRC/drivers/phy/rockchip/phy-rockchip-inno-usb2.c")
+text = source.read_text()
+
+def serialize_otg_call(start_marker, end_marker, label):
+    global text
+    start = text.index(start_marker)
+    end = text.index(end_marker, start)
+    body = text[start:end]
+    old = re.compile(
+        r"(?m)^(s*)rockchip_usb2phy_otg_sm_work(&rport->otg_sm_work.work);$"
+    )
+    new = re.compile(
+        r"(?m)^s*mod_delayed_work(system_wq, &rport->otg_sm_work, 0);$"
+    )
+    matches = list(old.finditer(body))
+    new_matches = list(new.finditer(body))
+    if len(matches) == 1:
+        body = old.sub(
+            lambda match: match.group(1) +
+            "mod_delayed_work(system_wq, &rport->otg_sm_work, 0);",
+            body,
+            count=1,
+        )
+    elif len(matches) == 0 and len(new_matches) == 1:
+        pass
+    else:
+        raise SystemExit(
+            f"Could not uniquely serialize {label} OTG callback: "
+            f"old={len(matches)}, new={len(new_matches)}"
+        )
+    text = text[:start] + body + text[end:]
+
+serialize_otg_call(
+    "static void rockchip_chg_detect_work(struct work_struct *work)",
+    "static void rockchip_usb2phy_sm_work(struct work_struct *work)",
+    "charger-detection",
+)
+serialize_otg_call(
+    "static irqreturn_t rockchip_usb2phy_bvalid_irq(int irq, void *data)",
+    "static irqreturn_t rockchip_usb2phy_id_irq(int irq, void *data)",
+    "BVALID IRQ",
+)
+
+source.write_text(text)
+print("Applied RG353PS serialized BVALID/charger OTG state-machine dispatch")
+PYCODE
+
       # Make an already-pending OTG state-machine poll run immediately when
       # BVALID reports a disconnect. schedule_delayed_work() does not move an
       # existing timer; mod_delayed_work() does, including when delay is zero.
@@ -2485,6 +2541,7 @@ PYCODE
   "regulatory_database_embedded_in_kernel": true,
   "device_tree": "rk3566-anbernic-rg353ps.dtb",
   "usb_storage_diagnostic_revision": "usb-high-speed-dwc3-v31-fsg-request-lifecycle-trace",
+  "usb_reconnect_kernel_revision": "bvalid-otg-sm-serialized-v1",
   "complete_sd_image": false,
   "hardware_tested": false
 }

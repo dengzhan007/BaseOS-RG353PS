@@ -2400,48 +2400,41 @@ PYCODE
       # prompt handling while making all state transitions use one work item.
       python3 - <<PYCODE
 from pathlib import Path
-import re
 
 source = Path("$SRC/drivers/phy/rockchip/phy-rockchip-inno-usb2.c")
 text = source.read_text()
+tab = chr(9)
 
-def serialize_otg_call(start_marker, end_marker, label):
+def serialize_otg_call(start_marker, end_marker, old_indent, label):
     global text
     start = text.index(start_marker)
     end = text.index(end_marker, start)
     body = text[start:end]
-    old = re.compile(
-        r"(?m)^(s*)rockchip_usb2phy_otg_sm_work(&rport->otg_sm_work.work);$"
-    )
-    new = re.compile(
-        r"(?m)^s*mod_delayed_work(system_wq, &rport->otg_sm_work, 0);$"
-    )
-    matches = list(old.finditer(body))
-    new_matches = list(new.finditer(body))
-    if len(matches) == 1:
-        body = old.sub(
-            lambda match: match.group(1) +
-            "mod_delayed_work(system_wq, &rport->otg_sm_work, 0);",
-            body,
-            count=1,
-        )
-    elif len(matches) == 0 and len(new_matches) == 1:
+    old_line = old_indent + "rockchip_usb2phy_otg_sm_work(&rport->otg_sm_work.work);"
+    new_line = old_indent + "mod_delayed_work(system_wq, &rport->otg_sm_work, 0);"
+    old_count = body.count(old_line)
+    new_count = body.count(new_line)
+    if old_count == 1:
+        body = body.replace(old_line, new_line, 1)
+    elif old_count == 0 and new_count == 1:
         pass
     else:
         raise SystemExit(
             f"Could not uniquely serialize {label} OTG callback: "
-            f"old={len(matches)}, new={len(new_matches)}"
+            f"old={old_count}, new={new_count}"
         )
     text = text[:start] + body + text[end:]
 
 serialize_otg_call(
     "static void rockchip_chg_detect_work(struct work_struct *work)",
     "static void rockchip_usb2phy_sm_work(struct work_struct *work)",
+    tab * 2,
     "charger-detection",
 )
 serialize_otg_call(
     "static irqreturn_t rockchip_usb2phy_bvalid_irq(int irq, void *data)",
     "static irqreturn_t rockchip_usb2phy_id_irq(int irq, void *data)",
+    tab,
     "BVALID IRQ",
 )
 

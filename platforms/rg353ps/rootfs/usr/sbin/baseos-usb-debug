@@ -425,6 +425,7 @@ soft_connect_test_save() {
 }
 
 run_soft_connect_test() {
+    : >"$SOFT_CONNECT_TEST_LOG"
     SOFT_CONNECT_ATTR="/sys/class/udc/$UDC/soft_connect"
     state=$(udc_state)
     if [ ! -w "$SOFT_CONNECT_ATTR" ]; then
@@ -454,7 +455,6 @@ run_soft_connect_test() {
             ;;
     esac
 
-    : >"$SOFT_CONNECT_TEST_LOG"
     say "soft-connect test: begin state=$state cable=yes; supervisor recovery paused"
     printf 'test started %s\n' "$(date '+%F %T' 2>/dev/null)" >>"$SOFT_CONNECT_TEST_LOG"
     soft_connect_test_snapshot before

@@ -66,4 +66,14 @@ grep -Fq '[ $((tick - stuck_since)) -ge 4 ]' "$USB/rootfs/usr/sbin/baseos-usb-de
 grep -Fq 'RECOVERY_LOCK=/run/baseos-usb-debug.recovery.lock' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 grep -Fq 'refusing controller hand-off' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 
+# An unplugged port sits in "not attached" by design, so recovery must never
+# start without a cable: re-probing there tears the PHY down and back up on
+# every retry and wakes an idle board forever.
+grep -Fq 'if [ "$present" = no ]; then' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+if sed -n '/^reprobe_udc_driver()/,/^}/p' "$USB/rootfs/usr/sbin/baseos-usb-debug" \
+        | grep -Fq 'cable_present && echo yes'; then :; else
+    echo "reprobe_udc_driver must report the cable state" >&2
+    exit 1
+fi
+
 echo "RG353PS USB MTP static checks passed"

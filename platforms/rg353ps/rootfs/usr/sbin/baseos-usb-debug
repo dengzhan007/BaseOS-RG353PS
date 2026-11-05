@@ -408,6 +408,18 @@ watch_cable() {
             persist_log
         fi
         last_state=$state
+        # Without a cable the UDC is supposed to sit in "not attached". That is
+        # the idle state, not a fault, so it must not start a recovery: each
+        # re-probe unbinds and rebinds the controller, which powers the PHY
+        # down and back up, and the probe path re-arms a six-second OTG state
+        # machine work every time. Unplugged, that loop repeats forever and
+        # wakes the box once per cycle for nothing. Recovery is only meaningful
+        # while a cable is present and the port still fails to enumerate.
+        if [ "$present" = no ]; then
+            stuck_since=
+            attempt=0
+            continue
+        fi
         case "$state" in
             configured)
                 stuck_since=
@@ -433,24 +445,19 @@ watch_cable() {
                 trap 'rmdir "$RECOVERY_LOCK" 2>/dev/null || :' 0
                 USB_TROUBLE=1
                 PROBE_PUSHED=0
-                if [ "$present" = yes ]; then
-                    case "$attempt" in
-                        1|2) reprobe_udc_driver || : ;;
-                        3)   rebind_gadget ;;
-                        *)   reprobe_usb_stack || : ;;
-                    esac
-                else
-                    reprobe_udc_driver || :
-                fi
+                # Only a present cable can get here: the supervisor skips
+                # recovery entirely while the cable is out, because the
+                # unplugged "not attached" state is expected, not a fault.
+                case "$attempt" in
+                    1|2) reprobe_udc_driver || : ;;
+                    3)   rebind_gadget ;;
+                    *)   reprobe_usb_stack || : ;;
+                esac
                 say "supervisor: attempt $attempt done state=$(udc_state) cable=$(cable_present && echo yes || echo no)"
                 probe_dump "attempt $attempt"
                 persist_log force
             ) >/dev/null 2>&1 &
-            if [ "$present" = yes ]; then
-                next_tick=$((tick + 8))
-            else
-                next_tick=$((tick + 20))
-            fi
+            next_tick=$((tick + 8))
         else
             say "supervisor: recovery lock already held"
         fi

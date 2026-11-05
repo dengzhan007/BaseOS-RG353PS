@@ -16,7 +16,7 @@
 # again during cleanup. SSH listens only on the USB network address; MTP exports
 # only /mnt/SDCARD. The network function defaults to RNDIS and can use NCM/ECM.
 #
-# Usage: baseos-usb-debug start|stop|restart|status
+# Usage: baseos-usb-debug start|stop|restart|status|soft-connect-test-arm|soft-connect-test-cancel
 
 set -u
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
@@ -203,15 +203,19 @@ disable_usb_runtime_pm() {
     done
 }
 
-# Note: there used to be a soft_connect pulse here. The field log retired it -
-# the guest had SDP=1 and the pulse produced
+# A previous soft_connect experiment is inconclusive: it reported
+# "failed to enable ep0out" and left the UDC at "not attached", but the cable
+# used for that experiment was later suspected of having signal-integrity
+# problems. The cable was replaced, but soft_connect was not retested.
+# Do not treat that log as proof that soft_connect is ineffective.
 #
-#     dwc3 fcc00000.usb: failed to enable ep0out
-#
-# three seconds later, without ever moving the UDC out of "not attached". A
-# disconnect/connect on a controller whose PHY is not in a settled state leaves
-# EP0 disabled on this part; baseos-usb-storage had already learned that. The
-# ladder below only re-probes drivers, never toggles soft_connect.
+# The supervisor never uses soft_connect automatically. A one-shot test can
+# be armed while USB is healthy with:
+#   baseos-usb-debug soft-connect-test-arm
+# On the next cable-present enumeration failure, the supervisor runs one
+# disconnect/connect test, records the result, waits eight seconds, then
+# resumes the existing re-probe fallback if the UDC is still not configured.
+# Cancel an armed test with soft-connect-test-cancel.
 
 rebind_gadget() {
     say "recovery: unbinding and rebinding $UDC"
@@ -351,6 +355,8 @@ reprobe_usb_stack() {
 # No soft_connect anywhere: see the note above rebind_gadget.
 WATCH_PID=/run/baseos-usb-debug.watch.pid
 RECOVERY_LOCK=/run/baseos-usb-debug.recovery.lock
+SOFT_CONNECT_TEST_ARMED=/run/baseos-usb-soft-connect-test.armed
+SOFT_CONNECT_TEST_LOG=/run/baseos-usb-soft-connect-test.log
 
 # Runs on every tick that finds the UDC configured. The address and the DHCP
 # server are set up by do_start, but do_start runs before the host has finished
@@ -369,6 +375,153 @@ ensure_link_up() {
     fi
     pidof dnsmasq >/dev/null 2>&1 || start_dhcp "$iface"
     pidof dropbear >/dev/null 2>&1 || start_sshd
+}
+
+
+soft_connect_test_snapshot() {
+    label=$1
+    {
+        printf '\n== %s %s ==\n' "$label" "$(date '+%F %T' 2>/dev/null)"
+        printf 'UDC=%s configfs_binding=%s state=%s\n' "$UDC" \
+            "$(cat "$G/UDC" 2>/dev/null)" "$(udc_state)"
+        for attr in function current_speed maximum_speed; do
+            path="/sys/class/udc/$UDC/$attr"
+            [ -r "$path" ] && printf '%s=%s\n' "$attr" "$(cat "$path" 2>/dev/null)"
+        done
+        soft_path="/sys/class/udc/$UDC/soft_connect"
+        printf 'soft_connect_attr=%s writable=%s\n' \
+            "$([ -e "$soft_path" ] && echo present || echo absent)" \
+            "$([ -w "$soft_path" ] && echo yes || echo no)"
+        printf 'cable=%s vbus=%s extcon=%s\n' \
+            "$(cable_present && echo yes || echo no)" "$(vbus_state)" "$(extcon_summary)"
+        for ps in /sys/class/power_supply/*; do
+            [ -r "$ps/status" ] || continue
+            printf 'power %s status=%s online=%s\n' "$(basename "$ps")" \
+                "$(cat "$ps/status" 2>/dev/null)" "$(cat "$ps/online" 2>/dev/null)"
+        done
+        iface=$(cat /run/baseos-usb-debug.iface 2>/dev/null || :)
+        if [ -n "$iface" ]; then
+            printf 'network interface %s:\n' "$iface"
+            ip link show "$iface" 2>&1 || :
+            ip -4 addr show "$iface" 2>&1 || :
+        fi
+        if [ -x /usr/sbin/baseos-usb-mtp ]; then
+            /usr/sbin/baseos-usb-mtp status 2>&1 || :
+        fi
+        printf '%s\n' '-- recent kernel USB messages --'
+        dmesg 2>/dev/null | grep -iE 'dwc3|usb2phy|gadget|rndis|ep0|soft.connect' | tail -n 100
+    } >>"$SOFT_CONNECT_TEST_LOG" 2>/dev/null || :
+}
+
+run_soft_connect_test() {
+    SOFT_CONNECT_ATTR="/sys/class/udc/$UDC/soft_connect"
+    state=$(udc_state)
+    if [ ! -w "$SOFT_CONNECT_ATTR" ]; then
+        say "soft-connect test: unavailable (missing or not writable: $SOFT_CONNECT_ATTR)"
+        printf 'soft-connect test unavailable: %s\n' "$SOFT_CONNECT_ATTR" >>"$SOFT_CONNECT_TEST_LOG"
+        return 1
+    fi
+    if ! cable_present; then
+        say "soft-connect test: aborted; cable no longer present"
+        printf 'soft-connect test aborted: cable absent\n' >>"$SOFT_CONNECT_TEST_LOG"
+        return 1
+    fi
+    if [ "$(cat "$G/UDC" 2>/dev/null)" != "$UDC" ]; then
+        say "soft-connect test: aborted; configfs gadget is not bound to $UDC"
+        printf 'soft-connect test aborted: configfs UDC binding mismatch\n' >>"$SOFT_CONNECT_TEST_LOG"
+        return 1
+    fi
+    case "$state" in
+        configured|suspended)
+            say "soft-connect test: skipped; UDC recovered to $state before test"
+            printf 'soft-connect test skipped: state=%s\n' "$state" >>"$SOFT_CONNECT_TEST_LOG"
+            return 0
+            ;;
+    esac
+
+    : >"$SOFT_CONNECT_TEST_LOG"
+    say "soft-connect test: begin state=$state cable=yes; supervisor recovery paused"
+    printf 'test started %s\n' "$(date '+%F %T' 2>/dev/null)" >>"$SOFT_CONNECT_TEST_LOG"
+    soft_connect_test_snapshot before
+
+    if ! printf 'disconnect\n' >"$SOFT_CONNECT_ATTR" 2>/dev/null; then
+        say "soft-connect test: disconnect command failed"
+        printf 'soft_connect disconnect command failed\n' >>"$SOFT_CONNECT_TEST_LOG"
+        soft_connect_test_snapshot after-disconnect-error
+        return 1
+    fi
+    say "soft-connect test: disconnect accepted"
+    printf 'soft_connect disconnect accepted %s\n' "$(date '+%F %T' 2>/dev/null)" >>"$SOFT_CONNECT_TEST_LOG"
+    sleep 0.5
+
+    if ! cable_present; then
+        say "soft-connect test: cable disappeared before reconnect command"
+        printf 'cable disappeared before connect command\n' >>"$SOFT_CONNECT_TEST_LOG"
+        soft_connect_test_snapshot after-cable-loss
+        return 1
+    fi
+    if ! printf 'connect\n' >"$SOFT_CONNECT_ATTR" 2>/dev/null; then
+        say "soft-connect test: connect command failed"
+        printf 'soft_connect connect command failed\n' >>"$SOFT_CONNECT_TEST_LOG"
+        soft_connect_test_snapshot after-connect-error
+        return 1
+    fi
+    say "soft-connect test: connect accepted; observing UDC for 8 seconds"
+    printf 'soft_connect connect accepted %s\n' "$(date '+%F %T' 2>/dev/null)" >>"$SOFT_CONNECT_TEST_LOG"
+
+    sample=0
+    while [ "$sample" -lt 16 ]; do
+        sample=$((sample + 1))
+        state=$(udc_state)
+        speed=$(cat "/sys/class/udc/$UDC/current_speed" 2>/dev/null || echo unknown)
+        printf 'sample=%02d time=%s state=%s speed=%s cable=%s vbus=%s\n' \
+            "$sample" "$(date '+%H:%M:%S' 2>/dev/null)" "$state" "$speed" \
+            "$(cable_present && echo yes || echo no)" "$(vbus_state)" >>"$SOFT_CONNECT_TEST_LOG"
+        [ "$state" = configured ] && break
+        sleep 0.5
+    done
+
+    soft_connect_test_snapshot after-observation
+    state=$(udc_state)
+    say "soft-connect test: finished state=$state"
+    printf 'test finished %s final_state=%s\n' "$(date '+%F %T' 2>/dev/null)" "$state" >>"$SOFT_CONNECT_TEST_LOG"
+    if [ -d /mnt/SDCARD ]; then
+        cat "$SOFT_CONNECT_TEST_LOG" >>/mnt/SDCARD/rg353ps-soft-connect-test.txt 2>/dev/null || :
+        sync 2>/dev/null || :
+        say "soft-connect test report saved to /mnt/SDCARD/rg353ps-soft-connect-test.txt"
+    else
+        say "soft-connect test report remains in $SOFT_CONNECT_TEST_LOG (SDCARD not mounted)"
+    fi
+}
+
+arm_soft_connect_test() {
+    UDC=$(find_udc) || :
+    [ -n "$UDC" ] || { echo "No UDC found" >&2; return 1; }
+    soft_path="/sys/class/udc/$UDC/soft_connect"
+    [ -w "$soft_path" ] || { echo "soft_connect is unavailable: $soft_path" >&2; return 1; }
+    [ "$(cat "$G/UDC" 2>/dev/null)" = "$UDC" ] || {
+        echo "USB gadget is not bound to $UDC" >&2
+        return 1
+    }
+    [ "$(udc_state)" = configured ] || {
+        echo "Arm the test only while USB is healthy (UDC state must be configured)" >&2
+        return 1
+    }
+    cable_present || { echo "No USB host cable detected" >&2; return 1; }
+    [ ! -d "$RECOVERY_LOCK" ] || { echo "USB recovery is currently active" >&2; return 1; }
+    if [ -e "$SOFT_CONNECT_TEST_ARMED" ]; then
+        echo "A one-shot soft_connect test is already armed"
+        return 0
+    fi
+    printf '%s\n' "$(date '+%F %T' 2>/dev/null)" >"$SOFT_CONNECT_TEST_ARMED"
+    say "soft-connect test armed; it will run only after the next cable-present enumeration failure"
+    echo "Armed. Unplug and reconnect the USB cable once. The test runs only if that reconnect remains unenumerated."
+}
+
+cancel_soft_connect_test() {
+    rm -f "$SOFT_CONNECT_TEST_ARMED"
+    say "soft-connect test arm cancelled"
+    echo "Cancelled."
 }
 
 watch_cable() {
@@ -448,11 +601,17 @@ watch_cable() {
                 # Only a present cable can get here: the supervisor skips
                 # recovery entirely while the cable is out, because the
                 # unplugged "not attached" state is expected, not a fault.
-                case "$attempt" in
-                    1|2) reprobe_udc_driver || : ;;
-                    3)   rebind_gadget ;;
-                    *)   reprobe_usb_stack || : ;;
-                esac
+                if [ -f "$SOFT_CONNECT_TEST_ARMED" ]; then
+                    rm -f "$SOFT_CONNECT_TEST_ARMED"
+                    say "supervisor: consuming one-shot soft-connect test instead of re-probing"
+                    run_soft_connect_test || :
+                else
+                    case "$attempt" in
+                        1|2) reprobe_udc_driver || : ;;
+                        3)   rebind_gadget ;;
+                        *)   reprobe_usb_stack || : ;;
+                    esac
+                fi
                 say "supervisor: attempt $attempt done state=$(udc_state) cable=$(cable_present && echo yes || echo no)"
                 probe_dump "attempt $attempt"
                 persist_log force
@@ -871,6 +1030,8 @@ do_status() {
     printf 'dropbear:  %s\n' "$(pidof dropbear >/dev/null 2>&1 && echo running || echo stopped)"
     printf 'dhcp:      %s\n' "$(pidof dnsmasq >/dev/null 2>&1 && echo "dnsmasq running" || (pidof udhcpd >/dev/null 2>&1 && echo "udhcpd running" || echo stopped))"
     printf 'watcher:   %s\n' "$([ -f "$WATCH_PID" ] && kill -0 "$(cat "$WATCH_PID" 2>/dev/null)" 2>/dev/null && echo running || echo stopped)"
+    printf 'soft-connect test: %s\n' "$([ -e "$SOFT_CONNECT_TEST_ARMED" ] && echo armed || echo not-armed)"
+    printf 'soft-connect log: %s\n' "$([ -r "$SOFT_CONNECT_TEST_LOG" ] && echo "$SOFT_CONNECT_TEST_LOG" || echo none)"
     printf 'log:       %s\n' "$LOG"
     printf 'card log:  %s\n' "$([ -r /mnt/SDCARD/rg353ps-usb-debug.txt ] && echo /mnt/SDCARD/rg353ps-usb-debug.txt || echo none)"
 }
@@ -880,6 +1041,8 @@ case "${1:-status}" in
     stop)    do_stop ;;
     restart) do_stop; sleep 1; do_start ;;
     status)  do_status ;;
+    soft-connect-test-arm) arm_soft_connect_test ;;
+    soft-connect-test-cancel) cancel_soft_connect_test ;;
     # Internal entry point for the detached supervisor: it re-resolves the UDC
     # itself instead of inheriting do_start's variables, so it survives rcS.
     __supervise)

@@ -29,7 +29,7 @@ sh /path/to/usb-reconnect-diag.sh
 
 文件名带时间戳，若重名会自动加后缀，**不会覆盖已有日志**。日志内容：
 
-- 头部（**在两个后台采集进程启动之前完整写入**）：脚本版本、开始时间、`/etc/baseos-release`、`uname`、采集时长与间隔、`kernel_stream`、`debugfs_mounted_by_script`、UDC / extcon / IRQ 初始快照、路径存在性、5 条规则清单、`enabled_rule_ok=N/5`、`enabled_rule_count`、control 中实际 `=p` 的规则
+- 头部（**在两个后台采集进程启动之前完整写入**）：脚本版本、开始时间、`/etc/baseos-release`、`uname`、采集时长与间隔、`kernel_stream`、`debugfs_mounted_by_script`、UDC / extcon / IRQ 初始快照、路径存在性、9 条规则清单、`enabled_rule_ok=N/9`、`enabled_rule_count`、control 中实际 `=p` 的规则
 - `[kmsg]` 行：内核事件原始时间戳。保留 `RG353PS` 目标日志、`dwc3` / `usb2phy` / `extcon` 通用消息、内核 warning / error（`^<[1-4]>` 与 warn/error/fail/oops/panic/call trace 等关键字），以及**带明确 token 的通用 USB 子系统事件**（`usbcore`、`usb 1-1:`、`usb0`、`usb-phy`、`gadget`、`udc`、`xhci*`、`typec`、`ucsi`、`role-switch`、`rockchip_usb*`）。不用裸 `usb` 匹配，避免把 `my usb drive is slow` 这类普通文本收进来；EP2 / bulk-out 等数据面高频行仍然过滤
 - `[sample]` 行：每 0.5 秒的 UDC `state/current_speed/maximum_speed`、extcon 全部状态、`/proc/interrupts` 中 USB2PHY / BVALID / OTG / DWC3 的**所有 CPU 累计**计数（附带 IRQ 编号、CPU 总计、CPU 计数之后的**完整描述字段**与 CPU 列数，例如 `20(total=10,desc=GICv3 167 Level rockchip_usb2phy)`）
 - 尾部：结束时的同一组快照
@@ -51,8 +51,9 @@ DIAG_SECONDS=5 sh usb-reconnect-diag.sh           # 短时干跑，验证脚本�
 **正常结束、Ctrl+C、异常退出都会自动关闭**，无需手工操作。
 
 - 启用前会检查是否有重叠的、已经开启的规则；若有则直接拒绝运行，避免退出时误关别人的规则。
-- 5 条规则**逐条写入并回读** `control` 确认真的变成 `=p`。写入成功但格式串在当前内核不存在时也判为失败；失败的具体规则逐行记为 `rule_enable_failed=<完整 selector>`，成功数记为 `enabled_rule_ok=N/5`，终端另给一条 warning。
-- `RULES_ON` 在第一条规则写入**之前**就置位。因此即使只有部分规则启用成功、或中途收到信号退出，清理都会尝试关闭全部 5 条，不会留下半开状态。关闭动作只作用于这 5 条 selector，外部规则不受影响。
+- 9 条规则**逐条写入并回读** `control` 确认真的变成 `=p`。写入成功但格式串在当前内核不存在时也判为失败；失败的具体规则逐行记为 `rule_enable_failed=<完整 selector>`，成功数记为 `enabled_rule_ok=N/9`，终端另给一条 warning。
+- `RULES_ON` 在第一条规则写入**之前**就置位。因此即使只有部分规则启用成功、或中途收到信号退出，清理都会尝试关闭全部 9 条，不会留下半开状态。关闭动作只作用于这 9 条 selector，外部规则不受影响。
+- 后 4 条是 DWC3 重连路径的 `RG353PS DWC3 RECONNECT ...` 前缀，**只在新诊断内核里存在**。在当前 `1.2.4 / 67f86b1` 旧内核上跑，这 4 条会被如实记为 `rule_enable_failed=`，属预期，不是脚本故障；旧内核仍能采集原有的 5 条。
 
 若确实需要手工兜底（例如脚本被 `kill -9`），逐条执行：
 
@@ -64,9 +65,13 @@ echo 'format "RG353PS DWC3 device DISCONNECT event" -p' > "$C"
 echo 'format "RG353PS DWC3 device RESET event" -p' > "$C"
 echo 'format "RG353PS DWC3 device-event raw" -p' > "$C"
 echo 'format "RG353PS EP0 SETUP" -p' > "$C"
+echo 'format "RG353PS DWC3 RECONNECT DISCONNECT" -p' > "$C"
+echo 'format "RG353PS DWC3 RECONNECT PULLUP" -p' > "$C"
+echo 'format "RG353PS DWC3 RECONNECT UDC" -p' > "$C"
+echo 'format "RG353PS DWC3 RECONNECT SOFTCONNECT" -p' > "$C"
 ```
 
-不要使用 `file gadget.c +p`：那会打开 EP2 REQMAP / DEPCMD / bulk-out 等每包数条的高频日志。
+不要使用 `file gadget.c +p`：那会打开 EP2 REQMAP / DEPCMD / bulk-out 等每包数条的高频日志。新增的 4 条重连 selector 都是 `format` 精确匹配，只覆盖 9 个低频 `dev_dbg` 调用点。
 
 ## 格式串核对（基于设备实际内核）
 
@@ -82,6 +87,36 @@ echo 'format "RG353PS EP0 SETUP" -p' > "$C"
 `file phy-rockchip-inno-usb2.c +p` 覆盖整个 PHY 文件，这三条都会被采集，因此不影响事件链完整性。
 
 另有一条 `RG353PS DWC3 bulk-out event`（短版）是 `dev_info_ratelimited`，**不受动态调试控制、常开**；脚本在采集时把它过滤掉。
+
+以上 9 条是**旧内核 `1.2.4 / 67f86b1` 的实际清单**。本轮新增的 9 条 `RG353PS DWC3 RECONNECT ...` 日志由新诊断内核注入，旧内核的 `control` 里不存在；在旧内核上跑脚本会如实记为 `rule_enable_failed=`，见下节。
+
+## DWC3 重连路径诊断（需要新诊断内核）
+
+本轮在内核源码里新增 9 条低频 `dev_dbg`，前缀统一为 `RG353PS DWC3 RECONNECT `，由 `platforms/rg353ps/kernel/tools/inject-reconnect-diag.py` 注入（构建脚本调用一次，幂等）。诊断脚本用 4 条 `format` selector 精确开启，**不开** `file gadget.c +p`，也不开 EP2 / DEPCMD / bulk-out 高频日志。
+
+| 子前缀 | 函数 / 判断分支 | 关键字段 |
+|---|---|---|
+| `DISCONNECT entry` | `dwc3_gadget_disconnect_interrupt()` 入口 | `connected` / `pullups` / `softconnect` / `state` / `speed`（断开瞬间，`connected` 尚未清零） |
+| `PULLUP entry` | `dwc3_gadget_pullup()` 入口 | `is_on` / `pullups` / `connected` / `state` |
+| `PULLUP pm` | `pm_runtime_get_sync()` 返回后 | `ret` 与 `branch=error / no_resume / proceed`（`!ret` 短路） |
+| `PULLUP short` | `pullups_connected == is_on` 分支 | `is_on` / `pullups` / `reason=same_state` |
+| `PULLUP soft` | `dwc3_gadget_soft_connect/disconnect()` 返回后 | `is_on` / `ret` / `pullups` |
+| `UDC connect out` | `usb_gadget_connect_locked()` 的 `out:` 出口（调用者持有 `connect_lock`） | `connected` / `deactivated` / `allow_connect` / `started` / `has_pullup` / `ret` |
+| `SOFTCONNECT enter` | `dwc3_gadget_soft_connect()` 入口 | `pullups` / `connected` / `state` |
+| `SOFTCONNECT reset` | `dwc3_core_soft_reset()` 返回后 | `ret` |
+| `SOFTCONNECT done` | `dwc3_gadget_run_stop(dwc, true)` 返回后 | `ret` / `pullups` |
+
+**一次正常重连的事件顺序**：
+`DISCONNECT entry` →（VBUS 回来、`extcon data result usb=1`）→ `UDC connect out` → `PULLUP entry` → `PULLUP pm(branch=proceed)` → `SOFTCONNECT enter` → `SOFTCONNECT reset(ret=0)` → `SOFTCONNECT done(ret=0,pullups=1)` → `PULLUP soft(ret=0)` → EP0 SETUP 突发 → UDC `configured`。
+
+**第二次实机拔插如何区分四种情形**（以 `extcon data result usb=1` 或 `[sample]` 里 `EXTCON_USB=1` 为时间零点）：
+
+1. **pullup 根本没被调用**：零点之后没有任何 `PULLUP entry`。若有 `UDC connect out`，用 `started` / `allow_connect` / `deactivated` / `has_pullup` / `connected` 判断是哪一道前置条件挡住；若连 `UDC connect out` 都没有，则问题在 extcon → UDC 通知之前。
+2. **pullup 被短路**：有 `PULLUP entry` 但没有 `SOFTCONNECT enter`。看 `PULLUP pm` 的 `branch`（`no_resume` / `error` 对应 `pm_runtime_get_sync()` 短路）或 `PULLUP short(reason=same_state)`；若二者皆无且 `is_on=0`，则是更早的 `pm_runtime_suspended()` 分支返回。
+3. **soft-connect 未执行或失败**：有 `SOFTCONNECT enter`，但缺 `SOFTCONNECT done`，或 `reset ret!=0` / `done ret!=0`（如 `-ETIMEDOUT`），且 `pullups` 仍为 0。
+4. **DWC3 已执行但枚举失败**：`SOFTCONNECT done ret=0 pullups=1`，但之后没有 EP0 SETUP 突发、UDC 未到 `configured`；此时才往主机 / DHCP 方向查，不要回头改 PHY。
+
+关键行没有出现时一律记为「未见该调用」，**不要推断为已执行**。也要先检查头部 `enabled_rule_ok` 与 `rule_enable_failed=`：规则没启用会造成日志缺失，与真实短路是两回事。
 
 ## 兼容性与验证状态
 
@@ -144,6 +179,8 @@ sh test-usb-reconnect-diag-awk.sh
 
 ### 健壮性修订后的设备干跑（2026-11-05，无拔插）
 
+> 下面是 **5 条 selector 版本**的历史干跑结果，表内 `enabled_rule_ok=5/5` / `4/5` 是当时的计数；扩到 9 条后应读作 `N/9`。9 条版本尚未在新诊断内核上做实机验证。
+
 | 场景 | 结果 |
 |---|---|
 | **A** 正常结束 4 s | 头部第 1 行是标题；`enabled_rule_ok=5/5`、`enabled_rule_count=18`、`kernel_stream=/proc/kmsg`；`[kmsg]` 16 行（其中 12 行通用 USB/warning），EP2/bulk-out 0 行；规则 0、debugfs 卸载、无残留 |
@@ -159,7 +196,7 @@ G 用的是本地注入的测试副本（把一条 selector 换成当前内核�
 
 ### 仍未覆盖的风险
 
-- **真实拔插场景下的完整事件链尚未实测**，需要人工执行一次上面的操作流程后回传日志；本轮所有干跑都没有产生真实重连事件。
+- **真实拔插已于 2026-11-05 完成一次**，日志与分析报告在 `docs/usb-reconnect-tests/`。该次使用的是 5 条 selector 的旧内核，结论是「EXTCON_USB 已置 1 但 DWC3 未自发重连，靠 supervisor re-probe 才恢复」；**9 条 selector / 新诊断内核的第二次实机拔插尚未执行**，本轮的 DWC3 RECONNECT 打点只做了源码注入与静态验证。
 - `kill -9` 无法被 trap 捕获，仍会残留动态调试规则和后台进程；上面的「关闭动态调试」一节给了手工兜底命令。
 - `/proc/kmsg` 不可读时的 `dmesg` 兜底分支本轮未验证（测试设备上始终可读）。
 - 运行期间磁盘占用不受 `DIAG_MAX_LOG_LINES` 实时约束（设计取舍，见上文）。

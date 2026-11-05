@@ -2484,6 +2484,12 @@ print("Applied RG353PS event-driven OTG polling policy")
 print("Applied RG353PS OTG immediate reschedule fix using mod_delayed_work")
 PYCODE
 
+      # Low-frequency DWC3 reconnect tracing: nine dev_dbg callsites sharing
+      # the "RG353PS DWC3 RECONNECT " prefix. The injector is a separate file
+      # because this whole block runs inside a single-quoted sh -euc string:
+      # an embedded Python heredoc cannot contain a single quote here.
+      python3 /inputs/tools/inject-reconnect-diag.py "$SRC"
+
     cd "$SRC"
     export ARCH=arm64 CROSS_COMPILE="$CROSS" SOURCE_DATE_EPOCH=0
     export KBUILD_BUILD_USER=baseos KBUILD_BUILD_HOST=rg353ps

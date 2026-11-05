@@ -267,8 +267,8 @@ state/current_speed/maximum_speed, every extcon cable state, and the USB2PHY /
 BVALID / OTG / DWC3 IRQ counters summed across all CPUs (with IRQ number,
 total and the full description fields) from `/proc/interrupts`.
 
-The script enables exactly five dynamic-debug selectors and disables the same
-five on every exit path (normal, Ctrl+C, or error). It refuses to start if an
+The script enables exactly nine dynamic-debug selectors and disables the same
+nine on every exit path (normal, Ctrl+C, or error). It refuses to start if an
 overlapping rule is already enabled, so cleanup cannot turn off somebody else's
 rules. On this image BusyBox dmesg has no -w, so the live stream comes from
 /proc/kmsg; debugfs is mounted only if needed and unmounted again if this
@@ -282,7 +282,21 @@ FINAL log file, 20,000 by default; it is enforced after both background
 producers stop, not in real time. The header is written before either
 producer starts. Each dynamic-debug selector is verified after being
 written, and a partial failure is recorded while cleanup still disables
-all five selectors.
+all nine selectors.
+
+Four of the nine selectors enable low-frequency DWC3 reconnect tracing
+injected by `platforms/rg353ps/kernel/tools/inject-reconnect-diag.py`. The nine
+messages share the `RG353PS DWC3 RECONNECT ` prefix and cover the disconnect
+entry, pullup entry / runtime-PM branch / short-circuit / soft result, the
+`usb_gadget_connect_locked()` exit (UDC started, allow_connect, deactivated),
+and the soft-connect core-reset / run-stop results. These are `format`
+selectors only: gadget.c is never enabled as a whole and no EP2 / DEPCMD /
+bulk-out rule is added. The callsites exist only in a kernel built from this
+branch; on the current 1.2.4 image they are recorded as `rule_enable_failed=`,
+which is expected. See `tools/usb-reconnect-diag.README.md` for the event order
+and for distinguishing "pullup never called", "pullup short-circuited",
+"soft-connect not executed" and "DWC3 ran but enumeration failed" in the second
+unplug/replug capture.
 
 Selector formats were read back from the running kernel's
 /sys/kernel/debug/dynamic_debug/control, not copied from older notes. One
@@ -297,5 +311,10 @@ programs from this script and checks the filters against sample kernel logs
 and a 4-CPU `/proc/interrupts` table; run it with `sh`. Static validation,
 local awk regression tests, environment probes and short no-unplug dry runs
 (normal exit, SIGTERM, preflight failures, partial rule-enable failure, external
-rule protection, log-line cap) have passed; a real unplug/replug capture on
-hardware is still required.
+rule protection, log-line cap) have passed. One real unplug/replug capture was
+completed on 2026-11-05 with the five-selector kernel: the log and analysis are
+in `docs/usb-reconnect-tests/`. It located the fault at the
+extcon -> DWC3 layer (extcon USB=1, no spontaneous DWC3 connect, recovery via
+the device's existing supervisor re-probe). A second capture with the new
+nine-selector diagnostic kernel is still pending; no conclusion about the
+specific pullup / soft-connect call path is drawn before that capture.

@@ -131,7 +131,7 @@ release_snapshot() {
     fi
 }
 
-# The five selectors below are intentionally explicit. enable_rules() and
+# The nine selectors below are intentionally explicit. enable_rules() and
 # disable_rules() are mirror images; do not add one without the other.
 # Format strings were read back from the running kernel's
 # /sys/kernel/debug/dynamic_debug/control, not guessed from docs.
@@ -150,7 +150,7 @@ rule_is_enabled() {
 }
 
 # RULES_ON is set by the caller BEFORE the first selector is written, so an
-# early exit or signal still makes cleanup() turn off all five selectors even
+# early exit or signal still makes cleanup() turn off all nine selectors even
 # when only some of them were enabled successfully.
 enable_one_rule() {
     one_rule=$1
@@ -169,6 +169,12 @@ enable_rules() {
     enable_one_rule 'format "RG353PS DWC3 device RESET event" +p'
     enable_one_rule 'format "RG353PS DWC3 device-event raw" +p'
     enable_one_rule 'format "RG353PS EP0 SETUP" +p'
+    # Low-frequency reconnect callsites added by the diagnostic kernel.
+    # One format selector per sub-prefix; never "file gadget.c +p".
+    enable_one_rule 'format "RG353PS DWC3 RECONNECT DISCONNECT" +p'
+    enable_one_rule 'format "RG353PS DWC3 RECONNECT PULLUP" +p'
+    enable_one_rule 'format "RG353PS DWC3 RECONNECT UDC" +p'
+    enable_one_rule 'format "RG353PS DWC3 RECONNECT SOFTCONNECT" +p'
 }
 
 disable_rules() {
@@ -177,6 +183,10 @@ disable_rules() {
     printf '%s\n' 'format "RG353PS DWC3 device RESET event" -p' >"$CONTROL"
     printf '%s\n' 'format "RG353PS DWC3 device-event raw" -p' >"$CONTROL"
     printf '%s\n' 'format "RG353PS EP0 SETUP" -p' >"$CONTROL"
+    printf '%s\n' 'format "RG353PS DWC3 RECONNECT DISCONNECT" -p' >"$CONTROL"
+    printf '%s\n' 'format "RG353PS DWC3 RECONNECT PULLUP" -p' >"$CONTROL"
+    printf '%s\n' 'format "RG353PS DWC3 RECONNECT UDC" -p' >"$CONTROL"
+    printf '%s\n' 'format "RG353PS DWC3 RECONNECT SOFTCONNECT" -p' >"$CONTROL"
 }
 
 list_rules() {
@@ -185,6 +195,10 @@ list_rules() {
     log_line '  format "RG353PS DWC3 device RESET event"              +p'
     log_line '  format "RG353PS DWC3 device-event raw"                +p'
     log_line '  format "RG353PS EP0 SETUP"                           +p'
+    log_line '  format "RG353PS DWC3 RECONNECT DISCONNECT"           +p'
+    log_line '  format "RG353PS DWC3 RECONNECT PULLUP"               +p'
+    log_line '  format "RG353PS DWC3 RECONNECT UDC"                  +p'
+    log_line '  format "RG353PS DWC3 RECONNECT SOFTCONNECT"          +p'
 }
 
 # Live kernel stream. /proc/kmsg is a single-reader stream; no klogd or
@@ -263,7 +277,7 @@ write_header() {
     if [ -n "$RULE_FAILURES" ]; then
         printf '%s\n' "$RULE_FAILURES" | tr '|' '\n' | sed 's/^/rule_enable_failed=/' >>"$LOG"
     fi
-    echo "enabled_rule_ok=$RULE_OK/5" >>"$LOG"
+    echo "enabled_rule_ok=$RULE_OK/9" >>"$LOG"
     if [ -r "$CONTROL" ]; then
         n=$(grep 'RG353PS' "$CONTROL" 2>/dev/null | grep -c '=p ')
         echo "enabled_rule_count=$n" >>"$LOG"
@@ -370,7 +384,7 @@ fi
 # Refuse to run if any rule we would later turn off is already enabled by
 # somebody else. Other, unrelated dynamic-debug rules are left untouched.
 CONFLICT=$(grep '=p ' "$CONTROL" 2>/dev/null | grep -E \
-    'phy-rockchip-inno-usb2\.c|"RG353PS DWC3 device DISCONNECT|"RG353PS DWC3 device RESET|"RG353PS DWC3 device-event raw|"RG353PS EP0 SETUP' || :)
+    'phy-rockchip-inno-usb2\.c|"RG353PS DWC3 device DISCONNECT|"RG353PS DWC3 device RESET|"RG353PS DWC3 device-event raw|"RG353PS EP0 SETUP|"RG353PS DWC3 RECONNECT' || :)
 if [ -n "$CONFLICT" ]; then
     echo "error: overlapping dynamic-debug rules are already enabled." >&2
     echo "Refusing to run so cleanup cannot disable someone else's rules:" >&2
@@ -395,7 +409,7 @@ done
 # debug rules on for a minute after Ctrl+C. One-second slices bound that delay
 # to 1 s; the signal handler only sets a flag, and EXIT runs the real cleanup.
 # RULES_ON goes high BEFORE the first selector is written: if only some rules
-# enable, cleanup() must still attempt to disable all five of them.
+# enable, cleanup() must still attempt to disable all nine of them.
 RULES_ON=1
 enable_rules
 # Resolve the stream name before the header is written, so kernel_stream=

@@ -193,6 +193,36 @@ DWC3 remains unattached, focus on the DWC3/PHY connect sequence instead.
    reinitialization is justified. Measure idle power before enabling any
    periodic polling in a release build.
 
+### Cross-host / cross-cable validation matrix
+
+Use two computers (A and B) and two data cables (1 and 2). Keep the RG353PS
+USB port, host-side port, OS build, USB profile and test order fixed within each
+cell. Connect directly to the computer; do not use a hub or dock. Run ten
+unplug/replug cycles for each pairing:
+
+| Pairing | Host | Cable | Cycles | Purpose |
+|---|---|---|---:|---|
+| A-1 | Baseline computer | Previously tested replacement cable | 10 | Reproduce the existing baseline |
+| A-2 | Baseline computer | Second known-good cable | 10 | Isolate cable dependence |
+| B-1 | Second computer | Previously tested replacement cable | 10 | Isolate host dependence |
+| B-2 | Second computer | Second known-good cable | 10 | Check host/cable interaction |
+
+For each cycle, wait up to 20 seconds without unplugging again or manually
+restarting the gadget. Record the UDC state transition, current speed, VBUS and
+USB2PHY extcon state, BVALID IRQ, charger-detection result, EXTCON_USB result,
+RNDIS adapter appearance, MTP device appearance, host IPv4 address and DHCP
+lease. Record the exact host model, OS/build, host USB port, cable identifier
+and whether a hub/dock is present. A failed DHCP lease with UDC
+`configured` and an RNDIS adapter present is a DHCP-stage failure; UDC
+remaining `not attached` is an enumeration-stage failure.
+
+Do not arm the one-shot `soft_connect` test during this matrix. It has already
+been exercised against one observed enumeration failure; the matrix should
+measure normal automatic recovery without adding a diagnostic intervention.
+Do not change the supervisor recovery ladder or repeatedly replug a failed
+trial. After the 20-second observation window, preserve logs and mark the trial
+failed before moving to the next cycle.
+
 ## Hardware validation checklist
 
 The USB implementation has received partial hardware validation on RG353PS. Reconnect enumeration has been measured and documented above. MTP transfer integrity, filesystem operations, release-profile behaviour, and the remaining checklist items still require hardware validation.

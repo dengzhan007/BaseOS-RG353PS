@@ -158,11 +158,15 @@ power sequencing. The current measurements therefore do not isolate whether
 the recovery depends on a DWC3 core reset, Rockchip PHY lifecycle reinitialization,
 or a fresh VBUS/IRQ/extcon state transition.
 
-The next low-risk kernel change serializes BVALID-IRQ and charger-detection
-state-machine requests through the same `otg_sm_work` delayed-work item rather
-than invoking that work function inline from two different paths. It does not
-force a PHY reset, change the VBUS polling policy, or alter the userspace
-recovery ladder. It is a candidate for hardware validation, not a proven fix.
+The current kernel-build candidate serializes BVALID-IRQ and
+charger-detection state-machine requests through the same `otg_sm_work`
+delayed-work item using `mod_delayed_work(system_wq, ..., 0)`, rather than
+invoking that work function inline from two different paths. This reduces the
+chance of concurrent state-machine execution during a bouncing VBUS transition.
+It does not force a PHY reset, change the VBUS polling policy, or alter the
+userspace recovery ladder. The source transformation is in place, but the
+kernel build and hardware behaviour still need validation; this is not yet a
+proven fix.
 
 Interpret the next failure logs in this order:
 

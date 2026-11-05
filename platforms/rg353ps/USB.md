@@ -238,3 +238,59 @@ Verify on RG353PS:
 - MTP-only release profile enumerates without a network adapter.
 - Function + Power Mass Storage still enters/exits and passes existing safety tests.
 - Compare boot marks before/after; frontend hand-off must not regress.
+
+## Reconnect diagnostic capture
+
+This section adds a diagnostic tool only. It does not change any conclusion
+above, and the tool performs no recovery, unbind/bind, PHY reset, or change to
+USB / DHCP / Runtime-PM / VBUS / supervisor state.
+
+`platforms/rg353ps/tools/usb-reconnect-diag.sh` captures the whole chain in one
+run: VBUS edge -> BVALID IRQ -> OTG state machine -> extcon USB -> DWC3 device
+event -> EP0 SETUP -> UDC state. See
+`platforms/rg353ps/tools/usb-reconnect-diag.README.md` for the full usage and
+the manual cleanup commands.
+
+On the RG353PS (as root):
+
+```sh
+sh usb-reconnect-diag.sh
+```
+
+When CAPTURE STARTED appears: unplug the OTG cable, wait about three seconds,
+plug it back in, then wait for recovery or for the 60-second capture to end.
+Ctrl+C stops it early. The log is written to
+`/mnt/SDCARD/usb-reconnect-diag-YYYYMMDD-HHMMSS.log`; a unique timestamped name
+means existing logs are never overwritten. Each `[kmsg]` line keeps the original
+kernel timestamp, and each `[sample]` line (every 0.5 s) records UDC
+state/current_speed/maximum_speed, every extcon cable state, and the USB2PHY /
+BVALID / OTG / DWC3 IRQ counters summed across all CPUs (with IRQ number,
+total and the full description fields) from `/proc/interrupts`.
+
+The script enables exactly five dynamic-debug selectors and disables the same
+five on every exit path (normal, Ctrl+C, or error). It refuses to start if an
+overlapping rule is already enabled, so cleanup cannot turn off somebody else's
+rules. On this image BusyBox dmesg has no -w, so the live stream comes from
+/proc/kmsg; debugfs is mounted only if needed and unmounted again if this
+script mounted it. The live stream keeps RG353PS traces, generic dwc3 / usb2phy / extcon
+messages, kernel warnings/errors, and tokenised generic USB subsystem events
+(usbcore, `usb 1-1:`, usb0, usb-phy, gadget, udc, xhci*, typec, ucsi,
+role-switch, rockchip_usb*). A bare `usb` is deliberately not matched, so
+ordinary prose is not collected. High-frequency EP2 / bulk-out data-plane
+lines are filtered out. The cap applies to the TOTAL number of lines written
+to the log file, 20,000 by default.
+
+Selector formats were read back from the running kernel's
+/sys/kernel/debug/dynamic_debug/control, not copied from older notes. One
+correction to earlier notes: `RG353PS extcon notify after` does not exist in
+this kernel; the corresponding messages are `RG353PS extcon charger result` and
+`RG353PS extcon data result`. They are covered by the
+`file phy-rockchip-inno-usb2.c +p` selector. Do not use `file gadget.c +p`:
+it enables the per-packet EP2 traces that fill dmesg within seconds.
+
+`platforms/rg353ps/tools/test-usb-reconnect-diag-awk.sh` extracts both awk
+programs from this script and checks the filters against sample kernel logs
+and a 4-CPU `/proc/interrupts` table; run it with `sh`. Static validation,
+local awk regression tests, environment probes and short no-unplug dry runs
+(normal exit, SIGTERM, preflight failures, log-line cap) have passed; a real
+unplug/replug capture on hardware is still required.

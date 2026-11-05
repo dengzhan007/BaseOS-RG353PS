@@ -68,7 +68,8 @@ grep -Fq 'refusing controller hand-off' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 
 # A one-shot soft_connect experiment is armed only from a healthy USB session.
 # It must not run on ordinary reconnects or become an automatic recovery step.
-grep -Fq 'soft_connect was not retested' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'One known-good-cable test on ff88dd9' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'not proof that soft_connect is useless' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 grep -Fq 'soft-connect-test-arm' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 grep -Fq 'soft-connect-test-cancel' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 grep -Fq '[ "$(udc_state)" = configured ]' "$USB/rootfs/usr/sbin/baseos-usb-debug"

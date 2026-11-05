@@ -73,8 +73,8 @@ grep -Fq 'soft-connect-test-arm' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 grep -Fq 'soft-connect-test-cancel' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 grep -Fq '[ "$(udc_state)" = configured ]' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 grep -Fq 'run_soft_connect_test || :' "$USB/rootfs/usr/sbin/baseos-usb-debug"
-grep -Fq 'disconnect\\n' "$USB/rootfs/usr/sbin/baseos-usb-debug"
-grep -Fq 'connect\\n' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'disconnect\n' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'connect\n' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 
 # An unplugged port sits in "not attached" by design, so recovery must never
 # start without a cable: re-probing there tears the PHY down and back up on

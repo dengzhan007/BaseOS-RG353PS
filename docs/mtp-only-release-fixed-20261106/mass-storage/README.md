@@ -1,7 +1,12 @@
-# RG353PS Mass Storage host acceptance (read-only)
+# RG353PS Mass Storage host acceptance
 
 Host-side checks for the Mass Storage hand-off. Entering Mass Storage mode is a
 manual operator action; this directory contains no device-side logic.
+
+Read-only checks first (host check, exit recovery, 30-minute stability), then a
+**strictly bounded write-integrity test** in two operator-separated phases:
+Prepare writes one new dataset, Verify only reads it back. Nothing outside that
+one dataset is ever written, and nothing is formatted, repaired or re-lettered.
 
 ## Status (2026-11-06)
 
@@ -39,6 +44,19 @@ manual operator action; this directory contains no device-side logic.
   `BASEOS_DATA`), and 7/7 SHA-256 checks of `large-128m.bin`
   (134,217,728 bytes) matching the device manifest. Raw evidence:
   `mass-storage-stability-report.json` / `.md`.
+- **Write integrity (Prepare / Verify): PASS.** On
+  `baseos-write-test-20261106-131355-4a3405`. Prepare wrote 7 files
+  (4 KiB, 1 MiB, 128 MiB, Chinese names, spaces, three-level path;
+  135,667,712 bytes) into a brand-new directory with `FileMode.CreateNew` and
+  `Flush(true)` on every stream, and saved a local **and** a device-side
+  manifest (7 entries each). After a manual safe eject, cable pull, recovery
+  wait and re-entry, Verify rebuilt the mapping from scratch (drift fields:
+  none) and matched 7/7 present, 7/7 sizes and 7/7 SHA-256 against the local
+  manifest, with the device manifest consistent entry-for-entry and
+  `device_writes=false`. Raw evidence:
+  `mass-storage-write-prepare-report.json` / `.md`,
+  `mass-storage-write-verify-report.json` / `.md`,
+  `mass-storage-write-prepare-manifest.json`.
 
 ## Files
 
@@ -47,14 +65,35 @@ manual operator action; this directory contains no device-side logic.
 | `check-rg353ps-mass-storage.ps1` | Windows host, read-only verification |
 | `check-rg353ps-exit-recovery.ps1` | Windows host, read-only exit-recovery verification |
 | `check-rg353ps-mass-storage-stability.ps1` | Windows host, read-only 30-minute stability monitor |
+| `check-rg353ps-mass-storage-write.ps1` | Windows host, two-phase write-integrity tool (Prepare writes, Verify reads) |
 | `Rg353psDeviceMap.ps1` | Injectable pure resolver + read-only IOCTL helper |
 | `test-rg353ps-mass-storage-device-map.ps1` | Offline tests for the resolver |
 | `test-rg353ps-mass-storage-stability.ps1` | Offline tests for the stability monitor |
+| `test-rg353ps-mass-storage-write.ps1` | Offline tests for the write-integrity tool |
 | `offline-test-results.json` | Raw offline test results |
 | `stability-offline-test-results.json` | Raw offline test results for the stability monitor |
+| `write-offline-test-results.json` | Raw offline test results for the write-integrity tool |
 | `mass-storage-host-report.json` / `.md` | Produced by the real-hardware host check |
 | `exit-recovery-host-report.json` / `.md` | Produced by the exit-recovery host check |
 | `mass-storage-stability-report.json` / `.md` | Produced by the 30-minute stability run |
+| `mass-storage-write-prepare-report.json` / `.md` | Produced by the Prepare phase |
+| `mass-storage-write-prepare-manifest.json` | Local manifest kept as the Verify baseline |
+| `mass-storage-write-verify-report.json` / `.md` | Produced by the Verify phase |
+
+## Offline test archive
+
+All three host tools ship with an offline suite. None of them touches real
+hardware: every run records `hardware_contacted=false`, and device identity is
+supplied through injected topology objects.
+
+| Suite | Cases | Result | Raw results |
+| --- | --- | --- | --- |
+| `test-rg353ps-mass-storage-device-map.ps1` | 28 | PASS 28/28 | `offline-test-results.json` |
+| `test-rg353ps-mass-storage-stability.ps1` | 28 | PASS 28/28 | `stability-offline-test-results.json` |
+| `test-rg353ps-mass-storage-write.ps1` | 60 | PASS 60/60 | `write-offline-test-results.json` |
+
+Every case asserts that no unrelated USB disk and no unrelated volume is
+selected (`wrong-device=0`, `wrong-volume=0`).
 
 ## Strict device identity (no fallback scanning)
 
@@ -119,7 +158,9 @@ volume is still mounted; that field never changes the verdict. A failing run
 keeps its raw diagnostics and attempts nothing: no restart, no configuration
 change, no repair, no retry against another device.
 
-## Read-only safeguards
+## Read-only safeguards (host check, exit recovery, stability monitor)
+
+These three tools are read-only:
 
 - Only metadata reads and `Get-FileHash`; no writes to the device.
 - No disk initialisation, no volume formatting, no repair utility, no
@@ -130,7 +171,14 @@ change, no repair, no retry against another device.
 - The 7-file dataset (`baseos-mtp-test-<run_id>`) and its device-produced
   manifest are read only from the uniquely owned volume.
 
-## Offline tests
+The write-integrity tool is the one exception, and its write surface is bounded:
+Prepare creates a **single new directory** whose name contains the run id and
+aborts if that directory already exists; it writes only inside it, with
+`FileMode.CreateNew` so no existing file can be overwritten. Verify opens nothing
+for writing at all (`device_writes=false`). Neither phase formats, repairs,
+changes a drive letter, ejects the device or deletes the dataset.
+
+## Offline tests: resolver detail
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\test-rg353ps-mass-storage-device-map.ps1
@@ -143,6 +191,25 @@ missing or unresolved IOCTL data, missing drive letter, duplicate volume
 metadata and an undeterminable drive index. One case compiles the IOCTL helper
 offline without calling any P/Invoke. Every case asserts that neither the other
 USB disk nor its volume is selected. Results: `offline-test-results.json`.
+
+The write tool has its own 60-case suite
+(`test-rg353ps-mass-storage-write.ps1`, results in
+`write-offline-test-results.json`):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\test-rg353ps-mass-storage-write.ps1
+```
+
+It covers overwrite protection (`CreateNew` refuses an existing file and leaves
+its hash unchanged), path containment (escape, drive-qualified, UNC, ADS
+`a:b.txt`, empty/whitespace segments), manifest validation (malformed, unsafe
+relpath, duplicate entry, bad SHA-256, negative size, path-bearing
+`dataset_name`), manifest comparison (size mismatch, same-size tamper,
+missing file that is never recreated), injected-topology mapping failures that
+must exit non-zero **without creating a single file**, and static guards that
+forbid `Format-Volume`, `Initialize-Disk`, `Clear-Disk`, `Set-Partition`,
+`diskpart`, `Repair-Volume`, `Remove-Item`, `chkdsk`, `mountvol`, `subst` and
+`Shell.Application`/eject.
 
 ## Stability run (30 min, read-only)
 
@@ -171,6 +238,35 @@ written, formatted, repaired or re-lettered, and the device is never
 deliberately disconnected. Offline coverage (28 cases) is in
 `test-rg353ps-mass-storage-stability.ps1`; results in
 `stability-offline-test-results.json`.
+
+## Write-integrity run (Prepare / Verify, two operator steps)
+
+With the device already in Mass Storage mode and `VID_2207&PID_0006` enumerated:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\check-rg353ps-mass-storage-write.ps1 -Phase Prepare
+```
+
+Prepare creates one new directory `baseos-write-test-<run_id>`, writes 7 files
+(about 130 MiB), flushes every stream and saves both manifests, then stops and
+prints the next step. The operator must then **safely eject the volume, pull the
+cable, wait for the frontend to recover and re-enter Mass Storage**. Only then:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\check-rg353ps-mass-storage-write.ps1 -Phase Verify
+```
+
+Verify re-runs the strict mapping from scratch (it never reuses Prepare's drive
+letter), then compares every file against the local manifest on size and
+SHA-256. Reports: `mass-storage-write-prepare-report.json` / `.md` and
+`mass-storage-write-verify-report.json` / `.md`.
+
+Hard stops, before any volume is touched: a Windows format prompt, an ambiguous
+or missing device identity, a RAW/unknown filesystem, a dataset directory that
+already exists (Prepare), a missing dataset directory or missing local manifest
+(Verify), and any unsafe relative path inside a manifest. The tool never
+deletes the dataset, never formats, never repairs, never changes a drive letter
+and never ejects the device.
 
 ## Real-hardware re-test command
 

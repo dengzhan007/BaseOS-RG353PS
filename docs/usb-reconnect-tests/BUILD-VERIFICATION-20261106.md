@@ -189,80 +189,169 @@ kmsg 过滤、IRQ 快照、空输入 → N/A、上限截断等断言全部通过
 
 内核版本与构建号与第 4 / 5 / 9 节产物完全一致，确认第 9.4 节 A/B 包 `baseos-rg353ps-1.2.4.bosupd` 已成功部署、启动并通过 A/B trial。
 
-### 10.2 采集窗口
+### 10.2 采集窗口与证据文件
 
 - 采集启动：2026-11-06 02:11:54 +0000；时长 240 s，采样间隔 0.5 s
-- 设备端日志：`/mnt/SDCARD/usb-reconnect-diag-20261106-021154.log`
-- 入库（脱敏后）：`docs/usb-reconnect-tests/usb-reconnect-diag-20261106-021154.log`（1316 行 / 约 294 KiB）
-- 脱敏说明：经扫描日志不含 MAC 地址、序列号、密钥、用户目录或邮箱（`grep -Ei "([0-9a-f]{2}:){5}|serial|password|passwd|secret|private.?key|/home/|/Users/|@(gmail|qq|163|outlook)|token|apikey"` 命中 0 行），仅含 USB 状态机与内核事件，原样入库即视为已脱敏。
+- 设备端内核诊断日志：`/mnt/SDCARD/usb-reconnect-diag-20261106-021154.log`
+- 入库（脱敏后）：`docs/usb-reconnect-tests/usb-reconnect-diag-20261106-021154.log`（1316 行 / 约 294 KiB）—— 仅含 dyndbg 内核事件（`[kmsg]`）与脚本采样（`[sample]`）
+- **Supervisor 日志（补采）**：设备重新上线后从 `/run/baseos-usb-debug.log` 抓取，入库为 `docs/usb-reconnect-tests/baseos-usb-debug-20261106-021154.log`（348 行 / 8.8 KiB）。该文件含 Supervisor 的 cable 状态、re-probe / recovery 决策，**是「Supervisor 是否介入」的唯一权威证据**（见 10.4c / 10.5 / 10.6）。
+- 脱敏说明：两份日志均经扫描不含 MAC 地址、序列号、密钥、用户目录或邮箱（本地 IP `192.168.42.x` 为设备自身 RNDIS 子网，非 PII），仅含 USB 状态机 / 内核事件 / Supervisor 决策，原样入库即视为已脱敏。
 
-### 10.3 五轮拔插时间线（kmsg boot 相对秒）
+### 10.3 五轮拔插时间线（kmsg 内核相对秒；Supervisor 时间为 UTC，与 kmsg 同一次启动对齐，boot≈02:06:24 UTC）
 
-| 轮次 | 拔出起点 (s) | 重连完成 (s) | 单轮耗时 | 结果 |
-|---|---:|---:|---:|---|
-| 1 | 369.674 | 379.079（UDC connect out） | ~9.4 s | configured 恢复 |
-| 2 | 392.918 | 402.506（UDC connect out） | ~9.6 s | configured 恢复 |
-| 3 | 409.301 | 412.811（RESET event） | ~3.5 s | configured 恢复 |
-| 4 | 421.883 | 425.792（RESET）→ 426.0 configured | ~3.9 s | configured 恢复 |
-| 5 | 437.215 | 448.115（UDC connect out） | ~10.9 s | configured 恢复 |
+> 恢复判定：以 kmsg 中 `EP0 SETUP` 重新出现且 `state=1`（设备重新枚举到 configured）为恢复点；Supervisor 侧以 `re-probe done state=configured` 为佐证。
+> 两类恢复路径（详见 10.5）：**Path A** = 深断开（UDC 落到 `not attached`）→ Supervisor 触发异步 re-probe → 走诊断 PULLUP→SOFTCONNECT→UDC 序列，较慢；**Path B** = 浅断开（插入时 UDC 仍为 `configured`）→ 经 OTG/PHY reset 自恢复，无 Supervisor re-probe，较快。
 
-5 轮发生在采集窗口中段（369.7 s ~ 448.2 s，约 78.5 s 内）。每轮拔出后设备均能从 `not attached` 重新枚举回 `configured (high-speed)`，主机侧 RNDIS / MTP / SSH 会话随之恢复，无卡死、无内核 oops、无 USB 子系统崩溃。
+| 轮次 | 拔线 (kmsg s) | EXTCON_USB=1 (kmsg s) | 恢复 configured (kmsg s) | 拔线→恢复 | EXTCON→恢复 | 恢复路径 | Supervisor re-probe (UTC) |
+|---|---:|---:|---:|---:|---:|---|---|
+| 1 | 369.674 | 372.675 | 379.271 | 9.60 s | 6.60 s | A | 是 02:12:36 |
+| 2 | 392.918 | 395.895 | 402.697 | 9.78 s | 6.80 s | A | 是 02:12:59 |
+| 3 | 409.301 | 412.939 | 412.899 | 3.60 s | ≈0 s | B | 否（自恢复） |
+| 4 | 421.883 | 425.911 | 425.880 | 4.00 s | ≈0 s | B | 否（自恢复） |
+| 5 | 437.215 | 441.427 | 448.307 | 11.09 s | 6.88 s | A | 是 02:13:45 |
 
-### 10.4 9 个诊断注入点 — 真机命中验证
+5 轮发生在采集窗口中段（kmsg 369.7 s ~ 448.3 s，约 78.6 s 内；对应 UTC 02:12:31 ~ 02:13:50）。每轮均恢复到 `configured (high-speed)`，无卡死、无内核 oops、无 USB 子系统崩溃。第 3/4 轮（Path B）恢复明显快于第 1/2/5 轮（Path A），且前者无 Supervisor re-probe。
 
-| # | 注入点（源文件:行） | 真实日志命中 | 样例 |
-|---|---|---|---|
-| 1 | `gadget.c:4247` RG353PS DWC3 device DISCONNECT event | 11 次 | `[ 369.674] …DISCONNECT event speed=3 link_state=3 connected=1` |
-| 2 | `gadget.c:4281` RG353PS DWC3 device RESET event | 5 次（每轮 1） | `[ 379.183] …RESET event speed=0 link_state=3 connected=0` |
-| 3 | `gadget.c:4246` RG353PS DWC3 RECONNECT DISCONNECT entry | 11 次 | `[ 369.674] …entry: connected=1 pullups=1 softconnect=1 state=7` |
-| 4 | `gadget.c:2887/2908/2917/2930` RECONNECT PULLUP (entry/pm/short/soft) | PULLUP 类 23 次 | `[ 379.078] …PULLUP soft: is_on=1 ret=0 pullups=1` |
-| 5 | `gadget.c:2861/2870/2877` RECONNECT SOFTCONNECT (enter/reset/done) | done 5 次 | `[ 379.078] …SOFTCONNECT done: ret=0 pullups=1` |
-| 6 | `udc/core.c:736` RG353PS DWC3 RECONNECT UDC connect out | 5 次 connected=1 | `[ 379.079] …UDC connect out: connected=1 … ret=0` |
-| 7 | `phy:1099` RG353PS USB PHY VBUS-valid IRQ observed | 22 次 | `[ 369.680] …VBUS-valid IRQ observed` |
-| 8 | `phy:1093` RG353PS BVALID IRQ entry | 22 次 | `[ 369.680] …BVALID IRQ entry: …bvalid=0` |
-| 9 | `phy:766/773/787` OTG VBUS decision / extcon notify before / extcon data result | 20 / 多次 / 多次 | `[ 369.680] …OTG VBUS decision: …old=1 new=0` |
+### 10.4 诊断事件次数（从原始日志 `[kmsg]` 行重新统计；已剔除 dyndbg 规则注册行）
 
-9/9 注入点在真实 5 轮拔插中**全部被触发并打印**，与第 3 / 6 节静态校验（`.o` 内 9 条诊断串、实跑注入器标记数=9）形成「源码 → 编译产物 → 真机行为」的完整闭环。
+> **四类概念必须区分**：
+> 1. **规则启用成功**（`enabled_rule_ok=9/9`）：9 条 dyndbg 选择器全部开启 —— 这是「能观测」的前提，不等于「已发生」。
+> 2. **调用点真实命中**（下表「运行时命中」）：诊断 `dev_dbg` 在真实拔插中实际打印的次数。
+> 3. **设备恢复**（见 10.3）：UDC 实际回到 `configured`。
+> 4. **Supervisor 介入**：必须由 `/run/baseos-usb-debug.log` 证明（见 10.4c）。
 
-### 10.5 典型一轮完整序列（第 4 轮，646 → 696 s）
+#### 10.4a DWC3 / gadget / udc 注入点（9 个）—— 运行时真实命中
 
-拔出：
+| # | 注入点 | 运行时命中 | 说明 |
+|---|---|---:|---|
+| 1 | `gadget.c:4247` DWC3 device DISCONNECT event | **9** | 5 轮主拔线(connected=1) + 4 次重连中二次断开(connected=0) |
+| 2 | `gadget.c:4281` DWC3 device RESET event | **5** | 每轮恰好 1 次 |
+| 3 | `gadget.c:4246` RECONNECT DISCONNECT entry | **9** | 同 #1 拆分：connected=1 ×5，connected=0 ×4 |
+| 4a | `gadget.c:2887` RECONNECT PULLUP entry | **6** | 仅 Path A 轮（1/2/5）触发 |
+| 4b | `gadget.c:2908` RECONNECT PULLUP pm | **6** | 同上 |
+| 4c | `gadget.c:2917` RECONNECT PULLUP short | **0** | **未命中**：`reason=same_state` 分支在 5 轮中从未进入 |
+| 4d | `gadget.c:2930` RECONNECT PULLUP soft | **6** | 仅 Path A 轮触发 |
+| 5a | `gadget.c:2861` RECONNECT SOFTCONNECT enter | **3** | 仅 Path A 轮 |
+| 5b | `gadget.c:2870` RECONNECT SOFTCONNECT reset | **3** | 仅 Path A 轮 |
+| 5c | `gadget.c:2877` RECONNECT SOFTCONNECT done | **3** | 仅 Path A 轮 |
+| 6 | `udc/core.c:736` RECONNECT UDC connect out | **3** | 仅 Path A 轮，均 connected=1 |
+
+> ⚠️ **关键修正**：9 个注入点中，**运行时实际触发 8/9**（PULLUP short 0 次）。因此**不能**描述为「所有 9 个调用点都在真实测试中执行过」。旧报告把 dyndbg **规则注册行**也计入，导致 DISCONNECT=11、RESET=7、UDC connect out=5、PULLUP 类=23 等偏高，现全部按 `[kmsg]` 运行时行重算。
+
+#### 10.4b PHY / extcon 侧（同一批 dyndbg 规则覆盖）
+
+| 注入点 | 运行时命中 | 说明 |
+|---|---:|---|
+| `phy:1093` BVALID IRQ entry | **20** | |
+| `phy:1099` USB PHY VBUS-valid IRQ observed | **20** | |
+| `phy:766` OTG VBUS decision | **19** | 其中 notify=1（最终决策）15 次 |
+| `phy:773` extcon notify before | **10** | |
+| `phy:787` extcon data result | **10** | usb=0（清除）×5 + usb=1（置位）×5 |
+| `gadget.c:4701` DWC3 device-event raw | **34** | |
+| `EP0 SETUP`（枚举流量） | **443** | 全部 `state=1`（configured） |
+
+#### 10.4c Supervisor 恢复（来自 `/run/baseos-usb-debug.log`，设备重新上线后补采）
+
+| 事件 | 次数 | 对应轮次 |
+|---|---:|---|
+| cable removed / cable inserted | 5 / 5 | 5 轮全部 |
+| `launching asynchronous recovery attempt 1` | **3** | 轮 1（02:12:36）、轮 2（02:12:59）、轮 5（02:13:45） |
+| `recovery: re-probing fcc00000.usb on dwc3` | **3** | 同上 |
+| `re-probe done state=configured` | **3** | 全部 attempt 1 成功，无 attempt 2 |
+| 自恢复（无 re-probe） | **2** | 轮 3、轮 4（Path B） |
+
+### 10.5 典型恢复过程（两类路径各一例）
+
+**Path A — 轮 1（深断开 + Supervisor re-probe）**
+
+kmsg（内核相对秒）：
 
 ```
-[421.883] dwc3: RG353PS DWC3 RECONNECT DISCONNECT entry: connected=1 pullups=1 softconnect=1 state=7 speed=3
-[421.883] dwc3: RG353PS DWC3 device DISCONNECT event speed=3 link_state=3 connected=1 setup_pending=0
-[421.888] phy : RG353PS BVALID IRQ entry: …bvalid=0
-[421.888] phy : RG353PS USB PHY VBUS-valid IRQ observed
-[421.888] phy : RG353PS OTG VBUS decision: notify=1 chg_state=0 chg_type=0 old=1 new=0
-[421.888] phy : RG353PS extcon notify before: cable=5 vbus=0 usb=1
-[421.888] phy : RG353PS extcon data result: usb=0 ret=0
-[sample] udc=fcc00000.usb{state=not attached,cur=UNKNOWN,…}   ← 主机侧 RNDIS 断开
+[369.674] dwc3: RG353PS DWC3 RECONNECT DISCONNECT entry: connected=1 pullups=1 softconnect=1 state=7 speed=3
+[369.674] dwc3: RG353PS DWC3 device DISCONNECT event speed=3 link_state=3 connected=1
+[369.680] phy : RG353PS BVALID IRQ entry: …bvalid=0
+[369.680] phy : RG353PS USB PHY VBUS-valid IRQ observed
+[369.680] phy : RG353PS OTG VBUS decision: notify=1 chg_state=0 chg_type=0 old=1 new=0
+[369.682] phy : RG353PS extcon data result: usb=0 ret=0
+[372.417] phy : RG353PS BVALID IRQ entry: …bvalid=1          ← 重新插入
+[372.447] dwc3: RG353PS DWC3 RECONNECT DISCONNECT entry: connected=0 …   ← 重连中二次断开
+[372.675] phy : RG353PS extcon data result: usb=1 ret=0        ← EXTCON_USB=1
+[375.060] dwc3: RG353PS DWC3 RECONNECT PULLUP entry: is_on=0 …         ← Supervisor re-probe 触发
+[375.077] dwc3: RG353PS DWC3 RECONNECT PULLUP entry: is_on=1 …
+[379.077] dwc3: RG353PS DWC3 RECONNECT SOFTCONNECT enter/reset/done
+[379.079] configfs-gadget.baseos_debug gadget.0: RG353PS DWC3 RECONNECT UDC connect out: connected=1 …
+[379.183] dwc3: RG353PS DWC3 device RESET event speed=0 link_state=3 connected=0
+[379.271] dwc3: RG353PS EP0 SETUP … state=1 …                         ← 枚举恢复 configured
 ```
 
-重连：
+Supervisor（`/run/baseos-usb-debug.log`，UTC）：
 
 ```
-[425.552] phy : RG353PS BVALID IRQ entry: …bvalid=1
-[425.552] phy : RG353PS USB PHY VBUS-valid IRQ observed
-[425.601] dwc3: RG353PS DWC3 RECONNECT DISCONNECT entry: connected=0 …   ← 中间 disconnect
-[425.791] dwc3: RG353PS DWC3 device RESET event speed=0 link_state=3 connected=0
-[425.879] dwc3: RG353PS EP0 SETUP type=80 req=06 …                      ← 主机重新枚举 GET_DESCRIPTOR
-[425.910] phy : RG353PS OTG VBUS decision: …old=0 new=1
-[425.910] phy : RG353PS extcon data result: usb=1 ret=0
-[426.0 ] udc=fcc00000.usb{state=configured,cur=high-speed,…}            ← 恢复
+02:12:31 supervisor: cable removed (state=not attached)
+02:12:33 supervisor: cable inserted (state=not attached)
+02:12:36 supervisor: launching asynchronous recovery attempt 1
+02:12:36 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+02:12:41 recovery: re-probe done state=configured cable=yes
+```
+
+**Path B — 轮 3（浅断开 + 自恢复，无 Supervisor re-probe）**
+
+kmsg（内核相对秒）：
+
+```
+[409.301] dwc3: RG353PS DWC3 RECONNECT DISCONNECT entry: connected=1 …    ← 拔线
+[409.301] dwc3: RG353PS DWC3 device DISCONNECT event speed=3 …
+[409.307] phy : RG353PS BVALID IRQ entry: …bvalid=0; OTG VBUS decision old=1 new=0; extcon data result usb=0
+[412.685] phy : RG353PS BVALID IRQ entry: …bvalid=1                      ← 重新插入
+[412.811] dwc3: RG353PS DWC3 device RESET event speed=0 link_state=3 connected=0   ← 仅 RESET，无 PULLUP/SOFTCONNECT/UDC connect out
+[412.939] phy : RG353PS extcon data result: usb=1 ret=0                   ← EXTCON_USB=1
+[412.899] dwc3: RG353PS EP0 SETUP … state=1 …                           ← 枚举恢复 configured（≈与 EXTCON_USB=1 同时）
+```
+
+Supervisor（UTC）：
+
+```
+02:13:10 supervisor: cable removed (state=not attached)
+02:13:14 supervisor: cable inserted (state=configured)   ← 注意：插入时 UDC 已 configured
+（无 launching recovery / re-probing —— 设备经 OTG/PHY reset 路径自恢复）
 ```
 
 ### 10.6 结论
 
 - 诊断内核（`7.2.7-baseos-rg353ps`，BUILD `aa3536b-dirty-20261106013813`）已在真机成功部署、启动并通过 A/B trial。
-- 9 个诊断注入点在真实 5 轮 USB OTG 拔插中**全部触发**，每轮均能从 `not attached` 重新枚举回 `configured (high-speed)`，无卡死、无 oops、无 USB 子系统崩溃。
-- 重连路径的 PHY VBUS / OTG 决策、DWC3 gadget disconnect / reset、PULLUP / SOFTCONNECT / UDC 重连序列在真机行为与预期一致，**诊断代码确在真实硬件生效**。
+- **规则启用**：`enabled_rule_ok=9/9`，9 条 dyndbg 选择器全部开启。
+- **运行时命中**：9 个 DWC3/gadget/udc 注入点中**实际触发 8/9**；`PULLUP short`（gadget.c:2917，`reason=same_state`）在 5 轮中 **0 次命中**，故不能称「9 个调用点都在真实测试中执行过」。PHY/extcon 侧注入点（BVALID / VBUS-valid / OTG decision / extcon）全部按预期触发。
+- **设备恢复**：5 轮全部重新枚举回 `configured (high-speed)`，无卡死、无 oops、无 USB 子系统崩溃。
+- **Supervisor 介入（已实证，非推断）**：经 `/run/baseos-usb-debug.log`，5 轮中 **3 轮（1/2/5）触发异步恢复 + dwc3 re-probe**（均 attempt 1 成功），**2 轮（3/4）经 OTG/PHY reset 自恢复、未触发 Supervisor re-probe**。两类路径差异由「插入时 UDC 是否仍为 configured」决定：Path B（已 configured）无需重探、恢复更快（~3.6–4.0 s）；Path A（not attached）需 Supervisor re-probe、走诊断 PULLUP/SOFTCONNECT/UDC 序列、恢复更慢（~9.6–11.1 s）。
+- 诊断代码确在真实硬件生效，但其作用主要是**可观测性**与**在深断开场景下由 Supervisor 驱动重探**；浅断开场景本就由内核/PHY 自身恢复。
 
 ### 10.7 仍存在的限制（本次范围外）
 
-- **键盘线 `stuck-at-default` 盲区未修**：supervisor 超时恢复补丁不在本次范围，预期在无数据线情况下仍可能复现该盲区；本测试使用的是数据线（线 1），未复验该盲区。
+- **Supervisor 日志已补采**：先前「5 轮 Supervisor 是否介入无法确认」的疑虑已消除——设备重新上线后 `/run/baseos-usb-debug.log` 完整留存，现已可确认 3/5 轮触发 re-probe（见 10.4c）。但**5 轮样本太小**，无法判断 re-probe 比例相较旧版 40 轮基线（19/40 = 47.5%）是否改善，需按 10.8 复测矩阵。
+- **键盘线 `stuck-at-default` 盲区未修**：supervisor 超时恢复补丁不在本次范围，预期在无数据线情况下仍可能复现该盲区；本测试使用数据线（线 1），未复验该盲区。
 - **build-id 含 `-dirty`**：源自 WSL 构建副本临时改 uMTP clone URL，未进入提交，不影响功能与分区内容。
 - 日志仅覆盖 240 s 窗口内的 5 轮主动拔插，未做长时间压力、意外掉电等边界场景。
+
+### 10.8 下一轮测试建议：40 轮矩阵（对比 Supervisor re-probe 比例）
+
+**基线回顾（旧版 40 轮，2026-11-05，`2026-11-05-08-21-16/USB-Reconnect-Matrix/`）**：2 台电脑 × 2 条数据线 × 每组合 10 轮 = 40 轮，其中 **19/40 轮需要 Supervisor re-probe** 才恢复。本轮 5 轮中 3/5（60%）需要 re-probe，方向一致但样本不足。
+
+**建议**：在当前诊断内核（已含 9 点 dyndbg + 现存 Supervisor）上**复测相同 40 轮矩阵**，以比较 re-probe 比例是否下降。执行中**严禁人为执行 soft_connect / reprobe / 重启 gadget**，否则会污染结果。
+
+**执行记录表（每轮一行；判定字段来源见注）**：
+
+| 序号 | 主机 | 数据线 | 拔出时间(UTC) | 插回时间(UTC) | UDC 恢复时间 | 恢复路径(A/B) | Supervisor re-probe | RNDIS | DHCP | MTP | 备注 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | PC-A | 线1 | | | | | | | | | |
+| 2 | PC-A | 线1 | | | | | | | | | |
+| … | | | | | | | | | | | |
+| 11 | PC-A | 线2(键盘线) | | | | | | | | | |
+| … | | | | | | | | | | | |
+| 21 | PC-B | 线1 | | | | | | | | | |
+| … | | | | | | | | | | | |
+| 41 | 合计 | — | — | — | — | — | re-probe __/40 | — | — | — | — |
+
+> 判定字段来源：**恢复路径 / Supervisor re-probe** 必须取自设备 `/run/baseos-usb-debug.log`（本轮已证可行）；**UDC 恢复时间** 取自诊断 kmsg 的 `EP0 SETUP state=1` 首现或 `[sample] state=configured` 回归；**RNDIS/DHCP/MTP** 由主机侧观察/抓包确认。
 
 ---
 

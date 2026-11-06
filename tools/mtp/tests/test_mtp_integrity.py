@@ -17,6 +17,7 @@ import contextlib
 import io
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -27,10 +28,11 @@ sys.path.insert(0, TOOL_DIR)
 
 import mtp_common as common  # noqa: E402
 import mtp_integrity as tool  # noqa: E402
-from mtp_backends import FilesystemBackend  # noqa: E402
+from mtp_backends import BackendError, FilesystemBackend, build_backend  # noqa: E402
 
 RUN_ID = "20260101-000000-abcdef"
 FOREIGN_RUN_ID = "20260101-000001-abcdef"
+DEVICE_SCRIPT_DIR = os.path.join(TOOL_DIR, "device")
 
 
 def stage_args(root: str, **overrides) -> argparse.Namespace:
@@ -48,6 +50,7 @@ def stage_args(root: str, **overrides) -> argparse.Namespace:
         "device_ssh": None,
         "skip_prepare": False,
         "device_storage_root": "/mnt/SDCARD",
+        "allow_nonstandard_device_root": False,
         "force": False,
         "confirm_force": False,
         "confirm_cleanup": False,
@@ -65,6 +68,53 @@ def run_stage(stage: str, root: str, **overrides):
     with contextlib.redirect_stdout(io.StringIO()):
         exit_code = getattr(tool, f"cmd_{stage}")(args, backend, checks)
     return exit_code, checks, backend
+
+
+def run_stage_with(backend, stage: str, **overrides):
+    checks = tool.Checks(stage)
+    args = stage_args(getattr(backend, "root", ""), **overrides)
+    with contextlib.redirect_stdout(io.StringIO()):
+        exit_code = getattr(tool, f"cmd_{stage}")(args, backend, checks)
+    return exit_code, checks
+
+
+def run_device_script(name: str, *args: str):
+    return subprocess.run(
+        ["sh", os.path.join(DEVICE_SCRIPT_DIR, name), *args],
+        capture_output=True, text=True, timeout=300,
+    )
+
+
+def make_symlink(link_path: str, target: str) -> None:
+    """Create a symlink or skip the test where the platform refuses."""
+    try:
+        os.symlink(target, link_path, target_is_directory=os.path.isdir(target))
+    except (OSError, NotImplementedError) as error:  # Windows needs Developer Mode
+        raise unittest.SkipTest(f"symlinks are not available here: {error}")
+
+
+class NoDeleteBackend(FilesystemBackend):
+    """Filesystem root that behaves like Windows WPD: no delete/rename/overwrite.
+
+    Records any attempted delete so a test can prove the tool never calls it.
+    """
+
+    capabilities = dict(
+        FilesystemBackend.capabilities,
+        rename=False,
+        delete=False,
+        overwrite=False,
+        readback_after_put=False,
+    )
+
+    def __init__(self, root: str):
+        super().__init__(root, name="fake-wpd", is_mtp=True)
+        self.delete_calls = []
+
+    def delete(self, rel_path: str, recursive: bool = False):
+        self.delete_calls.append((rel_path, recursive))
+        raise AssertionError("delete must never be called when capabilities['delete'] is False")
+
 
 
 def statuses(checks) -> dict:
@@ -302,6 +352,253 @@ class MtpIntegrityTests(unittest.TestCase):
             path = os.path.join(self.test_dir, item["relpath"].replace("/", os.sep))
             self.assertEqual(os.path.getsize(path), item["size"])
             self.assertEqual(common.sha256_file(path), item["sha256"])
+
+
+class SafetyGuardTests(unittest.TestCase):
+    """Guards that must hold before anything is deleted or read."""
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="mtp-guard-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.test_dir = os.path.join(self.root, common.test_dir_name(RUN_ID))
+
+    # -- delete capability -------------------------------------------------
+    def test_cleanup_refuses_backend_without_delete(self):
+        run_stage("prepare", self.root)
+        backend = NoDeleteBackend(self.root)
+        code, checks = run_stage_with(backend, "cleanup", confirm_cleanup=True)
+        self.assertNotEqual(code, 0)
+        self.assertEqual(backend.delete_calls, [], "delete must not be attempted")
+        self.assertTrue(os.path.isdir(self.test_dir), "the tree must survive")
+        failures = failing(checks)
+        self.assertTrue(failures)
+        self.assertTrue(any("mtp-cleanup.sh" in item["detail"] for item in failures),
+                        "the failure must tell the operator to clean up on the device")
+
+    def test_prepare_force_refuses_backend_without_delete(self):
+        run_stage("prepare", self.root)
+        marker_before = os.path.isfile(os.path.join(self.test_dir, common.MARKER_NAME))
+        backend = NoDeleteBackend(self.root)
+        code, checks = run_stage_with(
+            backend, "prepare", force=True, confirm_force=True
+        )
+        self.assertNotEqual(code, 0)
+        self.assertEqual(backend.delete_calls, [], "delete must not be attempted")
+        self.assertTrue(os.path.isdir(self.test_dir))
+        self.assertTrue(marker_before)
+        self.assertTrue(any("mtp-cleanup.sh" in item["detail"] for item in failing(checks)))
+
+    def test_delete_never_reported_as_success(self):
+        run_stage("prepare", self.root)
+        backend = NoDeleteBackend(self.root)
+        _, checks = run_stage_with(backend, "cleanup", confirm_cleanup=True)
+        self.assertFalse(
+            [item for item in checks.items if item["status"] == "PASS" and "delete" in item["check"]],
+            "a refused delete must never appear as PASS",
+        )
+
+    # -- real symlink escapes ---------------------------------------------
+    def test_symlink_escape_is_rejected(self):
+        outside = tempfile.mkdtemp(prefix="mtp-outside-")
+        self.addCleanup(shutil.rmtree, outside, True)
+        with open(os.path.join(outside, "secret.txt"), "w", encoding="utf-8") as handle:
+            handle.write("outside the storage root\n")
+        make_symlink(os.path.join(self.root, "escape"), outside)
+
+        with self.assertRaises(common.PathSafetyError):
+            common.contained_path(self.root, "escape/secret.txt")
+        with self.assertRaises((common.PathSafetyError, BackendError)):
+            FilesystemBackend(self.root).get_file("escape/secret.txt",
+                                                  os.path.join(self.root, "stolen.txt"))
+        self.assertFalse(os.path.exists(os.path.join(self.root, "stolen.txt")))
+
+    def test_symlink_in_listing_is_hidden(self):
+        outside = tempfile.mkdtemp(prefix="mtp-outside-")
+        self.addCleanup(shutil.rmtree, outside, True)
+        make_symlink(os.path.join(self.root, "escape"), outside)
+        names = [item["name"] for item in FilesystemBackend(self.root).list_dir("")]
+        self.assertNotIn("escape", names, "a symlink must not be exposed as MTP content")
+
+    def test_symlinked_test_dir_is_refused_by_cleanup(self):
+        target = tempfile.mkdtemp(prefix="mtp-linktarget-")
+        self.addCleanup(shutil.rmtree, target, True)
+        with open(os.path.join(target, common.MARKER_NAME), "w", encoding="utf-8") as handle:
+            handle.write('{"tool": "baseos-mtp-integrity", "run_id": "%s"}\n' % RUN_ID)
+        make_symlink(self.test_dir, target)
+
+        code, checks = run_stage_with(FilesystemBackend(self.root), "cleanup",
+                                      confirm_cleanup=True)
+        self.assertNotEqual(code, 0)
+        self.assertTrue(os.path.isdir(target), "the symlink target must not be deleted")
+        self.assertTrue(failing(checks))
+
+    # -- forged / mismatched markers --------------------------------------
+    def test_forged_marker_blocks_force_replace(self):
+        os.makedirs(self.test_dir, exist_ok=True)
+        with open(os.path.join(self.test_dir, common.MARKER_NAME), "w", encoding="utf-8") as handle:
+            handle.write('{"tool": "some-other-tool", "run_id": "%s"}\n' % RUN_ID)
+        keep = os.path.join(self.test_dir, "keep.bin")
+        with open(keep, "wb") as handle:
+            handle.write(b"user data")
+
+        code, checks, _ = run_stage("prepare", self.root, force=True, confirm_force=True)
+        self.assertNotEqual(code, 0)
+        self.assertTrue(failing(checks))
+        self.assertTrue(os.path.isfile(keep), "a forged marker must not authorise a delete")
+
+    def test_marker_with_wrong_run_id_blocks_cleanup(self):
+        run_stage("prepare", self.root)
+        marker_path = os.path.join(self.test_dir, common.MARKER_NAME)
+        with open(marker_path, "w", encoding="utf-8") as handle:
+            handle.write('{"tool": "baseos-mtp-integrity", "run_id": "%s"}\n' % FOREIGN_RUN_ID)
+
+        code, checks = run_stage_with(FilesystemBackend(self.root), "cleanup",
+                                      confirm_cleanup=True)
+        self.assertNotEqual(code, 0)
+        self.assertTrue(os.path.isdir(self.test_dir))
+
+    # -- device storage root pinning --------------------------------------
+    def test_device_storage_root_is_pinned(self):
+        self.assertEqual(tool.validate_device_storage_root(stage_args(None)), "/mnt/SDCARD")
+        self.assertEqual(tool.validate_device_storage_root(stage_args(None)), "/mnt/SDCARD")
+        self.assertEqual(
+            tool.validate_device_storage_root(stage_args(None, device_storage_root="/mnt/SDCARD/")),
+            "/mnt/SDCARD",
+        )
+        for hostile in ("/boot", "/", "/mnt/boot", "mnt/SDCARD", "/mnt/SDCARD/../boot",
+                        "/mnt/SDCARD;rm -rf /", "/mnt/SDCARD\n"):
+            with self.assertRaises(SystemExit, msg=hostile):
+                tool.validate_device_storage_root(
+                    stage_args(None, device_storage_root=hostile)
+                )
+        self.assertEqual(
+            tool.validate_device_storage_root(
+                stage_args(None, device_storage_root="/tmp/elsewhere",
+                           allow_nonstandard_device_root=True)
+            ),
+            "/tmp/elsewhere",
+        )
+
+    # -- mtp-tools stays disabled -----------------------------------------
+    def test_linux_mtp_tools_backend_is_disabled(self):
+        with self.assertRaises(SystemExit) as caught:
+            build_backend(stage_args(None, backend="linux-mtp-tools"))
+        self.assertIn("disabled", str(caught.exception))
+
+    @unittest.skipIf(os.name == "nt", "auto picks windows-wpd on Windows")
+    def test_auto_never_selects_mtp_tools(self):
+        with self.assertRaises(SystemExit) as caught:
+            build_backend(stage_args(None, backend="auto"))
+        message = str(caught.exception)
+        self.assertIn("linux-gvfs", message)
+        self.assertIn("disabled", message)
+
+
+class DeviceScriptTests(unittest.TestCase):
+    """Behavioural tests for the two BusyBox scripts, run with the host sh."""
+
+    def setUp(self):
+        if shutil.which("sh") is None:
+            self.skipTest("POSIX sh is required for the device-script tests")
+        self.root = tempfile.mkdtemp(prefix="mtp-dev-")
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.tree = os.path.join(self.root, common.test_dir_name(RUN_ID))
+
+    def prepare(self, *extra, run_id=RUN_ID):
+        return run_device_script("mtp-prepare.sh", "--storage", self.root,
+                                 "--profile", "fast", "--run-id", run_id,
+                                 "--allow-nonstandard-storage", *extra)
+
+    def test_prepare_refuses_nonstandard_storage_without_override(self):
+        proc = run_device_script("mtp-prepare.sh", "--storage", self.root,
+                                 "--profile", "fast", "--run-id", RUN_ID)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("refusing to use", proc.stderr)
+        self.assertEqual(os.listdir(self.root), [], "nothing may be created")
+
+    def test_cleanup_refuses_nonstandard_storage_without_override(self):
+        self.assertEqual(self.prepare().returncode, 0)
+        proc = run_device_script("mtp-cleanup.sh", "--storage", self.root,
+                                 "--run-id", RUN_ID, "--confirm")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("refusing to use", proc.stderr)
+        self.assertTrue(os.path.isdir(self.tree), "the tree must survive")
+
+    def test_prepare_then_cleanup_with_override(self):
+        proc = self.prepare()
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertTrue(os.path.isfile(os.path.join(self.tree, common.MARKER_NAME)))
+        self.assertTrue(os.path.isfile(os.path.join(self.tree, common.MANIFEST_NAME)))
+
+        dry = run_device_script("mtp-cleanup.sh", "--storage", self.root, "--run-id", RUN_ID,
+                                "--allow-nonstandard-storage")
+        self.assertEqual(dry.returncode, 0, dry.stderr)
+        self.assertIn("dry run", dry.stdout)
+        self.assertTrue(os.path.isdir(self.tree), "without --confirm nothing is deleted")
+
+        done = run_device_script("mtp-cleanup.sh", "--storage", self.root, "--run-id", RUN_ID,
+                                 "--confirm", "--allow-nonstandard-storage")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertFalse(os.path.exists(self.tree))
+
+    def test_cleanup_only_removes_the_named_tree(self):
+        self.assertEqual(self.prepare().returncode, 0)
+        other = os.path.join(self.root, common.test_dir_name(FOREIGN_RUN_ID))
+        os.makedirs(other, exist_ok=True)
+        keep = os.path.join(other, "user-file.bin")
+        with open(keep, "wb") as handle:
+            handle.write(b"user data")
+
+        proc = run_device_script("mtp-cleanup.sh", "--storage", self.root, "--run-id", RUN_ID,
+                                 "--confirm", "--allow-nonstandard-storage")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertFalse(os.path.exists(self.tree))
+        self.assertTrue(os.path.isfile(keep), "another directory must never be touched")
+
+    def test_cleanup_refuses_forged_marker(self):
+        os.makedirs(self.tree, exist_ok=True)
+        with open(os.path.join(self.tree, common.MARKER_NAME), "w", encoding="utf-8") as handle:
+            handle.write('{"tool": "not-this-tool", "run_id": "%s"}\n' % RUN_ID)
+        proc = run_device_script("mtp-cleanup.sh", "--storage", self.root, "--run-id", RUN_ID,
+                                 "--confirm", "--allow-nonstandard-storage")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertTrue(os.path.isdir(self.tree), "a forged marker must not authorise a delete")
+
+    def test_cleanup_refuses_wrong_run_id_in_marker(self):
+        self.assertEqual(self.prepare().returncode, 0)
+        marker = os.path.join(self.tree, common.MARKER_NAME)
+        with open(marker, "w", encoding="utf-8") as handle:
+            handle.write('{"tool": "baseos-mtp-integrity", "run_id": "%s"}\n' % FOREIGN_RUN_ID)
+        proc = run_device_script("mtp-cleanup.sh", "--storage", self.root, "--run-id", RUN_ID,
+                                 "--confirm", "--allow-nonstandard-storage")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertTrue(os.path.isdir(self.tree))
+
+    def test_cleanup_refuses_symlinked_tree(self):
+        target = tempfile.mkdtemp(prefix="mtp-dev-target-")
+        self.addCleanup(shutil.rmtree, target, True)
+        with open(os.path.join(target, common.MARKER_NAME), "w", encoding="utf-8") as handle:
+            handle.write('{"tool": "baseos-mtp-integrity", "run_id": "%s"}\n' % RUN_ID)
+        make_symlink(self.tree, target)
+
+        proc = run_device_script("mtp-cleanup.sh", "--storage", self.root, "--run-id", RUN_ID,
+                                 "--confirm", "--allow-nonstandard-storage")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertTrue(os.path.isdir(target), "a symlinked tree must not be followed")
+
+    def test_prepare_force_requires_matching_marker(self):
+        self.assertEqual(self.prepare().returncode, 0)
+        sentinel = os.path.join(self.tree, "sentinel.bin")
+        with open(sentinel, "wb") as handle:
+            handle.write(b"keep me")
+
+        # A marker from another tool means the tree is not ours.
+        marker = os.path.join(self.tree, common.MARKER_NAME)
+        with open(marker, "w", encoding="utf-8") as handle:
+            handle.write('{"tool": "not-this-tool", "run_id": "%s"}\n' % RUN_ID)
+        proc = self.prepare("--force")
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertTrue(os.path.isfile(sentinel), "a foreign tree must survive --force")
 
 
 if __name__ == "__main__":

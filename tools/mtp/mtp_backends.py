@@ -160,89 +160,44 @@ class FilesystemBackend(Backend):
 
 
 class LinuxMtpToolsBackend(Backend):
-    """libmtp ``mtp-tools`` adapter.
+    """Disabled adapter: ``mtp-tools`` takes object IDs, not remote paths.
 
-    Listing and transfer are reliable; rename has no mtp-tools equivalent and
-    is reported as unsupported so the caller records SKIP instead of guessing.
+    ``mtp-files`` prints one record per object (File ID, Filename, File size,
+    Parent ID, Storage ID) and ``mtp-getfile`` / ``mtp-sendfile`` /
+    ``mtp-newfolder`` / ``mtp-delfile`` address objects by those numeric IDs.
+    The previous implementation passed remote *paths* in the ID positions and
+    guessed the storage id, so every call would have been wrong on a real
+    libmtp build. Building a path -> ID map cannot be verified in this
+    environment, so the adapter is disabled instead of shipped as guesswork.
+
+    ``--backend linux-mtp-tools`` fails loudly; ``auto`` never selects it. Use
+    the Windows WPD adapter or a gvfs MTP mount.
     """
 
     name = "linux-mtp-tools"
     is_mtp = True
     capabilities = {
-        "list": True,
-        "get": True,
-        "put": True,
-        "mkdir": True,
+        "list": False,
+        "get": False,
+        "put": False,
+        "mkdir": False,
         "rename": False,
-        "delete": True,
-        "overwrite": True,
-        "readback_after_put": True,
+        "delete": False,
+        "overwrite": False,
+        "readback_after_put": False,
     }
 
+    DISABLED_REASON = (
+        "the linux-mtp-tools backend is disabled: libmtp's mtp-tools address "
+        "objects by numeric file/folder/storage IDs, so a path-based adapter "
+        "cannot be implemented reliably without re-verifying the ID mapping on "
+        "a real libmtp build. Use --backend windows-wpd (Windows) or "
+        "--backend linux-gvfs --gvfs-root <mounted path> (Linux), or "
+        "--backend local --root <dir> for the simulation."
+    )
+
     def __init__(self, storage_name: str = "RG353PS", timeout: int = 900):
-        self.storage_name = storage_name
-        self.timeout = timeout
-        self._root_id = None
-        for binary in ("mtp-files", "mtp-getfile", "mtp-sendfile"):
-            if shutil.which(binary) is None:
-                raise BackendError(f"mtp-tools is required but {binary} was not found in PATH")
-
-    def _run(self, argv, ok_codes=(0,)):
-        try:
-            result = subprocess.run(argv, capture_output=True, timeout=self.timeout)
-        except subprocess.TimeoutExpired:
-            raise BackendError(f"{argv[0]} timed out after {self.timeout}s")
-        if result.returncode not in ok_codes:
-            message = (result.stderr or result.stdout).decode("utf-8", "replace").strip()
-            raise BackendError(f"{argv[0]} failed ({result.returncode}): {message[:400]}")
-        return result.stdout.decode("utf-8", "replace")
-
-    def _storage_id(self) -> str:
-        if self._root_id:
-            return self._root_id
-        output = self._run(["mtp-files"])
-        stack = []
-        for line in output.splitlines():
-            stripped = line.strip()
-            if stripped.lower().startswith("storage ") or "storageid" in stripped.lower():
-                continue
-            if "folder" in stripped.lower():
-                stack.append("folder")
-        # mtp-files prints StorageID/Association for every object; the export
-        # root is StorageID 0 for a single-storage device like the RG353PS.
-        self._root_id = "0"
-        return self._root_id
-
-    def list_dir(self, rel_dir: str):
-        output = self._run(["mtp-files"])
-        wanted = rel_dir.strip("/")
-        items = []
-        for line in output.splitlines():
-            if "Filename:" not in line:
-                continue
-            name = line.split("Filename:", 1)[1].strip()
-            if not wanted or name.startswith(wanted + "/"):
-                rel = name
-                rest = rel[len(wanted) + 1:] if wanted else rel
-                if "/" in rest:
-                    continue
-                items.append({"name": rest, "relpath": rel, "is_dir": False, "size": 0})
-        return items
-
-    def get_file(self, rel_path: str, local_path: str):
-        os.makedirs(os.path.dirname(os.path.abspath(local_path)), exist_ok=True)
-        target = os.path.dirname(os.path.abspath(local_path)) or "."
-        self._run(["mtp-getfile", safe_relpath(rel_path), target])
-
-    def put_file(self, local_path: str, rel_dir: str):
-        self._run(["mtp-sendfile", os.path.abspath(local_path), safe_relpath(rel_dir) or "/"])
-
-    def make_dir(self, rel_dir: str):
-        self._run(["mtp-newfolder", os.path.basename(safe_relpath(rel_dir)), self._storage_id()],
-                  ok_codes=(0,))
-
-    def delete(self, rel_path: str, recursive: bool = False):
-        self._run(["mtp-delfile", "-n", safe_relpath(rel_path)])
+        raise BackendError(self.DISABLED_REASON)
 
 
 class WindowsWpdBackend(Backend):
@@ -331,7 +286,15 @@ class WindowsWpdBackend(Backend):
         self._run("mkdir", Path=safe_relpath(rel_dir))
 
     def delete(self, rel_path: str, recursive: bool = False):
-        self._run("delete", Path=safe_relpath(rel_path))
+        # Never reach PowerShell: the helper refuses this verb and the tool must
+        # not attempt a Shell delete that would pop a modal confirmation.
+        raise BackendError(
+            "windows-wpd cannot delete over MTP (modal Shell prompt). Remove the tree "
+            "on the device with device/mtp-cleanup.sh --run-id <id> --confirm."
+        )
+
+    def rename(self, rel_from: str, rel_to: str):
+        raise BackendError("windows-wpd has no scriptable rename verb for an MTP object")
 
 
 def build_backend(args) -> Backend:
@@ -340,14 +303,15 @@ def build_backend(args) -> Backend:
     if choice == "auto":
         if os.name == "nt":
             choice = "windows-wpd"
-        elif args.gvfs_root:
+        elif getattr(args, "gvfs_root", None):
             choice = "linux-gvfs"
-        elif shutil.which("mtp-getfile"):
-            choice = "linux-mtp-tools"
         else:
             raise SystemExit(
-                "no MTP host adapter detected; pass --backend local with --root for the "
-                "simulated test, or install mtp-tools / provide --gvfs-root"
+                "no supported MTP host adapter detected; on Linux pass "
+                "--backend linux-gvfs --gvfs-root <mounted MTP path>, on Windows "
+                "use --backend windows-wpd, or pass --backend local --root DIR for "
+                "the simulated run. The linux-mtp-tools adapter is disabled: "
+                + LinuxMtpToolsBackend.DISABLED_REASON
             )
 
     if choice == "local":
@@ -362,7 +326,7 @@ def build_backend(args) -> Backend:
         return FilesystemBackend(root, name="linux-gvfs", is_mtp=True)
 
     if choice == "linux-mtp-tools":
-        return LinuxMtpToolsBackend(storage_name=args.mtp_storage, timeout=args.timeout)
+        raise SystemExit(LinuxMtpToolsBackend.DISABLED_REASON)
 
     if choice == "windows-wpd":
         return WindowsWpdBackend(device=args.mtp_device, storage=args.mtp_storage, timeout=args.timeout)

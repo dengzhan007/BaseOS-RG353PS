@@ -10,14 +10,21 @@ set -eu
 STORAGE=/mnt/SDCARD
 RUN_ID=
 CONFIRM=no
+ALLOW_NONSTD=no
+# Same pin as mtp-prepare.sh: only the user-data partition may be touched, so a
+# mistyped --storage cannot delete anything under / or /mnt/boot.
+ALLOWED_STORAGE=/mnt/SDCARD
 
 usage() {
     cat <<'EOF'
 usage: mtp-cleanup.sh --run-id ID [--storage DIR] --confirm
+                      [--allow-nonstandard-storage]
 
   --run-id ID    run identifier of the tree to delete
-  --storage DIR  MTP storage root (default /mnt/SDCARD)
+  --storage DIR  MTP storage root (default /mnt/SDCARD, the only allowed value)
   --confirm      required; without it the script only reports what it would do
+  --allow-nonstandard-storage
+                 permit a --storage other than /mnt/SDCARD (deliberate tests only)
 
 Only <storage>/baseos-mtp-test-<ID> is ever removed, and only when its marker
 proves the directory was created by this tool with the same run id.
@@ -29,6 +36,7 @@ while [ $# -gt 0 ]; do
         --storage) STORAGE=$2; shift 2 ;;
         --run-id) RUN_ID=$2; shift 2 ;;
         --confirm) CONFIRM=yes; shift ;;
+        --allow-nonstandard-storage) ALLOW_NONSTD=yes; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -38,6 +46,16 @@ die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 [ -n "$RUN_ID" ] || { usage >&2; die "--run-id is required"; }
 [ -d "$STORAGE" ] || die "storage root does not exist: $STORAGE"
+case $STORAGE in
+    *..*) die "refusing a storage path containing '..': $STORAGE" ;;
+esac
+STORAGE=$(cd "$STORAGE" 2>/dev/null && pwd -P) || die "cannot resolve storage root: $STORAGE"
+[ -n "$STORAGE" ] || die "cannot resolve storage root"
+[ "$STORAGE" != / ] || die "refusing to use / as the test root"
+if [ "$ALLOW_NONSTD" != yes ] && [ "$STORAGE" != "$ALLOWED_STORAGE" ]; then
+    die "refusing to use '$STORAGE' as the test root; only $ALLOWED_STORAGE
+(the user-data partition) is allowed. Pass --allow-nonstandard-storage to override."
+fi
 printf '%s' "$RUN_ID" | grep -Eq '^[0-9]{8}-[0-9]{6}-[0-9a-f]{6}$' \
     || die "invalid run id '$RUN_ID'"
 

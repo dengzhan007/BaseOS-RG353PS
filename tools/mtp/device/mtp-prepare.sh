@@ -13,16 +13,24 @@ STORAGE=/mnt/SDCARD
 RUN_ID=
 PROFILE=full
 FORCE=no
+ALLOW_NONSTD=no
+# The only writable user-data mount on the RG353PS: / is a read-only rootfs and
+# /mnt/boot holds the boot partition. Writing a 128 MiB test tree anywhere else
+# is a mistake, so the root is pinned unless explicitly overridden.
+ALLOWED_STORAGE=/mnt/SDCARD
 
 usage() {
     cat <<'EOF'
 usage: mtp-prepare.sh [--storage DIR] [--run-id ID] [--profile full|fast] [--force]
+                      [--allow-nonstandard-storage]
 
-  --storage DIR    MTP storage root (default /mnt/SDCARD)
+  --storage DIR    MTP storage root (default /mnt/SDCARD, the only allowed value)
   --run-id ID      run identifier, YYYYMMDD-HHMMSS-aaaaaa (default: generated)
   --profile full   full payload sizes (default)
   --profile fast   shrunken payloads, same layout (for quick smoke runs)
   --force          replace an existing tree, but only if its marker matches
+  --allow-nonstandard-storage
+                   permit a --storage other than /mnt/SDCARD (deliberate tests only)
 
 Refuses to overwrite a directory it did not create.
 EOF
@@ -34,6 +42,7 @@ while [ $# -gt 0 ]; do
         --run-id) RUN_ID=$2; shift 2 ;;
         --profile) PROFILE=$2; shift 2 ;;
         --force) FORCE=yes; shift ;;
+        --allow-nonstandard-storage) ALLOW_NONSTD=yes; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "unknown argument: $1" >&2; usage >&2; exit 2 ;;
     esac
@@ -43,6 +52,16 @@ say() { printf '%s\n' "$*"; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 [ -d "$STORAGE" ] || die "storage root does not exist: $STORAGE"
+case $STORAGE in
+    *..*) die "refusing a storage path containing '..': $STORAGE" ;;
+esac
+STORAGE=$(cd "$STORAGE" 2>/dev/null && pwd -P) || die "cannot resolve storage root: $STORAGE"
+[ -n "$STORAGE" ] || die "cannot resolve storage root"
+[ "$STORAGE" != / ] || die "refusing to use / as the test root"
+if [ "$ALLOW_NONSTD" != yes ] && [ "$STORAGE" != "$ALLOWED_STORAGE" ]; then
+    die "refusing to use '$STORAGE' as the test root; only $ALLOWED_STORAGE
+(the user-data partition) is allowed. Pass --allow-nonstandard-storage to override."
+fi
 case $PROFILE in full|fast) ;; *) die "unknown profile: $PROFILE" ;; esac
 
 if [ -z "$RUN_ID" ]; then

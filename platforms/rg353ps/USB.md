@@ -1,14 +1,3 @@
-- **Status:** the local script suite (16 cases) and the simulated-MTP full
-  dataset (31 checks) pass. On real hardware over Windows WPD with kernel
-  `7.2.7-baseos-rg353ps`, both dataset profiles completed **25 pass / 0 fail /
-  5 skip** (`fast` in 68 s, `full` in 99 s): device to host, host to device
-  (verified with the device's own SHA-256), nested mkdir and a unicode/spaced
-  file create. The `full` run moved `large-128m.bin` (134217728 bytes) in both
-  directions with matching digests. The five skips are
-  WPD platform limits — `overwrite`, `rename` and `delete` each make the Windows
-  Shell raise a modal confirmation that no `CopyHere` flag suppresses — and are
-  reported as SKIP, never as PASS. The Mass Storage hand-off is still open, and
-  MTP-only / long-running stability remain separate acceptance items.
 # RG353PS USB architecture
 
 ## Goals
@@ -82,35 +71,73 @@ from a successful enumeration.
 - **Tool location:** `tools/mtp/` (see `tools/mtp/README.md`). The harness is a
   test tool: it is not installed into the rootfs and never runs at boot.
 - **Host requirements:** Python 3.8+ and one MTP adapter — Windows WPD
-  (`hosts/wpd.ps1`), Linux `mtp-tools`, or a gvfs MTP mount. No drive letter is
-  assumed.
+  (`hosts/wpd.ps1`) or a gvfs MTP mount on Linux. No drive letter is assumed.
+  The `linux-mtp-tools` adapter is disabled: libmtp addresses objects by numeric
+  IDs, so a path-based adapter cannot be implemented reliably.
 - **Handheld requirements:** the normal profile with `usb_mtp=yes`, storage root
-  `/mnt/SDCARD`, BusyBox `sh`, `dd`, `wc`, `sha256sum` and `od`.
+  `/mnt/SDCARD` (the only writable user-data mount; `/` is a read-only rootfs and
+  `/mnt/boot` is the boot partition, and both scripts refuse anything else), and
+  BusyBox with `sh`, `printf`, `[`, `date`, `od`, `tr`, `grep`, `cut`, `head`,
+  `wc`, `dd`, `mkdir`, `dirname`, `sha256sum`, `rm`, `mv`, `sync`, `cat` and
+  `pwd`. All of these were checked on the RG353PS (BusyBox v1.37.0), together
+  with `pwd -P`, `readlink -f`, `test -L`, `grep -Eq` and `sha256sum < file`.
 - **Prepare the data:** copy `tools/mtp/device/mtp-prepare.sh` to the device and
   run it with `--storage /mnt/SDCARD`; it prints the `run_id` and creates one
   marked directory holding a 4 KiB file, a 1 MiB file, a 128 MiB file, a
   non-ASCII name, a name with spaces, a unicode+space nested path and a plain
   nested file, plus a JSON manifest of sizes and digests.
-- **Automated check:** `python3 tools/mtp/mtp_integrity.py run --backend auto
-  --run-id <id> --dataset-profile full --out <dir>` performs device→host,
-  host→device→host and create/mkdir/overwrite/rename/delete checks. Adding
-  `--device-ssh "ssh root@192.168.42.1"` records the handheld environment in the
-  report; without it the device side is reported as unidentified, not guessed.
+- **Automated check:** after the dataset exists, pass that `run_id` with
+  `--skip-prepare` and point `--device-ssh` at the handheld:
+
+  ```sh
+  # Under Git Bash on Windows, prefix with MSYS_NO_PATHCONV=1 so /mnt/SDCARD is
+  # not rewritten into a C:/... path.
+  python3 tools/mtp/mtp_integrity.py run --backend auto \
+      --run-id <id> --dataset-profile full --skip-prepare \
+      --device-ssh "ssh root@192.168.42.1" --device-storage-root /mnt/SDCARD \
+      --out <dir>
+  ```
+
+  This performs device→host verification against the device manifest,
+  host→device upload with verification, and the create/mkdir checks the adapter
+  can express. `--device-ssh` also records the handheld environment; without it
+  the device side is reported as unidentified, not guessed.
 - **Reports:** `report.json` and `report.md` in the `--out` directory, with per
   file direction, size, digest comparison, operation results, failure reasons
   and totals. Reports stay outside the repository.
 - **Cleanup:** a separate step,
   `device/mtp-cleanup.sh --run-id <id> --confirm` on the device, which validates
-  the marker, the run id and the resolved path first.
+  the marker, the run id and the resolved path first. The host `cleanup`
+  subcommand refuses to run on WPD (its delete would raise a modal dialog) and
+  prints this command instead.
 - **Safety boundary:** only `<storage>/baseos-mtp-test-<run_id>` is created or
   removed. Manifest paths are normalised and containment-checked, symlinks are
   refused, a directory without this tool's marker is never replaced or deleted,
-  and the tool never touches block devices, mounts, the UDC, configfs or the USB
-  gadget state.
-- **Status:** the local script suite and the simulated-MTP run pass. **Real
-  hardware acceptance over MTP has not been executed yet**, so no device-level
-  result is claimed here; SKIP entries (for example `rename` through WPD) are
-  reported separately and never counted as PASS.
+  a delete is never attempted through an adapter that reports no delete
+  capability, and the tool never touches block devices, mounts, the UDC,
+  configfs or the USB gadget state.
+- **CI:** `.github/workflows/rg353ps-mtp-integrity.yml` runs the local suite,
+  the device-script syntax checks and a simulated full-dataset run on every pull
+  request touching `tools/mtp/**`. CI has no attached device, so it never claims
+  hardware acceptance.
+- **Status — local and simulated:** the script suite passes all 35 cases
+  (including the new symlink-escape, forged-marker, delete-capability and
+  device-storage-root guards), and the simulated `full` dataset reports 31
+  checks with 0 failures. A simulated run sets `mtp: false` in its report, so it
+  is never mistaken for a device result.
+- **Status — real hardware, executed (Windows WPD, kernel
+  `7.2.7-baseos-rg353ps`):** both dataset profiles finished **25 pass / 0 fail /
+  5 skip** (`fast` in 68 s, `full` in 99 s). Device→host transferred every file
+  over MTP and compared size + SHA-256 against the device manifest, including
+  `large-128m.bin` (134217728 bytes), a Chinese name, a name with spaces and a
+  three-level unicode/spaced path. Host→device uploaded seven files over MTP and
+  then computed their SHA-256 **on the device over SSH** (`push-device-hash`);
+  that is not a post-upload MTP read-back, because reading back a just-written
+  object makes the Windows Shell raise a modal prompt. The 5 SKIPs are
+  `overwrite-file`, `rename-file`, `rename-dir`, `delete-file` and `delete-dir`:
+  each Shell verb prompts and cannot be suppressed, so those are reported as
+  SKIP and never as PASS. **Not yet covered:** the Mass Storage hand-off,
+  MTP-only sessions and long-running stability.
 
 ## Mass Storage hand-off
 
@@ -224,12 +251,15 @@ Do not copy the DWC3 diagnostic injector into the clean release build.
 ### Remaining hardware validation
 
 The reconnect matrix confirms enumeration recovery and host detection of
-RNDIS/DHCP/MTP. It does not establish:
-- byte-for-byte integrity of large MTP transfers in both directions;
-- Chinese names, spaces, deep paths, create, rename and delete over MTP;
+RNDIS/DHCP/MTP. The MTP integrity harness has since covered byte-for-byte
+integrity of large transfers in both directions (including 128 MiB), Chinese
+names, spaces and deep paths, and file/directory creation. It does not establish:
+
+- MTP `rename`, `overwrite` and `delete` on hardware: all three are SKIP under
+  Windows WPD (modal Shell prompts) and were not re-run through a gvfs mount;
 - MTP-only release-profile enumeration on hardware;
 - long-duration unexpected-unplug stress;
 - complete Mass Storage enter/exit hardware regression.
 
-Keep these as separate release checklist items. The 39-cycle reconnect
-result is not a full USB feature certification.
+Keep these as separate release checklist items. The 39-cycle reconnect result and
+the MTP integrity runs are not a full USB feature certification.

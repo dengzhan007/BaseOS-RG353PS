@@ -224,20 +224,16 @@ try {
             Write-Result @{ ok = $true; created = $true; name = $parts.Name }
         }
         'delete' {
-            $parts = Split-PathParts $relPath
-            if (-not $parts.Name) { throw 'delete requires a path' }
-            $folder = Get-FolderFromPath (Get-StorageFolder) $parts.Dir
-            $item = $folder.Items() | Where-Object { $_.Name -eq $parts.Name } | Select-Object -First 1
-            if (-not $item) { Write-Result @{ ok = $true; deleted = $false; reason = 'not present' } }
-            $item.InvokeVerb('delete')
-            $gone = Wait-ForCondition {
-                $probe = $folder.Items() | Where-Object { $_.Name -eq $parts.Name } | Select-Object -First 1
-                return (-not $probe)
-            } $timeoutSeconds
-            if (-not $gone) {
-                throw "delete verb did not remove '$($parts.Name)' within $timeoutSeconds s"
-            }
-            Write-Result @{ ok = $true; deleted = $true; name = $parts.Name }
+            # Refused on purpose. Shell's delete verb always pops a "confirm
+            # deletion" dialog on an MTP target and no flag suppresses it, so the
+            # call would block until a human clicked. Cleanup happens on the
+            # device instead (device/mtp-cleanup.sh --run-id <id> --confirm).
+            throw 'delete is not performed over WPD: the Shell delete verb raises a modal confirmation dialog. Run device/mtp-cleanup.sh --run-id <id> --confirm on the device.'
+        }
+        'rename' {
+            # Same reason: renaming through the Shell namespace prompts and there
+            # is no reliable scriptable verb for an MTP object.
+            throw 'rename is not performed over WPD: there is no scriptable rename verb for an MTP object. Use --backend linux-gvfs or rename on the device.'
         }
         default {
             throw "unknown action '$action'"

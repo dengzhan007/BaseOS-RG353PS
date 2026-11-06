@@ -18,7 +18,8 @@ Backends
 --------
 local          simulated storage root (automated tests)
 linux-gvfs     gvfs/libmtp FUSE mount of the device
-linux-mtp-tools libmtp command-line tools
+linux-mtp-tools disabled: libmtp addresses objects by numeric ID, so a
+               path-based adapter cannot be implemented reliably
 windows-wpd    Windows Portable Devices via hosts/wpd.ps1
 
 Only /mnt/SDCARD's tool-owned subdirectory is ever touched. The tool never
@@ -45,6 +46,12 @@ import mtp_common as common
 from mtp_backends import BackendError, build_backend
 
 PASS, FAIL, SKIP = "PASS", "FAIL", "SKIP"
+
+#: Device storage root the handheld exposes over MTP. Anything else is refused
+#: unless the operator passes --allow-nonstandard-device-root, so a typo cannot
+#: point the comparison at /boot or the read-only root filesystem.
+DEVICE_STORAGE_ROOT_DEFAULT = "/mnt/SDCARD"
+ALLOWED_DEVICE_STORAGE_ROOTS = (DEVICE_STORAGE_ROOT_DEFAULT,)
 
 
 class Checks:
@@ -203,6 +210,61 @@ def ensure_dirs(backend, rel_dir: str) -> None:
         current = target
 
 
+def cleanup_hint(run_id: str, *, command: str = "delete") -> str:
+    """Explain how to remove the tree when the host adapter cannot delete.
+
+    Windows WPD has no scriptable delete that avoids a modal confirmation, so
+    the run must never attempt one. Cleanup stays possible, it just happens on
+    the device.
+    """
+    return (
+        f"{command} is not available over this host adapter (it would raise a modal "
+        "confirmation dialog). Remove the tree on the device instead:\n"
+        f"  sh tools/mtp/device/mtp-cleanup.sh --run-id {run_id} --confirm\n"
+        f"  ssh root@192.168.42.1 'sh /tmp/mtp-cleanup.sh --run-id {run_id} --confirm'"
+    )
+
+
+def validate_device_storage_root(args) -> str:
+    """Return the device storage root, refusing anything but the user partition.
+
+    ``/mnt/SDCARD`` is the only writable user-data mount on the RG353PS; ``/`` is
+    a read-only rootfs and ``/mnt/boot`` holds the boot partition. A typo in
+    ``--device-storage-root`` would otherwise hash the wrong filesystem, so the
+    value is pinned unless the operator explicitly overrides it.
+    """
+    raw = getattr(args, "device_storage_root", None) or DEVICE_STORAGE_ROOT_DEFAULT
+    if not isinstance(raw, str) or not raw.strip():
+        raise SystemExit("--device-storage-root must be a non-empty absolute path")
+    # Check the raw value first: a trailing newline or shell metacharacter is a
+    # bug in the caller, not something to be silently trimmed.
+    if any(token in raw for token in ("\x00", "\n", "\r", ";", "`", "$", "..")):
+        raise SystemExit(f"--device-storage-root contains a forbidden sequence: {raw!r}")
+    candidate = raw.strip()
+    if not candidate.startswith("/"):
+        raise SystemExit(
+            f"--device-storage-root must be absolute, got {raw!r}. "
+            "On Windows under Git Bash, MSYS rewrites /mnt/... arguments into "
+            "C:/... paths; prefix the command with MSYS_NO_PATHCONV=1."
+        )
+    normalised = "/" + "/".join(part for part in candidate.split("/") if part not in ("", "."))
+    if getattr(args, "allow_nonstandard_device_root", False):
+        return normalised
+    if normalised not in ALLOWED_DEVICE_STORAGE_ROOTS:
+        raise SystemExit(
+            f"refusing --device-storage-root {normalised}: only {DEVICE_STORAGE_ROOT_DEFAULT} "
+            "(the user data partition) is allowed. Pass --allow-nonstandard-device-root "
+            "to test a different mount deliberately."
+        )
+    return normalised
+
+
+def device_subdir(args, rel_dir: str) -> str:
+    """Absolute on-device path of a tool-owned relative directory."""
+    root = validate_device_storage_root(args)
+    return f"{root.rstrip('/')}/{rel_dir.lstrip('/')}"
+
+
 def ssh_device_digests(args, device_dir: str):
     """Hash every file under ``device_dir`` on the handheld itself.
 
@@ -270,6 +332,13 @@ def cmd_prepare(args, backend, checks: Checks) -> int:
         if marker.get("run_id") != run_id:
             checks.failed("prepare:existing-dir",
                           f"marker run id {marker.get('run_id')} does not match {run_id}")
+            return 1
+        # Replacing the tree needs a delete. Never ask an adapter to delete when
+        # it cannot do so without a modal prompt: fail with instructions instead.
+        if not backend.capabilities.get("delete"):
+            checks.failed("prepare:existing-dir",
+                          f"{test_dir} exists and cannot be replaced here. "
+                          + cleanup_hint(run_id, command="replacing the existing tree"))
             return 1
         backend.delete(test_dir, recursive=True)
         checks.passed("prepare:existing-dir", f"replaced previous tool tree {test_dir} after marker check")
@@ -392,7 +461,7 @@ def cmd_push(args, backend, checks: Checks) -> int:
         verify_tree(back, manifest, "push-readback", checks,
                     stage_note="host -> device -> host round trip")
     elif args.device_ssh:
-        device_dir = f"{args.device_storage_root.rstrip('/')}/{upload_dir}"
+        device_dir = device_subdir(args, upload_dir)
         try:
             digests = ssh_device_digests(args, device_dir)
         except BackendError as error:
@@ -476,7 +545,7 @@ def cmd_ops(args, backend, checks: Checks) -> int:
             actual = common.sha256_file(readback)
             note = "created and read back intact"
         elif args.device_ssh:
-            device_dir = f"{args.device_storage_root.rstrip('/')}/{ops_root}"
+            device_dir = device_subdir(args, ops_root)
             digests = ssh_device_digests(args, device_dir)
             actual = digests.get("ops-a.bin", "")
             note = "created; verified with the device's own SHA-256 (not an MTP read-back)"
@@ -732,6 +801,13 @@ def cmd_cleanup(args, backend, checks: Checks) -> int:
     if not args.confirm_cleanup:
         checks.failed("cleanup:confirm", "cleanup requires --confirm-cleanup")
         return 1
+    # Refuse before touching anything: Windows WPD's delete goes through a Shell
+    # verb that pops a confirmation dialog no CopyHere flag suppresses, so the
+    # run would block on a human click. Cleanup stays available on the device.
+    if not backend.capabilities.get("delete"):
+        checks.failed("cleanup:delete",
+                      f"{backend.name} cannot delete over MTP. " + cleanup_hint(run_id))
+        return 1
     work = tempfile.mkdtemp(prefix="mtp-clean-")
     marker_local = os.path.join(work, common.MARKER_NAME)
     try:
@@ -785,8 +861,13 @@ def main(argv=None) -> int:
                         help="second confirmation required together with --force")
     parser.add_argument("--confirm-cleanup", action="store_true",
                         help="required for cleanup: delete the test tree")
-    parser.add_argument("--device-storage-root", default="/mnt/SDCARD",
-                        help="MTP storage root path on the handheld (used with --device-ssh)")
+    parser.add_argument("--device-storage-root", default=DEVICE_STORAGE_ROOT_DEFAULT,
+                        help=f"MTP storage root path on the handheld (default "
+                             f"{DEVICE_STORAGE_ROOT_DEFAULT}, the only allowed value "
+                             "unless --allow-nonstandard-device-root is given)")
+    parser.add_argument("--allow-nonstandard-device-root", action="store_true",
+                        help="permit a --device-storage-root other than /mnt/SDCARD; "
+                             "only for deliberately testing another mount")
     parser.add_argument("--skip-prepare", action="store_true",
                         help="dataset already exists on the device (mtp-prepare.sh was run); "
                              "go straight to pull/push/ops")
@@ -803,6 +884,10 @@ def main(argv=None) -> int:
 
     if args.command in ("pull", "push", "ops", "cleanup") and not args.run_id:
         parser.error(f"{args.command} requires --run-id")
+
+    # Pinned early: a mistyped device root must fail before anything is read or
+    # written, not halfway through a transfer.
+    validate_device_storage_root(args)
 
     backend = build_backend(args)
     checks = Checks(args.command)

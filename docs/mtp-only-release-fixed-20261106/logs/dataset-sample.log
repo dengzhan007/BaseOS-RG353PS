@@ -1,0 +1,6 @@
+
+=== sh /root/work/rg353ps-mtp-only-fixed/wt/work/rg353ps-mtp-only-fixed/rootfs/usr/sbin/mtp-test-prepare.sh --storage /root/work/rg353ps-mtp-only-fixed/wt/work/rg353ps-mtp-only-fixed/dataset-manifest-sample --run-id 20261106-131355-4a3405 --profile full --allow-nonstandard-storage ===
+run_id=20261106-131355-4a3405
+test_dir=/root/work/rg353ps-mtp-only-fixed/wt/work/rg353ps-mtp-only-fixed/dataset-manifest-sample/baseos-mtp-test-20261106-131355-4a3405
+manifest=/root/work/rg353ps-mtp-only-fixed/wt/work/rg353ps-mtp-only-fixed/dataset-manifest-sample/baseos-mtp-test-20261106-131355-4a3405/baseos-mtp-test-manifest.json
+files=7

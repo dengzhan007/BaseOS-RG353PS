@@ -11,9 +11,10 @@
 | `RESULT-PCA-20round.md` | PC-A 两次 20 轮（run1/run2）单独分析 |
 | `HANDOVER-PC-B.md` | PC-B 测试交接（含"反序以分离线材/顺序"与上限设置） |
 | `SHA256SUMS` | 本目录文件校验和 |
-| `raw/` | PC-A 原始采集日志（见下） |
+| `raw/` | PC-A 原始采集日志 |
+| `raw/pcb-run/` | PC-B 原始采集日志（8 个文件） |
 
-## raw/ 说明
+## raw/（PC-A）
 
 - `pc-a-run1-usb-reconnect-diag.log`：PC-A 首次 20 轮诊断日志（上限 20000，第 7 轮 WARN 风暴后被截断）
 - `pc-a-run1-baseos-usb-debug.log`：对应 Supervisor 日志
@@ -21,13 +22,20 @@
 - `pc-a-run2-usb-reconnect-diag.log`：PC-A 重跑 20 轮诊断日志（上限 500000，完整未截断，**权威集**）
 - `pc-a-run2-baseos-usb-debug.log`：对应 Supervisor 日志
 - `pc-a-run2-host-monitor.log`：对应主机侧监控
-- `system-snapshot-pc-a.txt`：PC-A 结束时系统快照（release/uname/UDC/extcon/interrupts）
+- `system-snapshot-pc-a.txt`：PC-A 结束时系统快照
 - `host-monitor.ps1`：主机侧监控脚本
 
-## 未包含
+## raw/pcb-run/（PC-B，8 个文件）
 
-- **PC-B 原始日志未随本目录上传**（RESULT 中所称 `pcb-run/` 8 个文件保存在 PC-B 本机；本次仅上传 PC-B 的逐轮汇总数据，已并入 `cycles.csv` 第 21–40 行）。
-- PC-B 诊断/主机监控原始日志如需归档，可后续从 PC-B 补传至 `raw/pc-b-*`。
+- `usb-reconnect-diag-PCB-L3.log` / `usb-reconnect-diag-PCB-L1.log`：线3、线1 诊断日志（均未截断、无 WARN）
+- `baseos-usb-debug-PCB-L3.log` / `baseos-usb-debug-PCB-L1.log`：对应 Supervisor 日志
+- `usb-monitor-PCB-L3.log` / `usb-monitor-PCB-L1.log`：主机侧 RNDIS/DHCP/MTP 监控
+- `system-snapshot-PCB-L3.txt` / `system-snapshot-PCB-L1.txt`：系统快照
+
+> **重要：PC-B 的 Supervisor 日志是同一份 `/run/baseos-usb-debug.log` 在不同时刻的快照。**
+> - `PCB-L3` 快照含线3 十轮（round 21–30）+ 05:51 断电事件，止于 05:55。
+> - `PCB-L1` 快照还包含线3 段与 06:01 的一次**测试前试插**，再加线1 十轮（round 31–40）。
+> - 因此 **`grep -c "launching asynchronous recovery"` 在 L1 上会得到 3**（试插 1 + 正式 round 34、37 各 1），**不等于 10 轮的 2 次**。以 `cycles.csv` 中按 `round` 记录的 10 轮为准（线1 = 2/10）。
 
 ## 关键结论（详见 RESULT-40round.md）
 

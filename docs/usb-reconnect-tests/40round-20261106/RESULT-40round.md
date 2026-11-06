@@ -87,7 +87,10 @@ PC-A run1 唯一一次爆发同时伴随 DHCP 失败（APIPA），PC-A run2 与 
 
 ## 7. 文件清单
 
-`cycles.csv`（40 行）、`RESULT-PCA-20round.md`、`RESULT-PCB-20round.md`、`HANDOVER-PC-B.md`，
-以及 `pcb-run/` 下 8 个原始文件（两组诊断日志、Supervisor 日志、主机监控、系统快照）。
+- `RESULT-40round.md`（本文件）、`cycles.csv`（40 行）、`RESULT-PCA-20round.md`、`HANDOVER-PC-B.md`、`README.md`
+- `raw/`：PC-A 原始日志（run1/run2 诊断、Supervisor、主机监控、系统快照）
+- `raw/pcb-run/`：PC-B 原始日志 8 个（线1/线3 诊断、Supervisor、主机监控、系统快照）
 
 校验：`SHA256SUMS`。
+
+> 注意：PC-B 的 Supervisor 日志是 `/run/baseos-usb-debug.log` 的不同时刻快照——L1 快照同时含线3 段与 06:01 的一次测试前试插，故 `grep -c "launching asynchronous recovery"` 在 L1 上为 3（试插 1 + 正式 round 34、37），**不等于 10 轮的 2 次**。re-probe 计数以 `cycles.csv` 的按轮记录为准（PCB 线1 = 2/10）。

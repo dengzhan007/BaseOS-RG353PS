@@ -1,0 +1,10 @@
+BASEOS_TARGET=rg353ps
+BASEOS_VERSION=1.2.4
+BASEOS_BUILD=aa3536b-dirty-20261106013813
+# fbsplash reads this; the RG353PS panel is mounted upright.
+BASEOS_PANEL_ROTATION_CCW=0
+Linux BaseOS-RG353PS 7.2.7-baseos-rg353ps #1 SMP PREEMPT Fri Nov  6 00:59:16 UTC 2026 aarch64 Linux
+configured
+  20:         54          0          0          0  GICv3              167 Level     rockchip_usb2phy
+  21:          0          0          0          0  GICv3              168 Level     rockchip_usb2phy
+  31:      24599          0          0          0  GICv3              201 Level     dwc3

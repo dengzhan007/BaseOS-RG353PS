@@ -1,0 +1,150 @@
+{
+    "tool":  "rg353ps-mass-storage-stability-offline-tests",
+    "executed_utc":  "2026-11-06T15:53:13Z",
+    "hardware_contacted":  false,
+    "cases":  28,
+    "pass":  28,
+    "fail":  0,
+    "results":  [
+                    {
+                        "name":  "fingerprint is stable for the same mapping",
+                        "pass":  true,
+                        "detail":  "mapping_ok=True; changes=0"
+                    },
+                    {
+                        "name":  "disk index change is detected",
+                        "pass":  true,
+                        "detail":  "changes=disk_device_id,disk_index"
+                    },
+                    {
+                        "name":  "volume GUID change is detected",
+                        "pass":  true,
+                        "detail":  "changes=volume_device_id"
+                    },
+                    {
+                        "name":  "mapping path change (superfloppy -\u003e partitioned) is detected",
+                        "pass":  true,
+                        "detail":  "path=partitioned; changes=path,disk_index"
+                    },
+                    {
+                        "name":  "drive letter change is detected",
+                        "pass":  true,
+                        "detail":  "changes=drive_letter"
+                    },
+                    {
+                        "name":  "resolver reasons map to anomaly kinds",
+                        "pass":  true,
+                        "detail":  "mismatches=0"
+                    },
+                    {
+                        "name":  "presence: volume, dataset and file found",
+                        "pass":  true,
+                        "detail":  "size=4096"
+                    },
+                    {
+                        "name":  "presence: missing file reported, size null",
+                        "pass":  true,
+                        "detail":  "present=False"
+                    },
+                    {
+                        "name":  "presence: missing dataset reported",
+                        "pass":  true,
+                        "detail":  "dataset=False"
+                    },
+                    {
+                        "name":  "presence: missing volume reported",
+                        "pass":  true,
+                        "detail":  "volume=False"
+                    },
+                    {
+                        "name":  "hash check matches size and SHA-256",
+                        "pass":  true,
+                        "detail":  "sha=ad7facb2"
+                    },
+                    {
+                        "name":  "hash mismatch fails with a reason",
+                        "pass":  true,
+                        "detail":  "error=SHA-256 mismatch"
+                    },
+                    {
+                        "name":  "size mismatch fails with a reason",
+                        "pass":  true,
+                        "detail":  "error=size mismatch"
+                    },
+                    {
+                        "name":  "unreadable file fails without throwing",
+                        "pass":  true,
+                        "detail":  "error=找不到路径“C:\\Users\\zhan\\AppData\\Local\\Temp\\rg353ps-stability-test-eaffb75d59d34bb7a3dffe95a4a7b05d\\baseos-mtp-test-20261106-131355-4a3405\\missing.bin”，因为该路径不存在。"
+                    },
+                    {
+                        "name":  "sample ok on a stable, uniquely mapped volume",
+                        "pass":  true,
+                        "detail":  "ok=True"
+                    },
+                    {
+                        "name":  "sample stops on mapping drift",
+                        "pass":  true,
+                        "detail":  "kind=mapping_changed"
+                    },
+                    {
+                        "name":  "sample reports device_absent when PID_0006 is gone",
+                        "pass":  true,
+                        "detail":  "kind=device_absent"
+                    },
+                    {
+                        "name":  "sample reports device_duplicated for two roots",
+                        "pass":  true,
+                        "detail":  "kind=device_duplicated"
+                    },
+                    {
+                        "name":  "sample reports filesystem_raw before touching the volume",
+                        "pass":  true,
+                        "detail":  "kind=filesystem_raw"
+                    },
+                    {
+                        "name":  "sample reports dataset_missing when the folder disappears",
+                        "pass":  true,
+                        "detail":  "kind=dataset_missing"
+                    },
+                    {
+                        "name":  "sample reports file_missing when the test file disappears",
+                        "pass":  true,
+                        "detail":  "kind=file_missing"
+                    },
+                    {
+                        "name":  "PASS report is valid JSON with summary and baseline",
+                        "pass":  true,
+                        "detail":  "tool=rg353ps-mass-storage-stability-readonly"
+                    },
+                    {
+                        "name":  "PASS report markdown states PASS and read-only scope",
+                        "pass":  true,
+                        "detail":  "md checked"
+                    },
+                    {
+                        "name":  "FAIL report keeps the anomaly and abort flag",
+                        "pass":  true,
+                        "detail":  "aborted=True"
+                    },
+                    {
+                        "name":  "FAIL report markdown lists the anomaly",
+                        "pass":  true,
+                        "detail":  "md checked"
+                    },
+                    {
+                        "name":  "no mutating storage cmdlets in the script",
+                        "pass":  true,
+                        "detail":  "hits="
+                    },
+                    {
+                        "name":  "reuses Rg353psDeviceMap.ps1 strict mapping",
+                        "pass":  true,
+                        "detail":  "module + resolver + IOCTL map referenced"
+                    },
+                    {
+                        "name":  "defaults are 30 min / 10 s / 5 min",
+                        "pass":  true,
+                        "detail":  "param defaults checked"
+                    }
+                ]
+}

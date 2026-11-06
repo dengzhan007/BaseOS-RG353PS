@@ -32,6 +32,13 @@ manual operator action; this directory contains no device-side logic.
   roots, a live WPD node (`PNPClass=WPD`, `Service=WUDFWpdMtp`) plus a live
   `RG353PS` Shell item, and zero `VID_2207` network adapters. Raw evidence:
   `exit-recovery-host-report.json` / `.md`. No file-transfer retest was run.
+- **30-minute stability run: PASS.** The device re-entered Mass Storage mode and
+  stayed in it for the whole run: 166/166 polls (1803 s, one every 10 s) with
+  zero anomalies, an unchanged identity fingerprint (`superfloppy` ->
+  `\\.\PHYSICALDRIVE3` -> `Volume{4508079a-...}` -> `G:` exFAT
+  `BASEOS_DATA`), and 7/7 SHA-256 checks of `large-128m.bin`
+  (134,217,728 bytes) matching the device manifest. Raw evidence:
+  `mass-storage-stability-report.json` / `.md`.
 
 ## Files
 
@@ -39,11 +46,15 @@ manual operator action; this directory contains no device-side logic.
 | --- | --- |
 | `check-rg353ps-mass-storage.ps1` | Windows host, read-only verification |
 | `check-rg353ps-exit-recovery.ps1` | Windows host, read-only exit-recovery verification |
+| `check-rg353ps-mass-storage-stability.ps1` | Windows host, read-only 30-minute stability monitor |
 | `Rg353psDeviceMap.ps1` | Injectable pure resolver + read-only IOCTL helper |
 | `test-rg353ps-mass-storage-device-map.ps1` | Offline tests for the resolver |
+| `test-rg353ps-mass-storage-stability.ps1` | Offline tests for the stability monitor |
 | `offline-test-results.json` | Raw offline test results |
+| `stability-offline-test-results.json` | Raw offline test results for the stability monitor |
 | `mass-storage-host-report.json` / `.md` | Produced by the real-hardware host check |
 | `exit-recovery-host-report.json` / `.md` | Produced by the exit-recovery host check |
+| `mass-storage-stability-report.json` / `.md` | Produced by the 30-minute stability run |
 
 ## Strict device identity (no fallback scanning)
 
@@ -132,6 +143,34 @@ missing or unresolved IOCTL data, missing drive letter, duplicate volume
 metadata and an undeterminable drive index. One case compiles the IOCTL helper
 offline without calling any P/Invoke. Every case asserts that neither the other
 USB disk nor its volume is selected. Results: `offline-test-results.json`.
+
+## Stability run (30 min, read-only)
+
+With the device already in Mass Storage mode and `VID_2207&PID_0006` enumerated:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\check-rg353ps-mass-storage-stability.ps1
+```
+
+Defaults are the acceptance values: 30 minutes, a poll every 10 s and a SHA-256
+check every 5 minutes. The monitor reuses the same strict chain as the host
+check (unique `PID_0006` root -> `USBSTOR` -> the single `PHYSICALDRIVE` ->
+partition chain or `IOCTL_STORAGE_GET_DEVICE_NUMBER` ownership); there is no
+"scan other USB disks" and no "guess by exFAT" path. Each poll re-resolves the
+mapping and compares a fingerprint of `path / disk_device_id / disk_index /
+volume_device_id / drive_letter / filesystem / capacity` against the baseline;
+free space is excluded on purpose because it can change without any identity
+change. The expected SHA-256 comes only from the device manifest - if that is
+unavailable and no `-ExpectedSha256` is supplied, the run refuses to hash rather
+than guess.
+
+The first anomaly stops the run and keeps the raw JSON/MD: a device that
+disappears or duplicates, a vanished volume/dataset/test file, a changed
+mapping, a read error, a RAW volume or a Windows format prompt. Nothing is
+written, formatted, repaired or re-lettered, and the device is never
+deliberately disconnected. Offline coverage (28 cases) is in
+`test-rg353ps-mass-storage-stability.ps1`; results in
+`stability-offline-test-results.json`.
 
 ## Real-hardware re-test command
 

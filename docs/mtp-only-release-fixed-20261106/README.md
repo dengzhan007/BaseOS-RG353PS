@@ -55,8 +55,15 @@ recovery back to MTP also **PASSED**: exactly one `PID_0009` root, zero
 interfaces. Records: `mass-storage/mass-storage-host-report.json` / `.md` and
 `mass-storage/exit-recovery-host-report.json` / `.md`.
 
+A **30-minute read-only stability run also PASSED** on the same device: 166/166
+polls over 1803 s with zero anomalies, the identity fingerprint never changed
+(`superfloppy`, `\\.\PHYSICALDRIVE3`, `Volume{4508079a-...}`, `G:`, exFAT,
+14,190,346,240 bytes) and all 7 SHA-256 checks of the 128 MiB file matched the
+device manifest. Records: `mass-storage/mass-storage-stability-report.json` /
+`.md`.
+
 Still NOT executed: Mass Storage writes/data mutation, MTP<->MSC mutual
-exclusion under load, long-run stability, Linux gvfs. An MTP-only or read-only
-Mass Storage PASS does not imply those pass. PR #6 stays open, PR #5 and
-`main` are unchanged, no Release was created.
+exclusion under load, Linux gvfs. A read-only Mass Storage PASS does not imply
+those pass. PR #6 stays open, PR #5 and `main` are unchanged, no Release was
+created.
 

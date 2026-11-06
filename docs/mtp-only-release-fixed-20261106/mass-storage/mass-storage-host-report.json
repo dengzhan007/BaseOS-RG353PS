@@ -1,0 +1,70 @@
+{
+    "tool":  "rg353ps-mass-storage-readonly-check",
+    "run_id":  "20261106-131355-4a3405",
+    "started_utc":  "2026-11-06T14:39:55Z",
+    "finished_utc":  "2026-11-06T14:39:57Z",
+    "mode":  "USB Mass Storage (VID_2207\u0026PID_0006)",
+    "read_only":  true,
+    "device_selection":  "strict PnP parent/child + WMI disk/partition/volume mapping",
+    "evidence":  {
+                     "vid2207_devices":  [
+                                             {
+                                                 "Name":  "USB 大容量存储设备",
+                                                 "PNPDeviceID":  "USB\\VID_2207\u0026PID_0006\\6\u00261F2F1CD1\u00260\u00262",
+                                                 "PNPClass":  "USB",
+                                                 "Status":  "OK"
+                                             }
+                                         ],
+                     "topology_source":  "live CIM/PnP",
+                     "mapping":  {
+                                     "ok":  false,
+                                     "reason":  "no partition is associated with the mapped disk",
+                                     "checks":  [
+                                                    "unique_pnp_root",
+                                                    "pnp_children_present",
+                                                    "unique_usb_disk"
+                                                ],
+                                     "disk":  null,
+                                     "volume":  null,
+                                     "all_partitions":  [
+
+                                                        ]
+                                 }
+                 },
+    "checks":  [
+                   {
+                       "name":  "no_format_prompt",
+                       "status":  "PASS",
+                       "detail":  "no Windows format prompt detected (additional guard)"
+                   },
+                   {
+                       "name":  "pid_0006_root_unique",
+                       "status":  "PASS",
+                       "detail":  "unique VID_2207\u0026PID_0006 roots=1"
+                   },
+                   {
+                       "name":  "mtp_pid_0009_absent",
+                       "status":  "PASS",
+                       "detail":  "PID_0009 matches=0"
+                   },
+                   {
+                       "name":  "wpd_mtp_absent",
+                       "status":  "PASS",
+                       "detail":  "WPD RG353PS entries=0"
+                   },
+                   {
+                       "name":  "device_ready",
+                       "status":  "PASS",
+                       "detail":  "unique PID_0006 identity present"
+                   },
+                   {
+                       "name":  "strict_device_mapping",
+                       "status":  "FAIL",
+                       "detail":  "no partition is associated with the mapped disk"
+                   }
+               ],
+    "failures":  [
+                     "strict_device_mapping: no partition is associated with the mapped disk"
+                 ],
+    "pass":  false
+}

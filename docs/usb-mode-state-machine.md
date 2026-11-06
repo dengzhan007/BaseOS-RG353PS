@@ -73,7 +73,7 @@ IDLE -----------------------------> CLAIMED (ACTIVE marker written)
 | Confirmation window expires | treated as NOT released |
 | `mount(8)` returns 0 without a `/proc/mounts` entry | treated as NOT mounted |
 | Partition already mounted from a different device | refused, no write-through |
-| FunctionFS still mounted after `umtpdr` exits | hand-off refused |
+| FunctionFS still mounted after `umtprd` exits | hand-off refused |
 
 ## Test mapping
 

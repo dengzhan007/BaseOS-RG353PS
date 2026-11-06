@@ -98,143 +98,88 @@ The rootfs build pins uMTP-Responder to upstream commit
 userspace, and installs its GPL-3.0 license at
 `/usr/share/licenses/uMTP-Responder/`.
 
-## Reconnect enumeration
+## Reconnect enumeration and hardware validation
 
-### Observed baseline
+### Functional baseline
 
-Measured on commit `ff88dd9` with a known-good replacement cable, using one
-host computer and the same host USB port for ten unplug/replug cycles. All ten
-connections eventually became usable, but four did not enumerate immediately:
+The RG353PS functional source baseline is `main@507004ee`, with
+`usb_reconnect_kernel_revision=bvalid-otg-sm-serialized-v1`. The 2026-11-06
+hardware matrix used this functional candidate with nine additional
+low-frequency DWC3/gadget/UDC `dev_dbg` observation callsites injected by the
+diagnostic branch. Those callsites only record execution; they do not perform
+recovery or change Supervisor policy. The diagnostic image is not the clean
+production artifact.
 
-| After replug | Count | Recovery |
-|---|---:|---|
-| `configured` immediately | 3 | none |
-| `addressed` then `configured` | 2 | normal enumeration |
-| `not attached`, recovered by itself | 1 | under 2 s |
-| `not attached`, needed supervisor re-probe | 4 | 6–9 s |
+### 2-host / 2-cable matrix (39 valid cycles)
 
-After recovery, RNDIS, MTP and DHCP worked in all ten trials. The four delayed
-trials are therefore enumeration delays, not four DHCP-server failures. They
-remain user-visible failures for a host that gives up before the supervisor
-finishes recovery.
+| Host / cable | Valid cycles | Supervisor re-probe | Rate |
+|---|---:|---:|---:|
+| PC-A + cable 1 | 10 | 8 | 80% |
+| PC-A + cable 3 | 10 | 0 | 0% |
+| PC-B + cable 1 | 10 | 2 | 20% |
+| PC-B + cable 3 | 9 | 0 | 0% |
+| **Total** | **39** | **10** | **25.6%** |
 
-This is a single-host, single-port, single-cable baseline. It does not yet
-establish whether the failure is specific to the RG353PS, the host controller,
-the cable, or an interaction between them. Repeat the matrix with a second
-computer and a second known-good cable before changing the normal recovery
-policy.
+PC-B round 30 was invalidated because the host lost power. PC-A run 2 is the
+authoritative 20-cycle set; PC-A run 1 is retained separately because its
+diagnostic log hit the old 20,000-line cap during an intermittent WARN burst.
 
-### One-shot soft-connect result
+All 39 valid cycles recovered within 20 seconds. RNDIS, DHCP and MTP were
+detected successfully in all 39 cycles. No APIPA/DHCP failure or
+`gadget.c:2076` WARN burst occurred in this effective set. Ten cycles used
+Supervisor DWC3 re-probe (Path A); 29 recovered without Supervisor re-probe
+(Path B). Path A took about 9–11 seconds; Path B about 1–5 seconds.
 
-In one of the observed `not attached` failures, the armed one-shot test wrote
-both `disconnect` and `connect` successfully to
-`/sys/class/udc/fcc00000.usb/soft_connect`. Sixteen samples over the following
-eight seconds still reported `state=not attached` and
-`speed=UNKNOWN`. The port recovered only after the supervisor re-probed the
-DWC3 platform driver.
+The old independent baseline was 19/40 (47.5%) Supervisor re-probes. The new
+39-cycle result is 10/39 (25.6%). This is an observational comparison, not a
+controlled code A/B test, so the rate reduction must not be attributed solely
+to workqueue serialization.
 
-The supported conclusion is narrow: toggling the gadget pullup did not recover
-this failure instance. It is not proof that `soft_connect` can never help in
-other states. Keep the one-shot command as a manual diagnostic; do not put it
-into the automatic recovery path:
+### Cable disposition
 
-```sh
-baseos-usb-debug soft-connect-test-arm      # next failed enumeration runs it once
-baseos-usb-debug soft-connect-test-cancel
-```
+Cable 1 had a materially higher re-probe rate than cable 3 on both hosts.
+The user reports cable 1 is much longer. The raw PHY captures also show more
+additional BVALID transitions with cable 1. This supports treating cable 1 as
+a suspect cable with potentially poorer electrical characteristics; it does
+not prove excessive resistance, VBUS drop or signal-impedance non-compliance.
 
-### Kernel recovery investigation
+- Treat cable 1 as a suspect long cable and exclude it from reference testing.
+- Keep cable 3 as the current reference cable.
+- Keep the current Supervisor DWC3 re-probe as the working fallback for
+  `not attached`.
+- Do not change PHY, DWC3, gadget, DHCP or USB state-machine logic merely to
+  accommodate cable 1.
+- A PC-C comparison with cable 1 and a new short USB 2.0 High-Speed data cable
+  is optional supplementary evidence. If run, swap the two adjacent host-port
+  assignments halfway through the test to separate cable and port effects.
 
-The RG353PS kernel build already carries board-specific Rockchip USB2PHY changes:
-the fixed-peripheral path avoids state-machine power-off transitions so the PHY
-can continue detecting VBUS; BVALID IRQ and extcon state are instrumented; and
-the former two-second `B_IDLE` polling loop was removed in favour of IRQ-driven
-operation. The OTG work rescheduler uses `mod_delayed_work()` so a pending timer
-can be moved to the requested deadline.
+### One-shot soft-connect test
 
-A DWC3 platform-driver re-probe is broader than a gadget pullup toggle. It
-re-enters the DWC3 remove/probe lifecycle, including generic PHY exit/init and
-power sequencing. The current measurements therefore do not isolate whether
-the recovery depends on a DWC3 core reset, Rockchip PHY lifecycle reinitialization,
-or a fresh VBUS/IRQ/extcon state transition.
+In one observed `not attached` failure, writing `disconnect` and `connect`
+to `/sys/class/udc/fcc00000.usb/soft_connect` did not recover the link after
+eight seconds. Recovery occurred after Supervisor DWC3 re-probe. Keep this
+one-shot test diagnostic-only; do not add it to automatic recovery.
 
-The current kernel-build candidate serializes BVALID-IRQ and
-charger-detection state-machine requests through the same `otg_sm_work`
-delayed-work item using `mod_delayed_work(system_wq, ..., 0)`, rather than
-invoking that work function inline from two different paths. This reduces the
-chance of concurrent state-machine execution during a bouncing VBUS transition.
-It does not force a PHY reset, change the VBUS polling policy, or alter the
-userspace recovery ladder. The source transformation is in place, but the
-kernel build and hardware behaviour still need validation; this is not yet a
-proven fix.
+### Diagnostic evidence
 
-Interpret the next failure logs in this order:
+The diagnostic branch retains the full report, per-cycle CSV, hashes and raw
+captures:
+- [40-cycle final report](https://github.com/dengzhan007/BaseOS-RG353PS/blob/usb-reconnect-diag/docs/usb-reconnect-tests/40round-20261106/RESULT-40round.md)
+- [per-cycle CSV](https://github.com/dengzhan007/BaseOS-RG353PS/blob/usb-reconnect-diag/docs/usb-reconnect-tests/40round-20261106/cycles.csv)
+- [raw diagnostic captures](https://github.com/dengzhan007/BaseOS-RG353PS/tree/usb-reconnect-diag/docs/usb-reconnect-tests/40round-20261106/raw)
+- [DWC3/PHY source review](https://github.com/dengzhan007/BaseOS-RG353PS/blob/usb-reconnect-diag/platforms/rg353ps/USB-RECONNECT-ROOT-CAUSE-REVIEW.md)
 
-1. Did the BVALID IRQ fire, and did its status bit indicate pending?
-2. Did the Rockchip OTG state machine read `bvalid=1` and complete charger
-   detection?
-3. Did extcon publish `EXTCON_USB=1` successfully?
-4. Did DWC3 keep the gadget pullup active and transition out of
-   `not attached`?
+Do not copy the DWC3 diagnostic injector into the clean release build.
 
-If BVALID never fires, investigate PHY interrupt arming/status and consider a
-bounded `B_IDLE` watchdog as a separate experiment; continuous polling has a
-power cost and is not enabled by default. If BVALID and extcon succeed while
-DWC3 remains unattached, focus on the DWC3/PHY connect sequence instead.
+### Remaining hardware validation
 
-### Open directions
+The reconnect matrix confirms enumeration recovery and host detection of
+RNDIS/DHCP/MTP. It does not establish:
+- byte-for-byte integrity of large MTP transfers in both directions;
+- Chinese names, spaces, deep paths, create, rename and delete over MTP;
+- MTP-only release-profile enumeration on hardware;
+- long-duration unexpected-unplug stress;
+- complete Mass Storage enter/exit hardware regression.
 
-1. Keep the current supervisor re-probe as the known-working fallback while
-   collecting the multi-host/multi-cable matrix.
-2. Do not replace the first DWC3 driver re-probe with a ConfigFS gadget rebind
-   until the latter has been independently shown to recover this failure.
-3. If the IRQ/state-machine serialization change does not help, use the logs
-   above to decide whether a bounded VBUS watchdog or a narrower PHY/DWC3
-   reinitialization is justified. Measure idle power before enabling any
-   periodic polling in a release build.
-
-### Cross-host / cross-cable validation matrix
-
-Use two computers (A and B) and two data cables (1 and 2). Keep the RG353PS
-USB port, host-side port, OS build, USB profile and test order fixed within each
-cell. Connect directly to the computer; do not use a hub or dock. Run ten
-unplug/replug cycles for each pairing:
-
-| Pairing | Host | Cable | Cycles | Purpose |
-|---|---|---|---:|---|
-| A-1 | Baseline computer | Previously tested replacement cable | 10 | Reproduce the existing baseline |
-| A-2 | Baseline computer | Second known-good cable | 10 | Isolate cable dependence |
-| B-1 | Second computer | Previously tested replacement cable | 10 | Isolate host dependence |
-| B-2 | Second computer | Second known-good cable | 10 | Check host/cable interaction |
-
-For each cycle, wait up to 20 seconds without unplugging again or manually
-restarting the gadget. Record the UDC state transition, current speed, VBUS and
-USB2PHY extcon state, BVALID IRQ, charger-detection result, EXTCON_USB result,
-RNDIS adapter appearance, MTP device appearance, host IPv4 address and DHCP
-lease. Record the exact host model, OS/build, host USB port, cable identifier
-and whether a hub/dock is present. A failed DHCP lease with UDC
-`configured` and an RNDIS adapter present is a DHCP-stage failure; UDC
-remaining `not attached` is an enumeration-stage failure.
-
-Do not arm the one-shot `soft_connect` test during this matrix. It has already
-been exercised against one observed enumeration failure; the matrix should
-measure normal automatic recovery without adding a diagnostic intervention.
-Do not change the supervisor recovery ladder or repeatedly replug a failed
-trial. After the 20-second observation window, preserve logs and mark the trial
-failed before moving to the next cycle.
-
-## Hardware validation checklist
-
-The USB implementation has received partial hardware validation on RG353PS. Reconnect enumeration has been measured and documented above. MTP transfer integrity, filesystem operations, release-profile behaviour, and the remaining checklist items still require hardware validation.
-Verify on RG353PS:
-
-- Development profile: Windows 10/11 enumerate a network adapter and an MTP
-  portable device from the same USB connection.
-- SSH works at `192.168.42.1` while MTP is open.
-- Large files transfer in both directions and compare byte-for-byte.
-- Chinese names, spaces, deep paths, create, rename and delete work.
-- Unexpected cable pull does not leave FunctionFS or UDC stuck.
-- Reconnect without reboot; complete the 2-host × 2-cable matrix above (10 cycles per pairing).
-- MTP-only release profile enumerates without a network adapter.
-- Function + Power Mass Storage still enters/exits and passes existing safety tests.
-- Compare boot marks before/after; frontend hand-off must not regress.
+Keep these as separate release checklist items. The 39-cycle reconnect
+result is not a full USB feature certification.

@@ -1,0 +1,2441 @@
+02:06:24 starting USB gadget on UDC fcc00000.usb (network=1 mtp=1)
+02:06:24 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+02:06:24 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+02:06:24 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+02:06:24 mounted configfs at /sys/kernel/config
+02:06:24 network function rndis.usb0 linked into c.1
+02:06:24 FunctionFS MTP linked into c.1
+02:06:24 USB configuration ready: network=1 mtp=1 product_id=0x0008
+02:06:24 MTP FunctionFS descriptors and endpoints are ready
+02:06:24 gadget bound to fcc00000.usb
+02:06:24 usb network up: usb0 192.168.42.1/24
+02:06:24 dhcp: 192.168.42.100-192.168.42.120 on usb0 (dnsmasq)
+02:06:24 sshd listening on 192.168.42.1:22
+02:06:24 USB network ready: usb0 192.168.42.1/24; SSH on 192.168.42.1:22
+02:06:24 cable status at start: present vbus=charging state=addressed
+02:06:24 supervisor: started pid=542 (state=addressed cable=yes vbus=charging)
+02:06:25 supervisor: tick=1 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:06:25 supervisor: cable inserted (state=configured)
+02:06:26 supervisor: tick=2 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:06:26 supervisor: tick=3 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:06:27 supervisor: tick=4 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:06:27 supervisor: tick=5 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:06:28 supervisor: tick=6 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:12:31 supervisor: tick=681 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:12:31 supervisor: cable removed (state=not attached)
+02:12:33 supervisor: tick=686 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:12:33 supervisor: cable inserted (state=not attached)
+02:12:36 supervisor: launching asynchronous recovery attempt 1
+02:12:36 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+02:12:37 supervisor: tick=693 state= cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:12:38 supervisor: tick=694 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:12:40 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+02:12:40 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+02:12:40 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+02:12:40 usb network up: usb0 192.168.42.1/24
+02:12:40 supervisor: tick=699 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:12:41 recovery: re-probe done state=configured cable=yes
+02:12:41 supervisor: attempt 1 done state=configured cable=yes
+02:12:54 supervisor: tick=724 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:12:54 supervisor: cable removed (state=not attached)
+02:12:57 supervisor: tick=730 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:12:57 supervisor: cable inserted (state=not attached)
+02:12:59 supervisor: launching asynchronous recovery attempt 1
+02:12:59 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+02:13:01 supervisor: tick=737 state= cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:13:01 supervisor: tick=738 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:13:03 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+02:13:03 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+02:13:03 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+02:13:03 usb network up: usb0 192.168.42.1/24
+02:13:04 supervisor: tick=743 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:13:04 recovery: re-probe done state=configured cable=yes
+02:13:04 supervisor: attempt 1 done state=configured cable=yes
+02:13:10 supervisor: tick=755 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:13:10 supervisor: cable removed (state=not attached)
+02:13:14 supervisor: tick=762 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:13:14 supervisor: cable inserted (state=configured)
+02:13:23 supervisor: tick=778 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:13:23 supervisor: cable removed (state=not attached)
+02:13:27 supervisor: tick=786 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:13:27 supervisor: cable inserted (state=configured)
+02:13:38 supervisor: tick=807 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:13:38 supervisor: cable removed (state=not attached)
+02:13:42 supervisor: tick=815 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:13:42 supervisor: cable inserted (state=not attached)
+02:13:45 supervisor: launching asynchronous recovery attempt 1
+02:13:45 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=charging)
+02:13:46 supervisor: tick=822 state= cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:13:47 supervisor: tick=823 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:13:49 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+02:13:49 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+02:13:49 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+02:13:49 usb network up: usb0 192.168.42.1/24
+02:13:49 supervisor: tick=828 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:13:50 recovery: re-probe done state=configured cable=yes
+02:13:50 supervisor: attempt 1 done state=configured cable=yes
+02:56:44 supervisor: tick=3882 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+02:56:45 supervisor: tick=3883 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+03:27:54 supervisor: tick=7368 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+03:27:54 supervisor: cable removed (state=not attached)
+03:27:59 supervisor: tick=7377 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=1
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+03:27:59 supervisor: cable inserted (state=configured)
+03:28:02 supervisor: tick=7383 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+03:28:02 supervisor: cable removed (state=not attached)
+03:28:07 supervisor: tick=7391 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+03:28:07 supervisor: cable inserted (state=not attached)
+03:28:09 supervisor: launching asynchronous recovery attempt 1
+03:28:09 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=charging)
+03:28:10 supervisor: tick=7398 state= cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+03:28:11 supervisor: tick=7399 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+03:28:13 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+03:28:13 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+03:28:13 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+03:28:13 usb network up: usb0 192.168.42.1/24
+03:28:13 supervisor: tick=7404 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+03:28:14 recovery: re-probe done state=configured cable=yes
+03:28:14 supervisor: attempt 1 done state=configured cable=yes
+03:33:02 supervisor: tick=7917 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+03:33:02 supervisor: tick=7918 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:50:17 supervisor: tick=8532 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:50:18 supervisor: cable removed (state=not attached)
+04:50:21 supervisor: tick=8538 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:50:21 supervisor: cable inserted (state=not attached)
+04:50:23 supervisor: launching asynchronous recovery attempt 1
+04:50:23 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+04:50:24 supervisor: tick=8545 state= cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:50:25 supervisor: tick=8546 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:50:27 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+04:50:27 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+04:50:27 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+04:50:27 usb network up: usb0 192.168.42.1/24
+04:50:27 supervisor: tick=8551 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:50:28 recovery: re-probe done state=configured cable=yes
+04:50:28 supervisor: attempt 1 done state=configured cable=yes
+04:50:48 supervisor: tick=8589 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:50:48 supervisor: cable removed (state=not attached)
+04:50:51 supervisor: tick=8594 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:50:51 supervisor: cable inserted (state=not attached)
+04:50:53 supervisor: launching asynchronous recovery attempt 1
+04:50:53 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+04:50:54 supervisor: tick=8601 state= cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:50:55 supervisor: tick=8602 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:50:57 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+04:50:57 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+04:50:57 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+04:50:57 usb network up: usb0 192.168.42.1/24
+04:50:57 supervisor: tick=8607 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:50:58 recovery: re-probe done state=configured cable=yes
+04:50:58 supervisor: attempt 1 done state=configured cable=yes
+04:51:18 supervisor: tick=8645 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:51:18 supervisor: cable removed (state=not attached)
+04:51:21 supervisor: tick=8651 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:51:21 supervisor: cable inserted (state=configured)
+04:51:48 supervisor: tick=8700 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:51:48 supervisor: tick=8701 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:51:48 supervisor: cable removed (state=not attached)
+04:51:51 supervisor: tick=8706 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:51:51 supervisor: cable inserted (state=not attached)
+04:51:53 supervisor: launching asynchronous recovery attempt 1
+04:51:53 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+04:51:55 supervisor: tick=8713 state= cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:51:55 supervisor: tick=8714 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:51:57 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+04:51:57 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+04:51:57 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+04:51:57 usb network up: usb0 192.168.42.1/24
+04:51:58 supervisor: tick=8719 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:51:58 recovery: re-probe done state=configured cable=yes
+04:51:58 supervisor: attempt 1 done state=configured cable=yes
+04:52:18 supervisor: tick=8756 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:52:18 supervisor: cable removed (state=not attached)
+04:52:21 supervisor: tick=8763 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:52:21 supervisor: cable inserted (state=not attached)
+04:52:24 supervisor: launching asynchronous recovery attempt 1
+04:52:24 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+04:52:25 supervisor: tick=8770 state= cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:52:26 supervisor: tick=8771 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:52:28 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+04:52:28 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+04:52:28 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+04:52:28 usb network up: usb0 192.168.42.1/24
+04:52:28 supervisor: tick=8776 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:52:29 recovery: re-probe done state=configured cable=yes
+04:52:29 supervisor: attempt 1 done state=configured cable=yes
+04:52:48 supervisor: tick=8813 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:52:48 supervisor: cable removed (state=not attached)
+04:52:51 supervisor: tick=8818 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:52:51 supervisor: cable inserted (state=not attached)
+04:52:53 supervisor: launching asynchronous recovery attempt 1
+04:52:53 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+04:52:54 supervisor: tick=8825 state= cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:52:55 supervisor: tick=8826 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:52:57 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+04:52:57 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+04:52:57 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+04:52:57 usb network up: usb0 192.168.42.1/24
+04:52:58 supervisor: tick=8831 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:52:58 recovery: re-probe done state=configured cable=yes
+04:52:58 supervisor: attempt 1 done state=configured cable=yes
+04:53:18 supervisor: tick=8869 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:53:18 supervisor: cable removed (state=not attached)
+04:53:23 supervisor: tick=8878 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:53:23 supervisor: cable inserted (state=not attached)
+04:53:25 supervisor: launching asynchronous recovery attempt 1
+04:53:25 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+04:53:26 supervisor: tick=8885 state= cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:53:27 supervisor: tick=8886 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:53:29 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+04:53:29 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+04:53:29 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+04:53:29 usb network up: usb0 192.168.42.1/24
+04:53:30 supervisor: tick=8891 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:53:30 recovery: re-probe done state=configured cable=yes
+04:53:30 supervisor: attempt 1 done state=configured cable=yes
+04:53:48 supervisor: tick=8924 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:53:48 supervisor: cable removed (state=not attached)
+04:53:51 supervisor: tick=8930 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:53:51 supervisor: cable inserted (state=configured)
+04:54:18 supervisor: tick=8979 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:54:18 supervisor: cable removed (state=not attached)
+04:54:21 supervisor: tick=8985 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:54:21 supervisor: cable inserted (state=configured)
+04:54:48 supervisor: tick=9035 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:54:48 supervisor: cable removed (state=not attached)
+04:54:51 supervisor: tick=9041 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:54:51 supervisor: cable inserted (state=not attached)
+04:54:54 supervisor: launching asynchronous recovery attempt 1
+04:54:54 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+04:54:55 supervisor: tick=9048 state= cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:54:56 supervisor: tick=9049 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:54:58 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+04:54:58 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+04:54:58 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+04:54:58 usb network up: usb0 192.168.42.1/24
+04:54:58 supervisor: tick=9054 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:54:59 recovery: re-probe done state=configured cable=yes
+04:54:59 supervisor: attempt 1 done state=configured cable=yes
+04:55:18 supervisor: tick=9090 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:55:18 supervisor: cable removed (state=not attached)
+04:55:21 supervisor: tick=9096 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:55:21 supervisor: cable inserted (state=not attached)
+04:55:22 supervisor: tick=9097 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:55:48 supervisor: tick=9146 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:55:48 supervisor: cable removed (state=not attached)
+04:55:51 supervisor: tick=9151 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:55:51 supervisor: cable inserted (state=not attached)
+04:55:51 supervisor: tick=9152 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:56:18 supervisor: tick=9201 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:56:18 supervisor: cable removed (state=not attached)
+04:56:20 supervisor: tick=9206 state=default cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:56:21 supervisor: tick=9207 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:56:21 supervisor: cable inserted (state=not attached)
+04:56:23 supervisor: launching asynchronous recovery attempt 1
+04:56:23 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+04:56:25 supervisor: tick=9214 state= cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:56:25 supervisor: tick=9215 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:56:27 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+04:56:27 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+04:56:27 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+04:56:27 usb network up: usb0 192.168.42.1/24
+04:56:28 recovery: re-probe done state=configured cable=yes
+04:56:28 supervisor: attempt 1 done state=configured cable=yes
+04:56:28 supervisor: tick=9221 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:56:48 supervisor: tick=9257 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:56:48 supervisor: cable removed (state=not attached)
+04:56:51 supervisor: tick=9263 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:56:51 supervisor: cable inserted (state=not attached)
+04:56:52 supervisor: tick=9264 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:57:18 supervisor: tick=9313 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:57:18 supervisor: cable removed (state=not attached)
+04:57:21 supervisor: tick=9319 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:57:21 supervisor: cable inserted (state=not attached)
+04:57:22 supervisor: tick=9320 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:57:48 supervisor: tick=9368 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:57:48 supervisor: cable removed (state=not attached)
+04:57:51 supervisor: tick=9374 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:57:51 supervisor: cable inserted (state=not attached)
+04:57:53 supervisor: launching asynchronous recovery attempt 1
+04:57:53 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+04:57:55 supervisor: tick=9381 state= cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:57:55 supervisor: tick=9382 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:57:57 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+04:57:57 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+04:57:57 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+04:57:57 usb network up: usb0 192.168.42.1/24
+04:57:58 recovery: re-probe done state=configured cable=yes
+04:57:58 supervisor: attempt 1 done state=configured cable=yes
+04:57:58 supervisor: tick=9388 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:58:18 supervisor: tick=9424 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:58:18 supervisor: cable removed (state=not attached)
+04:58:21 supervisor: tick=9431 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=1
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:58:21 supervisor: cable inserted (state=configured)
+04:58:48 supervisor: tick=9479 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:58:48 supervisor: cable removed (state=not attached)
+04:58:51 supervisor: tick=9485 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:58:51 supervisor: cable inserted (state=not attached)
+04:58:52 supervisor: tick=9486 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:59:18 supervisor: tick=9535 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:59:18 supervisor: cable removed (state=not attached)
+04:59:21 supervisor: tick=9540 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:59:21 supervisor: cable inserted (state=not attached)
+04:59:21 supervisor: tick=9541 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:59:48 supervisor: tick=9590 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:59:48 supervisor: cable removed (state=not attached)
+04:59:51 supervisor: tick=9596 state=addressed cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+04:59:51 supervisor: cable inserted (state=addressed)
+04:59:52 supervisor: tick=9597 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:00:18 supervisor: tick=9646 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:00:18 supervisor: cable removed (state=not attached)
+05:00:21 supervisor: tick=9652 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:00:21 supervisor: cable inserted (state=configured)
+05:06:59 supervisor: tick=10393 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:06:59 supervisor: cable removed (state=not attached)
+05:07:06 supervisor: tick=10405 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:07:06 supervisor: cable inserted (state=not attached)
+05:09:25 supervisor: tick=10406 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:11:18 supervisor: tick=10616 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:11:18 supervisor: cable removed (state=not attached)
+05:11:20 supervisor: tick=10621 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:11:20 supervisor: cable inserted (state=not attached)
+05:11:23 supervisor: launching asynchronous recovery attempt 1
+05:11:23 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+05:11:24 supervisor: tick=10628 state= cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:11:25 supervisor: tick=10629 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:11:27 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+05:11:27 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+05:11:27 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+05:11:27 usb network up: usb0 192.168.42.1/24
+05:11:27 supervisor: tick=10634 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:11:28 recovery: re-probe done state=configured cable=yes
+05:11:28 supervisor: attempt 1 done state=configured cable=yes
+05:11:48 supervisor: tick=10672 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:11:48 supervisor: cable removed (state=not attached)
+05:11:51 supervisor: tick=10678 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:11:51 supervisor: cable inserted (state=not attached)
+05:11:53 supervisor: launching asynchronous recovery attempt 1
+05:11:53 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+05:11:55 supervisor: tick=10685 state= cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:11:55 supervisor: tick=10686 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:11:57 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+05:11:57 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+05:11:57 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+05:11:57 usb network up: usb0 192.168.42.1/24
+05:11:58 supervisor: tick=10691 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:11:58 recovery: re-probe done state=configured cable=yes
+05:11:58 supervisor: attempt 1 done state=configured cable=yes
+05:12:18 supervisor: tick=10728 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:12:18 supervisor: cable removed (state=not attached)
+05:12:21 supervisor: tick=10734 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:12:21 supervisor: cable inserted (state=not attached)
+05:12:23 supervisor: launching asynchronous recovery attempt 1
+05:12:23 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+05:12:25 supervisor: tick=10741 state= cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:12:25 supervisor: tick=10742 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:12:27 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+05:12:27 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+05:12:27 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+05:12:27 usb network up: usb0 192.168.42.1/24
+05:12:28 supervisor: tick=10747 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:12:28 recovery: re-probe done state=configured cable=yes
+05:12:28 supervisor: attempt 1 done state=configured cable=yes
+05:12:48 supervisor: tick=10784 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:12:48 supervisor: cable removed (state=not attached)
+05:12:51 supervisor: tick=10790 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:12:51 supervisor: cable inserted (state=configured)
+05:13:17 supervisor: tick=10839 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:13:18 supervisor: tick=10840 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:13:18 supervisor: cable removed (state=not attached)
+05:13:21 supervisor: tick=10845 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:13:21 supervisor: cable inserted (state=not attached)
+05:13:23 supervisor: launching asynchronous recovery attempt 1
+05:13:23 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+05:13:24 supervisor: tick=10852 state= cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:13:25 supervisor: tick=10853 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:13:27 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+05:13:27 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+05:13:27 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+05:13:27 usb network up: usb0 192.168.42.1/24
+05:13:27 supervisor: tick=10858 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:13:28 recovery: re-probe done state=configured cable=yes
+05:13:28 supervisor: attempt 1 done state=configured cable=yes
+05:13:47 supervisor: tick=10895 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:13:48 supervisor: tick=10896 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:13:48 supervisor: cable removed (state=not attached)
+05:13:51 supervisor: tick=10902 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:13:51 supervisor: cable inserted (state=not attached)
+05:13:53 supervisor: launching asynchronous recovery attempt 1
+05:13:53 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+05:13:55 supervisor: tick=10909 state= cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:13:55 supervisor: tick=10910 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:13:57 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+05:13:57 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+05:13:57 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+05:13:57 usb network up: usb0 192.168.42.1/24
+05:13:58 supervisor: tick=10915 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:13:58 recovery: re-probe done state=configured cable=yes
+05:13:58 supervisor: attempt 1 done state=configured cable=yes
+05:14:18 supervisor: tick=10952 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:14:18 supervisor: cable removed (state=not attached)
+05:14:21 supervisor: tick=10957 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:14:21 supervisor: cable inserted (state=not attached)
+05:14:23 supervisor: launching asynchronous recovery attempt 1
+05:14:23 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+05:14:24 supervisor: tick=10964 state= cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:14:25 supervisor: tick=10965 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:14:27 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+05:14:27 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+05:14:27 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+05:14:27 usb network up: usb0 192.168.42.1/24
+05:14:27 supervisor: tick=10970 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:14:28 recovery: re-probe done state=configured cable=yes
+05:14:28 supervisor: attempt 1 done state=configured cable=yes
+05:14:47 supervisor: tick=11007 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:14:48 supervisor: tick=11008 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:14:48 supervisor: cable removed (state=not attached)
+05:14:50 supervisor: tick=11013 state=addressed cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:14:50 supervisor: cable inserted (state=addressed)
+05:14:51 supervisor: tick=11014 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:15:17 supervisor: tick=11063 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:15:17 supervisor: cable removed (state=not attached)
+05:15:21 supervisor: tick=11069 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:15:21 supervisor: cable inserted (state=not attached)
+05:15:23 supervisor: launching asynchronous recovery attempt 1
+05:15:23 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+05:15:24 supervisor: tick=11076 state= cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:15:25 supervisor: tick=11077 state=not attached cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:15:27 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+05:15:27 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+05:15:27 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+05:15:27 usb network up: usb0 192.168.42.1/24
+05:15:27 supervisor: tick=11082 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:15:28 recovery: re-probe done state=configured cable=yes
+05:15:28 supervisor: attempt 1 done state=configured cable=yes
+05:15:47 supervisor: tick=11119 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:15:47 supervisor: cable removed (state=not attached)
+05:15:51 supervisor: tick=11126 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:15:51 supervisor: cable inserted (state=not attached)
+05:15:53 supervisor: launching asynchronous recovery attempt 1
+05:15:53 recovery: re-probing fcc00000.usb on dwc3 (cable=yes vbus=idle)
+05:15:55 supervisor: tick=11133 state= cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:15:55 supervisor: tick=11134 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:15:57 runtime PM pinned on: /sys/bus/platform/devices/fcc00000.usb
+05:15:57 runtime PM pinned on: /sys/bus/platform/devices/fe8a0000.usb2phy
+05:15:57 runtime PM pinned on: /sys/bus/platform/devices/fe8b0000.usb2phy
+05:15:57 usb network up: usb0 192.168.42.1/24
+05:15:58 supervisor: tick=11139 state=configured cable=yes vbus=charging extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:15:58 recovery: re-probe done state=configured cable=yes
+05:15:58 supervisor: attempt 1 done state=configured cable=yes
+05:16:17 supervisor: tick=11175 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:16:17 supervisor: cable removed (state=not attached)
+05:16:21 supervisor: tick=11181 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:16:21 supervisor: cable inserted (state=not attached)
+05:16:21 supervisor: tick=11182 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:16:48 supervisor: tick=11231 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:16:48 supervisor: cable removed (state=not attached)
+05:16:51 supervisor: tick=11237 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:16:51 supervisor: cable inserted (state=not attached)
+05:16:52 supervisor: tick=11238 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:17:17 supervisor: tick=11286 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:17:17 supervisor: cable removed (state=not attached)
+05:17:21 supervisor: tick=11292 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:17:21 supervisor: cable inserted (state=not attached)
+05:17:21 supervisor: tick=11293 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:17:48 supervisor: tick=11342 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:17:48 supervisor: cable removed (state=not attached)
+05:17:51 supervisor: tick=11348 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:17:51 supervisor: cable inserted (state=not attached)
+05:17:51 supervisor: tick=11349 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:18:17 supervisor: tick=11397 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:18:17 supervisor: cable removed (state=not attached)
+05:18:21 supervisor: tick=11403 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:18:21 supervisor: cable inserted (state=not attached)
+05:18:21 supervisor: tick=11404 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:18:48 supervisor: tick=11453 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:18:48 supervisor: cable removed (state=not attached)
+05:18:51 supervisor: tick=11459 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:18:51 supervisor: cable inserted (state=not attached)
+05:18:51 supervisor: tick=11460 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:19:17 supervisor: tick=11508 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:19:17 supervisor: cable removed (state=not attached)
+05:19:21 supervisor: tick=11515 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=1
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:19:21 supervisor: cable inserted (state=configured)
+05:19:47 supervisor: tick=11563 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:19:47 supervisor: cable removed (state=not attached)
+05:19:50 supervisor: tick=11568 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:19:50 supervisor: cable inserted (state=not attached)
+05:19:51 supervisor: tick=11569 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:20:18 supervisor: tick=11619 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:20:18 supervisor: cable removed (state=not attached)
+05:20:21 supervisor: tick=11625 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:20:21 supervisor: cable inserted (state=configured)
+05:20:47 supervisor: tick=11674 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:20:47 supervisor: cable removed (state=not attached)
+05:20:51 supervisor: tick=11680 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:20:51 supervisor: cable inserted (state=not attached)
+05:20:51 supervisor: tick=11681 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:21:18 supervisor: tick=11730 state=not attached cable=no vbus=idle extcon=fe8a0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:21:18 supervisor: cable removed (state=not attached)
+05:21:20 supervisor: tick=11735 state=not attached cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+05:21:20 supervisor: cable inserted (state=not attached)
+05:21:21 supervisor: tick=11736 state=configured cable=yes vbus=idle extcon=fe8a0000.usb2phy=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0,fe8b0000.usb2phy=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0

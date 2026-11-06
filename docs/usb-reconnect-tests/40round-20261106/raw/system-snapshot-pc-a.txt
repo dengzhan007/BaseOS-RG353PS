@@ -1,0 +1,31 @@
+### baseos-release
+BASEOS_TARGET=rg353ps
+BASEOS_VERSION=1.2.4
+BASEOS_BUILD=aa3536b-dirty-20261106013813
+# fbsplash reads this; the RG353PS panel is mounted upright.
+BASEOS_PANEL_ROTATION_CCW=0
+### uname
+Linux BaseOS-RG353PS 7.2.7-baseos-rg353ps #1 SMP PREEMPT Fri Nov  6 00:59:16 UTC 2026 aarch64 Linux
+### udc
+state=configured
+current_speed=high-speed
+maximum_speed=high-speed
+### extcon
+/sys/class/extcon/extcon0: fe8a0000.usb2phy state=USB=1
+USB-HOST=0
+SDP=1
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+/sys/class/extcon/extcon1: fe8b0000.usb2phy state=USB=0
+USB-HOST=0
+SDP=0
+CDP=0
+DCP=0
+SLOW-CHARGER=0
+### interrupts(usb)
+  20:         92          0          0          0  GICv3              167 Level     rockchip_usb2phy
+  21:          0          0          0          0  GICv3              168 Level     rockchip_usb2phy
+  31:      40036          0          0          0  GICv3              201 Level     dwc3
+### supervisor_log_lines
+1431 /run/baseos-usb-debug.log

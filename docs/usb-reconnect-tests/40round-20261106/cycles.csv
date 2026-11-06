@@ -1,0 +1,41 @@
+round,host,cable,disconnect_time_utc,reconnect_time_utc,udc_state,current_speed,extcon_usb,bvalid_irq,otg_state,configured_time_utc,recovery_path,supervisor_reprobe,rndis_detected,host_ipv4,dhcp_success,mtp_detected,result,notes
+1,PC-A,线1,05:11:01,05:11:10,not attached,high-speed,1,4,4,05:11:10,A,yes,yes,192.168.42.106,yes,OK,OK,deep re-probe
+2,PC-A,线1,05:11:31,05:11:42,not attached,high-speed,1,4,4,05:11:42,A,yes,yes,192.168.42.106,yes,OK,OK,deep re-probe
+3,PC-A,线1,05:12:00,05:12:11,not attached,high-speed,1,6,6,05:12:11,A,yes,yes,192.168.42.106,yes,OK,OK,deep re-probe
+4,PC-A,线1,05:12:32,05:12:34,configured,high-speed,1,4,3,05:12:34,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert
+5,PC-A,线1,05:13:02,05:13:11,not attached,high-speed,1,4,4,05:13:11,A,yes,yes,192.168.42.106,yes,OK,OK,deep re-probe
+6,PC-A,线1,05:13:31,05:13:42,not attached,high-speed,1,6,5,05:13:42,A,yes,yes,192.168.42.106,yes,OK,OK,deep re-probe
+7,PC-A,线1,05:14:00,05:14:11,not attached,high-speed,1,4,4,05:14:11,A,yes,yes,192.168.42.106,yes,OK,OK,deep re-probe
+8,PC-A,线1,05:14:32,05:14:33,addressed,high-speed,1,2,2,05:14:33,B,no,yes,192.168.42.106,yes,OK,OK,addressed-then-configured
+9,PC-A,线1,05:15:01,05:15:10,not attached,high-speed,1,4,4,05:15:10,A,yes,yes,192.168.42.106,yes,OK,OK,deep re-probe
+10,PC-A,线1,05:15:30,05:15:41,not attached,high-speed,1,4,4,05:15:41,A,yes,yes,192.168.42.106,yes,OK,OK,deep re-probe
+11,PC-A,线3,05:16:32,05:16:36,not attached,high-speed,1,2,2,05:16:36,B-self,no,yes,192.168.42.106,yes,OK,OK,self-recover;swap@05:16:00
+12,PC-A,线3,05:17:01,05:17:05,not attached,high-speed,1,2,2,05:17:05,B-self,no,yes,192.168.42.106,yes,OK,OK,self-recover
+13,PC-A,线3,05:17:30,05:17:34,not attached,high-speed,1,2,2,05:17:34,B-self,no,yes,192.168.42.106,yes,OK,OK,self-recover
+14,PC-A,线3,05:18:00,05:18:04,not attached,high-speed,1,2,2,05:18:04,B-self,no,yes,192.168.42.106,yes,OK,OK,self-recover
+15,PC-A,线3,05:18:31,05:18:35,not attached,high-speed,1,2,2,05:18:35,B-self,no,yes,192.168.42.106,yes,OK,OK,self-recover
+16,PC-A,线3,05:19:00,05:19:04,configured,high-speed,1,2,14,05:19:04,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert;otg_spike
+17,PC-A,线3,05:19:30,05:19:34,not attached,high-speed,1,2,2,05:19:34,B-self,no,yes,192.168.42.106,yes,OK,OK,self-recover
+18,PC-A,线3,05:20:02,05:20:03,configured,high-speed,1,2,2,05:20:03,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert
+19,PC-A,线3,05:20:31,05:20:35,not attached,high-speed,1,2,2,05:20:35,B-self,no,yes,192.168.42.106,yes,OK,OK,self-recover
+20,PC-A,线3,05:21:00,05:21:04,not attached,high-speed,1,2,2,05:21:04,B-self,no,yes,192.168.42.106,yes,OK,OK,self-recover
+21,PC-B,线3,05:47:00,05:47:05,configured,high-speed,1,2,2,05:47:05,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert;PCB=LENOVO 82MS
+22,PC-B,线3,05:47:31,05:47:36,configured,high-speed,1,2,2,05:47:36,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert;ip-back-after-5s
+23,PC-B,线3,05:48:00,05:48:04,addressed,high-speed,1,2,2,05:48:04,B,no,yes,192.168.42.106,yes,OK,OK,addressed-then-configured
+24,PC-B,线3,05:48:33,05:48:36,configured,high-speed,1,2,2,05:48:36,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert
+25,PC-B,线3,05:49:00,05:49:05,configured,high-speed,1,2,2,05:49:05,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert
+26,PC-B,线3,05:49:31,05:49:34,configured,high-speed,1,2,2,05:49:34,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert
+27,PC-B,线3,05:50:01,05:50:05,configured,high-speed,1,2,2,05:50:05,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert
+28,PC-B,线3,05:50:31,05:50:34,addressed,high-speed,1,2,2,05:50:34,B,no,yes,192.168.42.106,yes,OK,OK,addressed-then-configured
+29,PC-B,线3,05:51:00,05:51:03,addressed,high-speed,1,2,2,05:51:03,B,no,yes,192.168.42.106,yes,OK,OK,addressed-then-configured
+30,PC-B,线3,05:51:31,,not attached,UNKNOWN,0,0,0,,,no,no,,no,Unknown,INVALID,host-power-loss-at-05:51:31;cable-back-05:55:31
+31,PC-B,线1,06:02:30,06:02:35,configured,high-speed,1,2,2,06:02:35,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert
+32,PC-B,线1,06:03:01,06:03:04,configured,high-speed,1,2,2,06:03:04,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert
+33,PC-B,线1,06:03:30,06:03:34,configured,high-speed,1,2,4,06:03:34,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert;otg4
+34,PC-B,线1,06:04:00,06:04:10,not attached,high-speed,1,4,2,06:04:10,A,yes,yes,192.168.42.106,yes,OK,OK,deep re-probe;pathA-3seq
+35,PC-B,线1,06:04:30,06:04:34,configured,high-speed,1,2,3,06:04:34,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert
+36,PC-B,线1,06:05:00,06:05:03,configured,high-speed,1,4,6,06:05:03,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert;otg6
+37,PC-B,线1,06:05:31,06:05:40,not attached,high-speed,1,6,2,06:05:40,A,yes,yes,192.168.42.106,yes,OK,OK,deep re-probe;pathA-3seq
+38,PC-B,线1,06:06:00,06:06:04,addressed,high-speed,1,2,2,06:06:04,B,no,yes,192.168.42.106,yes,OK,OK,addressed-then-configured
+39,PC-B,线1,06:06:30,06:06:34,configured,high-speed,1,2,2,06:06:34,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert
+40,PC-B,线1,06:07:00,06:07:04,configured,high-speed,1,2,2,06:07:04,B,no,yes,192.168.42.106,yes,OK,OK,configured-on-insert

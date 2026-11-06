@@ -1,0 +1,108 @@
+{
+    "tool":  "rg353ps-mtp-only-release-acceptance",
+    "run_id":  "20261106-131355-4a3405",
+    "started_utc":  "2026-11-06T14:01:20Z",
+    "finished_utc":  "2026-11-06T14:01:35Z",
+    "profile":  "MTP-only release (usb_debug=no, usb_mtp=yes, pid=0x0009)",
+    "device_seen":  true,
+    "pnp":  {
+                "expected_match":  "VID_2207\u0026PID_0009",
+                "forbidden_matches":  [
+                                          "VID_2207\u0026PID_0007",
+                                          "VID_2207\u0026PID_0008"
+                                      ],
+                "vid2207_devices":  [
+                                        {
+                                            "Name":  "RG353PS",
+                                            "PNPClass":  "WPD",
+                                            "PNPDeviceID":  "USB\\VID_2207\u0026PID_0009\\BASEOS-RG353PS",
+                                            "Status":  "OK"
+                                        }
+                                    ],
+                "wpd_storages":  [
+                                     "RG353PS"
+                                 ]
+            },
+    "mtp_pull":  {
+                     "command":  "python tools/mtp/mtp_integrity.py pull --backend windows-wpd --skip-prepare --keep-workdir --timeout 300",
+                     "exit_code":  0,
+                     "log":  "F:\\workspace\\2026-10-28-22-11-37\\.tmp-doc\\p0-fix\\win\\work\\rg353ps-mtp-only-fixed\\mtp-pull.log",
+                     "report_dir":  "F:\\workspace\\2026-10-28-22-11-37\\.tmp-doc\\p0-fix\\win\\work\\rg353ps-mtp-only-fixed\\mtp-report"
+                 },
+    "checks":  [
+                   {
+                       "name":  "tool_present",
+                       "status":  "PASS",
+                       "detail":  "F:\\workspace\\2026-10-28-22-11-37\\.tmp-doc\\p0-fix\\win\\tools\\mtp\\mtp_integrity.py"
+                   },
+                   {
+                       "name":  "python_available",
+                       "status":  "PASS",
+                       "detail":  "C:\\Users\\zhan\\.workbuddy\\binaries\\python\\versions\\3.13.12\\python3.exe"
+                   },
+                   {
+                       "name":  "pnp_pid_0009",
+                       "status":  "PASS",
+                       "detail":  "VID_2207\u0026PID_0009 matches=1"
+                   },
+                   {
+                       "name":  "no_pid_0007_0008",
+                       "status":  "PASS",
+                       "detail":  "forbidden PID matches=0"
+                   },
+                   {
+                       "name":  "no_rndis_ncm_adapter",
+                       "status":  "PASS",
+                       "detail":  "device-provided network adapters=0"
+                   },
+                   {
+                       "name":  "wpd_rg353ps",
+                       "status":  "PASS",
+                       "detail":  "WPD/RG353PS entries=1"
+                   },
+                   {
+                       "name":  "wpd_sdcard_storage",
+                       "status":  "PASS",
+                       "detail":  "WPD storages=RG353PS"
+                   },
+                   {
+                       "name":  "device_ready",
+                       "status":  "PASS",
+                       "detail":  "PID_0009 device present"
+                   },
+                   {
+                       "name":  "mtp_pull_exit",
+                       "status":  "PASS",
+                       "detail":  "mtp_integrity.py pull exit=0"
+                   },
+                   {
+                       "name":  "mtp_tool_labels",
+                       "status":  "PASS",
+                       "detail":  "pass=14 fail=0 skip=0"
+                   },
+                   {
+                       "name":  "mtp_manifest_7_files",
+                       "status":  "PASS",
+                       "detail":  "manifest entries=7"
+                   },
+                   {
+                       "name":  "mtp_sizes_all_match",
+                       "status":  "PASS",
+                       "detail":  "7/7 sizes match"
+                   },
+                   {
+                       "name":  "mtp_sha256_all_match",
+                       "status":  "PASS",
+                       "detail":  "7/7 SHA-256 match"
+                   },
+                   {
+                       "name":  "mtp_128mib_verified",
+                       "status":  "PASS",
+                       "detail":  "128 MiB file downloaded and hashed"
+                   }
+               ],
+    "failures":  [
+
+                 ],
+    "pass":  true
+}

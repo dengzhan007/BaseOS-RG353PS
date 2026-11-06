@@ -102,6 +102,10 @@ mkdir -p "$USERDATA"
 # absent falls through to the image copy, so future defaults still reach a card
 # that was seeded by an older build. Seeded once; never overwritten, and deleted
 # by the owner if they want it back.
+# usb_debug and usb_mtp are deliberately left as commented examples. Writing an
+# active value here would override a Release image (usb_debug=no) on a fresh
+# card and silently bring RNDIS/SSH back. The active lines below are limited to
+# keys that must have a card-side value regardless of the image profile.
 ensure_card_config() {
   [ -d "$USERDATA" ] || return 0
   [ -s "$USERDATA/baseos.conf" ] && return 0
@@ -119,11 +123,17 @@ ensure_card_config() {
 # Leaves nothing on the card when no.
 debug=no
 
-# Turn the USB port into a network with an SSH server while the unit is NOT in
-# storage mode: the unit becomes 192.168.42.1, the PC gets 192.168.42.100, and
-# dropbear answers on port 22 with key-only root login. Function + plug still
-# enters USB mass storage. On by default; set to no to bind nothing.
-usb_debug=yes
+# USB network / SSH:
+# Leave usb_debug unset to inherit the image profile (development: yes,
+# release: no). An active usb_debug= line here always wins over the copy
+# inside the image, so only set it when you want to override the image
+# explicitly. Set usb_debug=yes to enable networking, or usb_debug=no to
+# disable it. Networking gives 192.168.42.1 with dropbear on port 22.
+# usb_debug=yes
+#
+# MTP is selected by the image profile too. Leave usb_mtp unset to inherit it;
+# only add an active line here to override the image explicitly.
+# usb_mtp=yes
 
 # Uncomment to change the frontend order. The default is shown.
 # frontends_order=nextui,slot,custom,baseos

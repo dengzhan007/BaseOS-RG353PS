@@ -62,6 +62,43 @@ be changing. MTP avoids simultaneous raw block-device mounting, but does not
 prevent application-level conflicts on the same file. The responder flushes
 completed transfers before acknowledging them.
 
+## MTP file-transfer integrity acceptance
+
+MTP is only useful if files arrive intact. `tools/mtp/` holds a repeatable
+acceptance harness that proves it per file with SHA-256 instead of inferring it
+from a successful enumeration.
+
+- **Tool location:** `tools/mtp/` (see `tools/mtp/README.md`). The harness is a
+  test tool: it is not installed into the rootfs and never runs at boot.
+- **Host requirements:** Python 3.8+ and one MTP adapter — Windows WPD
+  (`hosts/wpd.ps1`), Linux `mtp-tools`, or a gvfs MTP mount. No drive letter is
+  assumed.
+- **Handheld requirements:** the normal profile with `usb_mtp=yes`, storage root
+  `/mnt/SDCARD`, BusyBox `sh`, `dd`, `wc`, `sha256sum` and `od`.
+- **Prepare the data:** copy `tools/mtp/device/mtp-prepare.sh` to the device and
+  run it with `--storage /mnt/SDCARD`; it prints the `run_id` and creates one
+  marked directory holding a 4 KiB file, a 1 MiB file, a 128 MiB file, a
+  non-ASCII name, a name with spaces, a unicode+space nested path and a plain
+  nested file, plus a JSON manifest of sizes and digests.
+- **Automated check:** `python3 tools/mtp/mtp_integrity.py run --backend auto
+  --run-id <id> --dataset-profile full --out <dir>` performs device→host,
+  host→device→host and create/mkdir/overwrite/rename/delete checks.
+- **Reports:** `report.json` and `report.md` in the `--out` directory, with per
+  file direction, size, digest comparison, operation results, failure reasons
+  and totals. Reports stay outside the repository.
+- **Cleanup:** a separate step,
+  `device/mtp-cleanup.sh --run-id <id> --confirm` on the device, which validates
+  the marker, the run id and the resolved path first.
+- **Safety boundary:** only `<storage>/baseos-mtp-test-<run_id>` is created or
+  removed. Manifest paths are normalised and containment-checked, symlinks are
+  refused, a directory without this tool's marker is never replaced or deleted,
+  and the tool never touches block devices, mounts, the UDC, configfs or the USB
+  gadget state.
+- **Status:** the local script suite and the simulated-MTP run pass. **Real
+  hardware acceptance over MTP has not been executed yet**, so no device-level
+  result is claimed here; SKIP entries (for example `rename` through WPD) are
+  reported separately and never counted as PASS.
+
 ## Mass Storage hand-off
 
 Mass Storage remains separate and exclusive, preserving the existing helper and

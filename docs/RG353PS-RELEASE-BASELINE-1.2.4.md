@@ -169,10 +169,19 @@ PC-C 结果作为后续补充记录到测试报告，不自动触发内核改动
 | Branch | 相对 main | 处理 |
 |---|---|---|
 | `main` | 功能代码基线 | 保留；后续 USB 与基线文档已归档在此 |
-| `feature/rg353ps-usb-mtp-composite` | 0 ahead / 21 behind | **可删除**；提交全部已在 main 中，不含独有工作 |
-| `release/rg353ps-1.2.4-baseline` | 2 ahead / 4 behind；两个独有提交仅为此前创建的基线文档 | **可删除**；没有独有功能代码 |
+| `feature/rg353ps-usb-mtp-composite` | 0 ahead / 21 behind | **已删除（2026-11-06，tip `90a1208`）**；提交全部已在 main 中，不含独有工作 |
+| `release/rg353ps-1.2.4-baseline` | 2 ahead / 4 behind；两个独有提交仅为此前创建的基线文档 | **已删除（2026-11-06，tip `2adffef`）**；没有独有功能代码 |
 | `usb-reconnect-diag` | 16 ahead / 4 behind | 保留为诊断证据分支，含注入器、脚本、逐轮 CSV 和原始日志 |
 | `slot6-rg353ps-bringup` | 25 ahead / 81 behind，已分叉 | 保留；PR #4 仍开放，含 Slot-6 前端适配的独有提交 |
+
+删除前的安全检查与实际结果：
+
+- `feature/rg353ps-usb-mtp-composite` 通过 `git merge-base --is-ancestor` 校验，确认是 `main` 的祖先。
+- `release/rg353ps-1.2.4-baseline` **不是** `main` 的祖先（2 个独有提交 `be3b9f8`、`2adffef`）。逐文件核对确认两者仅改文档，且内容已被 `main` 的 `fe9b8fd`（归档基线文档）与 `fd7ab1f`（重写 `platforms/rg353ps/USB.md` 为 39 轮矩阵整合版）覆盖，因此删除不丢失实质内容。
+- 两项前提条件在执行前均已验证：`main` 存在 `docs/RG353PS-RELEASE-BASELINE-1.2.4.md` 且含本基线标题；`platforms/rg353ps/USB.md` 含 `39 valid cycles` 的 2-host / 2-cable 矩阵结论。
+- 为便于回滚，删除时在本地保留 `backup/release-rg353ps-1.2.4-baseline`（→`2adffef`）与 `backup/feature-rg353ps-usb-mtp-composite`（→`90a1208`）两个 ref；如需恢复远程分支，可执行 `git push origin backup/<name>:<原分支名>`。
+
+清理后远程仅剩三条分支：`main`、`slot6-rg353ps-bringup`、`usb-reconnect-diag`。
 
 没有 GitHub Release 或版本标签。PR #4（Slot-6 bring-up）仍开放；其余已关闭/合并 PR 记录保留。不得删除 `usb-reconnect-diag` 的测试资料，也不得删除 Slot-6 分支或关闭 PR #4 来代替正常审查。
 

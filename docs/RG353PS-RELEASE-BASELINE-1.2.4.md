@@ -169,11 +169,11 @@ PC-C 结果作为后续补充记录到测试报告，不自动触发内核改动
 | Branch | 相对 main | 处理 |
 |---|---|---|
 | `main` | 功能代码基线 | 保留；后续 USB 与基线文档已归档在此 |
-| `feature/rg353ps-usb-mtp-composite` | 0 ahead / 17 behind | **可删除**；提交全部已在 main 中，不含独有工作 |
-| `release/rg353ps-1.2.4-baseline` | 文档内容已迁入 main 后为冗余分支 | **可删除**；没有独有功能代码 |
-| `usb-reconnect-diag` | 16 ahead / 0 behind | 保留为诊断证据分支，含注入器、脚本、逐轮 CSV 和原始日志 |
-| `slot6-rg353ps-bringup` | 25 ahead / 77 behind，已分叉 | 保留；PR #4 仍开放，含 Slot-6 前端适配的独有提交 |
+| `feature/rg353ps-usb-mtp-composite` | 0 ahead / 21 behind | **可删除**；提交全部已在 main 中，不含独有工作 |
+| `release/rg353ps-1.2.4-baseline` | 2 ahead / 4 behind；两个独有提交仅为此前创建的基线文档 | **可删除**；没有独有功能代码 |
+| `usb-reconnect-diag` | 16 ahead / 4 behind | 保留为诊断证据分支，含注入器、脚本、逐轮 CSV 和原始日志 |
+| `slot6-rg353ps-bringup` | 25 ahead / 81 behind，已分叉 | 保留；PR #4 仍开放，含 Slot-6 前端适配的独有提交 |
 
 没有 GitHub Release 或版本标签。PR #4（Slot-6 bring-up）仍开放；其余已关闭/合并 PR 记录保留。不得删除 `usb-reconnect-diag` 的测试资料，也不得删除 Slot-6 分支或关闭 PR #4 来代替正常审查。
 
-本轮不删除 main 中的 `overlay-diag/`、`tools/uboot/*diag*` 或 RG353PS 根文件系统中的手动诊断工具：前两者被 MY355 诊断构建路径使用；后者是显式调用的硬件维护工具，不在正常启动流程中执行。main 目前没有检查到误入的 USB 测试原始日志或 DWC3 诊断注入器。
+本轮不删除 main 中的 `overlay-diag/`、`tools/uboot/*diag*` 或 RG353PS 根文件系统中的手动诊断工具：前两者被 MY355 诊断构建路径使用；后者是显式调用的硬件维护工具，不在正常启动流程中执行。main 目前没有误入的 USB 测试原始日志或 DWC3 诊断注入器。构建产物由 `.gitignore` 排除，当前 main 树没有镜像、压缩包、日志或其他构建产物。

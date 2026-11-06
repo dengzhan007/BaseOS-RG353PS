@@ -34,8 +34,12 @@ require(
     "missing or empty injector fails before cache-key generation",
 )
 require(
-    re.search(r'^INJECTOR_SHA="\$\(baseos_sha256 "\$INJECTOR"\)"$', build, re.M),
-    "injector content is hashed with baseos_sha256",
+    re.search(
+        r'^INJECTOR_SHA="\$\(baseos_sha256 "(?:\$INJECTOR|\$PLATFORM_DIR/kernel/tools/inject-reconnect-diag\.py)"\)"$',
+        build,
+        re.M,
+    ),
+    "injector content is hashed with baseos_sha256 (accepts $INJECTOR or the pinned injector path)",
 )
 require(
     re.search(r'^\[ -n "\$INJECTOR_SHA" \] \|\| \{[^\n]*cannot hash DWC3 reconnect diagnostic injector', build, re.M),

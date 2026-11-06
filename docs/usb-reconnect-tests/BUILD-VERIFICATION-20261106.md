@@ -112,23 +112,68 @@ kmsg 过滤、IRQ 快照、空输入 → N/A、上限截断等断言全部通过
 
 ## 7. 仍存在的风险与未验证事项
 
-1. **`test-kernel-input-key.sh` 断言 3 字面不匹配**：CI 若按「全绿」判定会误报失败。建议后续把 `build-kernel.sh` 第 76 行改为复用 `$INJECTOR` 变量以与测试一致——本次按「不擅自扩大修改范围」未改。
-2. **本次仅构建内核 bundle，未做 rootfs / uboot / 镜像打包**，未刷机、未发布。
-3. **未做真机硬件实测**（`kernel-build.json` 中 `hardware_tested=false`）：诊断点已编译进内核，但需在设备端用 dyndbg 打开后才能看到日志并验证重连行为。
-4. **已知未修项仍在**：supervisor 的 `stuck-at-default` 盲区（键盘线卡 `default` 61.6s 零恢复）本次未触碰，预期真机仍会复现。
+1. **`test-kernel-input-key.sh` 断言 3 字面不匹配（已修复）**：已于第二轮把该断言放宽为同时接受 `$INJECTOR` 与内联的 `$PLATFORM_DIR/kernel/tools/inject-reconnect-diag.py` 两种写法，两测试现已全绿（见第 9 节）。未改动 `build-kernel.sh` 的实际构建逻辑。
+2. **真机硬件实测仍未执行**（`kernel-build.json` 中 `hardware_tested=false`）：诊断点已编译进内核并打入 A/B 更新包，但需在设备端用 dyndbg 打开后才能看到日志并验证重连行为。
+3. **已知未修项仍在**：supervisor 的 `stuck-at-default` 盲区（键盘线卡 `default` 61.6s 零恢复）本次未触碰，预期真机仍会复现。
+4. **更新包 build-id 含 `-dirty`**：因构建所用的 WSL 工作树含一个**仅改 uMTP clone URL（github.com→ghfast 镜像）的临时本地修改**，导致 `git describe --dirty` 标记为 dirty。该修改只存在于 WSL 构建副本，**未进入提交**，不影响更新包功能与分区内容。
 
 ---
 
 ## 8. 下一步需要你在 RG353PS 上执行的操作
 
-1. **部署内核**：本次只产出内核 bundle（非完整镜像），需走现有 A/B 升级或手动替换 `/boot` 的 `Image` + `dtb` + `modules`。**未自动刷机**。校验值见第 5 节。
+1. **部署 A/B 更新包（推荐）**：将 `baseos-rg353ps-1.2.4.bosupd` 拷到卡上任一用户分区根目录，开机即自动消费、写入非活动槽位并切换 GPT。校验值与路径见第 9.4 / 9.5 节。
 2. **开启诊断并验收**：设备启动后用 `usb-reconnect-diag.sh` 的 dyndbg 开启命令（`format "RG353PS DWC3 RECONNECT *" +p`）打开 9 个诊断点，做拔插测试，确认 `dmesg` 出现 DISCONNECT / PULLUP / SOFTCONNECT / UDC 各点日志。
 3. **继续重连矩阵**：按之前交接文档，在另一台电脑用**线 1（好数据线）/ 线 3（手机线）**做交叉测试，**勿用线 2（键盘线）**。
 4. **复验键盘线盲区**：新内核未改 supervisor，预期 `stuck-at-default` 仍会复现；若复现，建议后续单独补 supervisor 超时恢复补丁（不在本次范围）。
 
 ---
 
+## 9. 第二轮补充（2026-11-06）：缓存键测试修复与 A/B 更新包
+
+### 9.1 仓库状态与同步
+- 分支 `usb-reconnect-diag`，HEAD `898d30b`（报告提交），工作区干净；未切换/合并 `main`。
+- 两个回归测试全部通过：
+  - `test-kernel-input-key.sh`：10/10 PASS（断言 3 已放宽为接受 `$INJECTOR` 或内联 `$PLATFORM_DIR/kernel/tools/inject-reconnect-diag.py` 两种写法，仍要求哈希针对诊断 injector 文件、缺失/空/无法哈希即失败、且修改 injector 内容改变 cache key）。
+  - `test-usb-reconnect-diag-awk.sh`：24/0 PASS。
+
+### 9.2 既有内核产物复核（未重新编译内核）
+路径 `work/rg353ps/kernel/output/`，大小/SHA256 与首次构建记录完全一致：
+
+| 产物 | 大小（字节） | SHA256 |
+|---|---:|---|
+| Image | 21,702,664 | `d6b66d7eee39f08ea577f0f1506f3c54d34e7ad8fd61c09ed815fa43250a6cad` |
+| rk3566-anbernic-rg353ps.dtb | 64,329 | `1abc0983b96309e1ca1d4cd590f23b0032d74dc40736af757b1de23ff3fc4d8d` |
+| modules-7.2.7-baseos-rg353ps.tar.zst | 3,232,013 | `e158055ecf9426b65ada6370611df742981478694a870df9e7a6e4d51b34f128` |
+
+- `kernel-build.json`：`kernel_release = 7.2.7-baseos-rg353ps`，`hardware_tested = False`，`usb_reconnect_kernel_revision = bvalid-otg-sm-serialized-v1`。
+- 最终 `Image` 内置 9 个诊断字符串（`strings` 校验，9/9）。
+
+### 9.3 rootfs / modules 一致性
+- 现有 rootfs 与 smoke image 为 11-03 主分支旧构建（modules 来自旧内核），与本次诊断内核不一致。按任务要求**未直接用旧 smoke image 冒充**，而是用仓库正式流程重新构建：
+  - `build-rootfs.sh`（profile=development，即 `usb_debug=yes` + `usb_mtp=yes`）：消费 `kernel/output/modules-7.2.7-baseos-rg353ps.tar.zst`，将匹配版本的 modules 装入 `/lib/modules/7.2.7-baseos-rg353ps`。
+  - `build-image.sh`：用本次 `Image` + `dtb` + 新 rootfs 重新组装 2 GiB smoke image（BASEOS_UBOOT / BASEOS_BOOT / BASEOS_ROOT / BASEOS 四分区）。
+- 验证：rootfs 区域含 `/lib/modules/7.2.7-baseos-rg353ps/modules.dep`（14 个模块条目），版本一致。
+
+### 9.4 A/B 更新包生成结果
+- `build-update.sh` 仅携带 `boot` + `rootfs` 两个 A/B 区域（**不含 U-Boot / SPL**），生成：
+  - `baseos-rg353ps-1.2.4.bosupd`，121,139,200 字节
+  - SHA256：`6aa91ef81daaee46e83f1984ebd21bc472a46ad906a8b7a4343967d708fd19de`
+  - 构建时间（UTC）：2026-11-06T01:37:40Z 起，约 4 分钟完成
+- manifest 关键字段：`format=baseos-update/2`、`target=rg353ps`、`version=1.2.4`、`boot-sectors=262144`、`rootfs-sectors=1048576`。
+- tar 成员仅 `manifest` + `boot.img.gz` + `rootfs.img.gz`，**无 uboot 成员**（U-Boot 由 SPL 从固定扇区加载，更新包刻意不覆盖）。
+
+### 9.5 更新包安全检查
+- **boot 区内 Image / dtb 与内核产物逐字节一致**：从 boot 区抽取 `Image` SHA256 = `d6b66d7ee…cad`（MATCH）、`dtb` SHA256 = `1abc0983…d8d`（MATCH）。
+- **区域 SHA 与独立镜像一致**：`boot-fat.img` SHA = manifest `boot-sha256`（`04ab0961…28e`），`rootfs-ext4.img` SHA = manifest `rootfs-sha256`（`ea052acb…f84`）。
+- **不覆盖 U-Boot/SPL**：payload 无 uboot 成员，BASEOS_UBOOT 分区不在更新范围内。
+- **保留用户数据分区**：更新只写入 boot/rootfs 的非活动半区并切换 GPT；`BASEOS`（用户数据分区，分区 4）不在 regions 内，不会被触碰。
+- **回滚方式**：A/B 双槽设计下，若新内核在设备上启动失败，可手动在 loader 侧选择另一槽位启动（gptslot 切换），或重新放置此前的 `.bosupd` / 用旧卡回退。具体槽位选择命令依赖设备端 `gptslot` 行为与 loader 菜单；如需确定性的「一键回滚」步骤，建议在真机上用 `gptslot` 实测确认后再写入本文档（当前不臆造未验证命令）。
+
+---
+
 ## 附：辅助脚本与日志位置（Windows 侧，非仓库内）
 
-- `F:/Workbuddy-workspace/{sync-repo,run-build,step3-inject-check,verify-kernel,docker-start,docker-net-test}.sh`
-- 完整构建日志：WSL `/root/work/baseos-123/build-rg353ps-diag.log`
+- `F:/Workbuddy-workspace/{sync-repo,run-build,step3-inject-check,verify-kernel,docker-start,docker-net-test,verify-artifacts,run-build-pkg,verify-package}.sh`
+- 完整内核构建日志：WSL `/root/work/baseos-123/build-rg353ps-diag.log`
+- 更新包构建日志：WSL `/root/work/baseos-123/build-pkg-diag.log`
+- 更新包产物：WSL `/root/work/baseos-123/work/rg353ps/baseos-rg353ps-1.2.4.bosupd`

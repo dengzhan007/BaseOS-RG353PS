@@ -5,6 +5,18 @@
 - P0 fix applied locally: `7e29495233809c36c17f7475f064d4e421bffcad` (not pushed to the integration branch)
 - Image kind: temporary hardware acceptance image, NOT a release build
 
+> **Status update (2026-11-06, after real-hardware acceptance).** This document
+> is the build-time delivery snapshot. The MTP-only Release acceptance has since
+> been executed on the real RG353PS and **PASSED**. Authoritative records:
+> `REAL-HARDWARE-ACCEPTANCE-20261106.md` and `hardware-acceptance/`
+> (`mtp-only-acceptance.md` / `.json`, `pnp-enumeration.json`, raw logs).
+> Verified: `VID_2207&PID_0009` only, no PID_0007/0008, no device-provided
+> RNDIS/NCM, 14/14 host checks, 7/7 file sizes and SHA-256 matches.
+> Sections 4, 9 and 10 below retain the historical build-time state and are
+> superseded only on that point; all measured data is unchanged. Mass Storage,
+> long-run stability and Linux gvfs remain untested - an MTP-only PASS does not
+> imply those pass.
+
 ## 1. Independent fix branch and PR
 
 - Branch: `fix/rg353ps-release-usb-profile-seed` (created from `origin/main` `4c8754fed1d13caeb07df58e18837d3890bf7ac3`)
@@ -116,7 +128,11 @@ Development-mode device (PID_0008) and is **not** a hardware acceptance result.
 > `usb_debug=yes`, it still wins. Remove that line (or the whole file) to
 > restore inheritance; nothing is migrated automatically.
 
-## 10. Hardware items NOT executed
+## 10. Hardware items NOT executed at build time (historical)
+
+> These were outstanding **at delivery time**; the first two were subsequently
+> completed and passed - see the authoritative reports linked in the status
+> update above. The list is kept verbatim as process history.
 
 - Windows PnP enumeration (needs the spare TF card)
 - MTP pull of the 7-file dataset / SHA-256 verification

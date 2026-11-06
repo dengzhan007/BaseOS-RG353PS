@@ -31,6 +31,8 @@ import argparse
 import json
 import os
 import platform
+import secrets
+import shlex
 import shutil
 import subprocess
 import sys
@@ -201,6 +203,41 @@ def ensure_dirs(backend, rel_dir: str) -> None:
         current = target
 
 
+def ssh_device_digests(args, device_dir: str):
+    """Hash every file under ``device_dir`` on the handheld itself.
+
+    Used when MTP read-back is unavailable (Windows' Shell namespace raises a
+    modal prompt for a just-written object). The device walks the tree itself so
+    no non-ASCII path ever travels through the SSH command line, which would be
+    mangled by the host console encoding.
+
+    Returns {relative path: sha256}. This is device-side evidence, never an MTP
+    read-back, and needs --device-ssh plus --device-storage-root.
+    """
+    if not args.device_ssh:
+        raise BackendError("device-side verification needs --device-ssh")
+    script = (
+        f"cd {shlex.quote(device_dir)} || exit 3; "
+        'find . -type f | sort | while IFS= read -r f; do '
+        'printf "%s  %s\\n" "$(sha256sum <\"$f\" | cut -d\' \' -f1)" "${f#./}"; done'
+    )
+    argv = args.device_ssh.split() + [script]
+    try:
+        result = subprocess.run(argv, capture_output=True, timeout=180)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise BackendError(f"device-side hash probe failed: {error}")
+    if result.returncode != 0:
+        detail = (result.stderr or b"").decode("utf-8", "replace").strip()
+        raise BackendError(f"device-side hash probe exited {result.returncode}: {detail[:300]}")
+    digests = {}
+    for line in result.stdout.decode("utf-8", "replace").splitlines():
+        if "  " not in line:
+            continue
+        digest, rel = line.split("  ", 1)
+        digests[rel.strip()] = digest.strip()
+    return digests
+
+
 def cmd_prepare(args, backend, checks: Checks) -> int:
     run_id = args.run_id or common.new_run_id()
     test_dir = common.test_dir_name(run_id)
@@ -311,7 +348,9 @@ def cmd_pull(args, backend, checks: Checks) -> int:
 def cmd_push(args, backend, checks: Checks) -> int:
     run_id = args.run_id
     test_dir = common.test_dir_name(run_id)
-    upload_name = f"{common.UPLOAD_DIR_PREFIX}{run_id}"
+    # Unique suffix: a repeat run must never collide with leftover files,
+    # because a collision turns into a modal "replace?" prompt on Windows.
+    upload_name = f"{common.UPLOAD_DIR_PREFIX}{run_id}-{secrets.token_hex(2)}"
     upload_dir = f"{test_dir}/{upload_name}"
     work = os.path.join(args.workdir or tempfile.mkdtemp(prefix="mtp-push-"))
     source = os.path.join(work, "source")
@@ -342,15 +381,47 @@ def cmd_push(args, backend, checks: Checks) -> int:
             backend.put_file(os.path.join(source, rel.replace("/", os.sep)), target_dir)
         except (BackendError, OSError) as error:
             checks.failed(f"push:{rel}", f"upload failed: {error}", relpath=rel, direction="push")
-    for rel in relpaths:
-        target = os.path.join(back, rel.replace("/", os.sep))
+    if backend.capabilities.get("readback_after_put"):
+        for rel in relpaths:
+            target = os.path.join(back, rel.replace("/", os.sep))
+            try:
+                backend.get_file(f"{upload_dir}/{rel}", target)
+            except (BackendError, OSError) as error:
+                checks.failed(f"push-readback:{rel}", f"read-back failed: {error}",
+                              relpath=rel, direction="push-readback")
+        verify_tree(back, manifest, "push-readback", checks,
+                    stage_note="host -> device -> host round trip")
+    elif args.device_ssh:
+        device_dir = f"{args.device_storage_root.rstrip('/')}/{upload_dir}"
         try:
-            backend.get_file(f"{upload_dir}/{rel}", target)
-        except (BackendError, OSError) as error:
-            checks.failed(f"push-readback:{rel}", f"read-back failed: {error}",
-                          relpath=rel, direction="push-readback")
-    verify_tree(back, manifest, "push-readback", checks,
-                stage_note="host -> device -> host round trip")
+            digests = ssh_device_digests(args, device_dir)
+        except BackendError as error:
+            checks.failed("push:verify", f"device-side verification failed: {error}")
+            digests = {}
+        for item in manifest["files"]:
+            rel = item["relpath"]
+            actual = digests.get(rel)
+            if actual is None:
+                checks.failed(f"push:{rel}", "file is missing on the device", relpath=rel,
+                              direction="push-device-hash")
+            elif actual != item["sha256"]:
+                checks.failed(f"push:{rel}",
+                              f"device sha256 {actual[:16]}... != host {item['sha256'][:16]}...",
+                              relpath=rel, direction="push-device-hash",
+                              expected_sha256=item["sha256"], actual_sha256=actual)
+            else:
+                checks.passed(f"push:{rel}",
+                              "MTP upload verified by the device's own SHA-256 "
+                              "(not an MTP read-back)",
+                              relpath=rel, direction="push-device-hash",
+                              expected_size=item["size"], expected_sha256=item["sha256"],
+                              actual_sha256=actual)
+    else:
+        for item in manifest["files"]:
+            checks.skipped(f"push:{item['relpath']}",
+                           f"{backend.name} cannot read back a just-written object without a "
+                           "modal prompt; pass --device-ssh for device-side SHA-256 instead",
+                           relpath=item["relpath"], direction="push")
     if args.keep_workdir:
         print(f"workdir kept at {work}", file=sys.stderr)
     return 0
@@ -360,7 +431,7 @@ def cmd_ops(args, backend, checks: Checks) -> int:
     """Exercise create/mkdir/rename/overwrite/delete inside the tool's own tree."""
     run_id = args.run_id
     test_dir = common.test_dir_name(run_id)
-    ops_root = f"{test_dir}/_ops-{run_id}"
+    ops_root = f"{test_dir}/_ops-{run_id}-{secrets.token_hex(2)}"
     work = tempfile.mkdtemp(prefix="mtp-ops-")
 
     def rel(*parts: str) -> str:
@@ -394,32 +465,54 @@ def cmd_ops(args, backend, checks: Checks) -> int:
     except (BackendError, OSError) as error:
         checks.failed("ops:mkdir-nested", f"nested mkdir failed: {error}")
 
-    # 2. create a file with a unicode + space name, then read it back
+    # 2. create a file with a unicode + space name, then verify what landed
     payload_a = b"baseos mtp ops file A\n" * 64
+    writable = local("ops-a.bin", payload_a)
     try:
-        backend.put_file(local("ops-a.bin", payload_a), ops_root)
-        readback = os.path.join(work, "ops-a-readback.bin")
-        backend.get_file(rel("ops-a.bin"), readback)
-        if common.sha256_file(readback) == common.sha256_bytes(payload_a):
-            checks.passed("ops:create-file", "unicode + space file created and read back intact")
+        backend.put_file(writable, ops_root)
+        if backend.capabilities.get("readback_after_put"):
+            readback = os.path.join(work, "ops-a-readback.bin")
+            backend.get_file(rel("ops-a.bin"), readback)
+            actual = common.sha256_file(readback)
+            note = "created and read back intact"
+        elif args.device_ssh:
+            device_dir = f"{args.device_storage_root.rstrip('/')}/{ops_root}"
+            digests = ssh_device_digests(args, device_dir)
+            actual = digests.get("ops-a.bin", "")
+            note = "created; verified with the device's own SHA-256 (not an MTP read-back)"
         else:
-            checks.failed("ops:create-file", "read-back digest differs from what was written")
+            actual = None
+            note = ""
+        expected = common.sha256_bytes(payload_a)
+        if actual is None:
+            checks.skipped("ops:create-file",
+                           f"{backend.name} cannot read back a just-written object without a "
+                           "modal prompt; pass --device-ssh for device-side SHA-256")
+        elif actual == expected:
+            checks.passed("ops:create-file", f"unicode/spaced file {note}")
+        else:
+            checks.failed("ops:create-file", "digest on the device differs from what was uploaded")
     except (BackendError, OSError) as error:
         checks.failed("ops:create-file", f"create/verify failed: {error}")
 
     # 3. overwrite the same path with different content and confirm the new bytes
     payload_b = b"baseos mtp ops file B, overwrite payload\n" * 64
-    try:
-        backend.put_file(local("ops-a.bin", payload_b), ops_root)
-        readback = os.path.join(work, "ops-a-readback2.bin")
-        backend.get_file(rel("ops-a.bin"), readback)
-        actual = common.sha256_file(readback)
-        if actual == common.sha256_bytes(payload_b):
-            checks.passed("ops:overwrite-file", "same path overwritten; new bytes verified")
-        else:
-            checks.failed("ops:overwrite-file", f"read-back digest {actual[:16]}... is not the new payload")
-    except (BackendError, OSError) as error:
-        checks.failed("ops:overwrite-file", f"overwrite check failed: {error}")
+    if not (backend.capabilities.get("overwrite") and backend.capabilities.get("readback_after_put")):
+        checks.skipped("ops:overwrite-file",
+                       f"{backend.name} raises a modal replace prompt; needs a human click")
+    else:
+        try:
+            backend.put_file(local("ops-a.bin", payload_b), ops_root)
+            readback = os.path.join(work, "ops-a-readback2.bin")
+            backend.get_file(rel("ops-a.bin"), readback)
+            actual = common.sha256_file(readback)
+            if actual == common.sha256_bytes(payload_b):
+                checks.passed("ops:overwrite-file", "same path overwritten; new bytes verified")
+            else:
+                checks.failed("ops:overwrite-file",
+                              f"read-back digest {actual[:16]}... is not the new payload")
+        except (BackendError, OSError) as error:
+            checks.failed("ops:overwrite-file", f"overwrite check failed: {error}")
 
     # 4. rename file and directory
     renamed_file = "重命名 文件 alpha.bin"
@@ -546,12 +639,14 @@ def cmd_run(args, backend, checks: Checks) -> int:
         _write_reports(args, report)
         return 1
 
-    stages = [
-        ("prepare", cmd_prepare),
-        ("pull", cmd_pull),
-        ("push", cmd_push),
-        ("ops", cmd_ops),
-    ]
+    stages = []
+    if args.skip_prepare:
+        # The dataset was created on the device by mtp-prepare.sh; re-running
+        # prepare here would either clobber it or fail on purpose.
+        report["prepare_skipped"] = True
+    else:
+        stages.append(("prepare", cmd_prepare))
+    stages += [("pull", cmd_pull), ("push", cmd_push), ("ops", cmd_ops)]
     for stage_name, handler in stages:
         stage_checks = Checks(stage_name)
         before = len(stage_checks.items)
@@ -690,6 +785,11 @@ def main(argv=None) -> int:
                         help="second confirmation required together with --force")
     parser.add_argument("--confirm-cleanup", action="store_true",
                         help="required for cleanup: delete the test tree")
+    parser.add_argument("--device-storage-root", default="/mnt/SDCARD",
+                        help="MTP storage root path on the handheld (used with --device-ssh)")
+    parser.add_argument("--skip-prepare", action="store_true",
+                        help="dataset already exists on the device (mtp-prepare.sh was run); "
+                             "go straight to pull/push/ops")
     parser.add_argument("--device-ssh",
                         help="optional command prefix used to record the handheld environment, "
                              "e.g. \"ssh root@192.168.42.1\" or \"plink -pw root root@192.168.42.1\"")

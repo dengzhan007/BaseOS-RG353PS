@@ -87,23 +87,18 @@ this tool created it with the same run id.
 
 ```sh
 python3 tools/mtp/mtp_integrity.py run \
-    --backend auto \
-    --run-id 20261106-120000-abcdef \
-    --dataset-profile full \
-    --device-ssh "ssh root@192.168.42.1" \
+    --backend windows-wpd --mtp-device RG353PS --mtp-storage RG353PS \
+    --run-id 20261106-120000-abcdef --dataset-profile full --skip-prepare \
+    --device-ssh "ssh root@192.168.42.1" --device-storage-root /mnt/SDCARD \
     --out ./mtp-integrity-20261106-120000-abcdef
 ```
 
-`--device-ssh` is optional: when given, its output (`uname`, release, UDC state)
-is recorded as the device environment so the report describes both ends. Without
-it the report says the device side was not identified rather than guessing.
-
-`run` executes prepare (idempotent check), pull, push and ops, then writes:
-
-- `report.json` — machine readable: run id, timestamps, host/device environment,
-  backend, per-file direction, sizes, digests, operation results, failure
-  reasons, duration, totals.
-- `report.md` — the same content as tables for a human reviewer.
+| Flag | Why |
+|---|---|
+| `--skip-prepare` | the dataset already exists on the device (`mtp-prepare.sh` ran there) |
+| `--device-ssh` | record the handheld environment and, on Windows, verify uploads with the device's own SHA-256 |
+| `--device-storage-root` | where the MTP storage root lives on the device (default `/mnt/SDCARD`) |
+| `--timeout` | per-object wait in seconds; raise it for the 128 MiB payload over WPD |
 
 Individual stages are also available: `prepare`, `pull`, `push`, `ops`,
 `cleanup`. `pull`/`push`/`ops` need `--run-id`.
@@ -138,30 +133,35 @@ and the resolved path before deleting, and it deletes exactly one directory:
 
 ## Status
 
-Verified in this repository:
+| Level | Result |
+|---|---|
+| Local script tests | 16/16 pass (both directions, hash mismatch, missing file, unicode/space/nested names, rename/overwrite/delete, no clobber, traversal refusal, cleanup scope, hostile manifest) |
+| Simulated MTP (`--backend local`) | `--dataset-profile full`: 31 checks, 0 failures, including the 128 MiB file in both directions |
+| RG353PS over real MTP (Windows WPD), `fast` | kernel `7.2.7-baseos-rg353ps`: **25 pass / 0 fail / 5 skip** in 68 s |
+| RG353PS over real MTP (Windows WPD), `full` (128 MiB) | **25 pass / 0 fail / 5 skip** in 99 s, including `large-128m.bin` (134217728 bytes) downloaded over MTP and re-uploaded with its device-side SHA-256 matched |
 
-- Local script tests: the automated suite (16 cases) passes, covering both
-  transfer directions, hash mismatch, missing files, unicode/space names,
-  nested paths, rename/overwrite/delete, refusal to overwrite an existing tree,
-  path-traversal refusal, and cleanup scope.
-- Simulated MTP run: `--backend local` with `--dataset-profile full` completes
-  31 checks with 0 failures, including the 128 MiB file in both directions.
+The 5 skips are WPD platform limits, not failures: `overwrite`, `rename-file`,
+`rename-dir`, `delete-file`, `delete-dir` each make the Windows Shell raise a
+modal confirmation dialog that no `CopyHere` flag suppresses.
 
-Not yet verified (real hardware must confirm, and must not be reported as
-passed before it is run):
-
-- RG353PS over real MTP with the Windows WPD adapter and with `mtp-tools`.
-- MTP-only sessions, Mass Storage hand-off and long-running stability are
-  separate acceptance items and are out of scope for this tool.
+Still open on hardware: the Mass Storage hand-off, MTP-only sessions and
+long-running stability; those are separate acceptance items.
 
 ## Limitations
 
-- The Windows adapter drives the same Shell/WPD stack Explorer uses.
-  `rename` has no dependable scriptable verb there, so it is reported as SKIP
-  (never PASS). `delete` goes through the shell verb and is verified by
-  re-listing the folder.
-- `linux-mtp-tools` cannot rename either; use `--gvfs-root` when a full
-  operation matrix is required.
-- The WPD helper must run in a normal Windows session. Sandboxes that block COM
-  object creation cannot execute it; the Python layer reports that as a backend
-  error instead of a fake success.
+- **Windows WPD cannot read back a just-written object.** The Shell namespace
+  raises a modal prompt for it, and `CopyHere` reports no error when its UI is
+  suppressed, so the call simply blocks. The tool therefore never performs that
+  read-back over WPD: with `--device-ssh` it hashes the uploaded files on the
+  device instead and labels the check `push-device-hash`, explicitly not an MTP
+  read-back.
+- **WPD delete / rename / overwrite always prompt**, so those verbs are declared
+  unsupported and reported as SKIP. Use `--backend linux-gvfs` or
+  `linux-mtp-tools` for the full operation matrix, or perform them by hand.
+- **Never overwrite a name over WPD.** `wpd.ps1` refuses instead of triggering a
+  replace prompt, and every run uses a unique `_upload-<run-id>-<rand>` /
+  `_ops-<run-id>-<rand>` directory, so repeated runs cannot collide.
+- `linux-mtp-tools` has no rename either; use `--gvfs-root` when a full matrix is
+  required.
+- Device-side hashing needs SSH (`--device-ssh`) and a shell on the handheld. It
+  is a different evidence path from an MTP read-back and is reported as such.

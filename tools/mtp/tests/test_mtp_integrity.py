@@ -46,6 +46,8 @@ def stage_args(root: str, **overrides) -> argparse.Namespace:
         "workdir": None,
         "keep_workdir": False,
         "device_ssh": None,
+        "skip_prepare": False,
+        "device_storage_root": "/mnt/SDCARD",
         "force": False,
         "confirm_force": False,
         "confirm_cleanup": False,

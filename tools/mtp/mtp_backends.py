@@ -41,6 +41,8 @@ class Backend:
         "mkdir": False,
         "rename": False,
         "delete": False,
+        "overwrite": False,
+        "readback_after_put": False,
     }
     #: True when the adapter moves bytes over MTP rather than the local FS.
     is_mtp = False
@@ -82,6 +84,8 @@ class FilesystemBackend(Backend):
         "mkdir": True,
         "rename": True,
         "delete": True,
+        "overwrite": True,
+        "readback_after_put": True,
     }
 
     def __init__(self, root: str, name: str = "local", is_mtp: bool = False):
@@ -171,6 +175,8 @@ class LinuxMtpToolsBackend(Backend):
         "mkdir": True,
         "rename": False,
         "delete": True,
+        "overwrite": True,
+        "readback_after_put": True,
     }
 
     def __init__(self, storage_name: str = "RG353PS", timeout: int = 900):
@@ -249,13 +255,18 @@ class WindowsWpdBackend(Backend):
 
     name = "windows-wpd"
     is_mtp = True
+    # The Shell namespace raises modal confirmation dialogs for delete and for
+    # replacing an existing name, and no CopyHere flag suppresses them. Those
+    # verbs are therefore reported unsupported rather than hanging the run.
     capabilities = {
         "list": True,
         "get": True,
         "put": True,
         "mkdir": True,
         "rename": False,
-        "delete": True,
+        "delete": False,
+        "overwrite": False,
+        "readback_after_put": False,
     }
 
     def __init__(self, device: str = "RG353PS", storage: str = "SDCARD", timeout: int = 900):

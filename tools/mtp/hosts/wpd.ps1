@@ -146,19 +146,35 @@ try {
             if ($localDir -and -not (Test-Path $localDir)) {
                 New-Item -ItemType Directory -Path $localDir -Force | Out-Null
             }
-            if (Test-Path $localPath) { Remove-Item $localPath -Force }
             $destination = $shell.NameSpace($localDir)
             if (-not $destination) { throw "cannot open local folder '$localDir'" }
-            # 0x14 = no progress dialog, answer "yes to all" for prompts.
-            $destination.CopyHere($item, 0x14)
-            $arrived = Wait-ForCondition {
-                if (-not (Test-Path $localPath)) { return $false }
-                $length = (Get-Item $localPath).Length
-                if ($expected -gt 0) { return $length -eq $expected }
-                return $length -gt 0
-            } $timeoutSeconds
+
+            # An object that was written moments ago can be refused for a few
+            # hundred milliseconds while the WPD view refreshes, and CopyHere
+            # gives no error for that (its UI is suppressed). Retry with a fresh
+            # enumeration before declaring failure.
+            $arrived = $false
+            $attemptTime = [Math]::Max(5, [int]($timeoutSeconds / 2))
+            for ($attempt = 1; $attempt -le 3 -and -not $arrived; $attempt++) {
+                if ($attempt -gt 1) {
+                    Start-Sleep -Milliseconds 700
+                    $folder = Get-FolderFromPath (Get-StorageFolder) $parts.Dir
+                    $item = $folder.Items() | Where-Object { $_.Name -eq $parts.Name -and -not $_.IsFolder } | Select-Object -First 1
+                    if (-not $item) { continue }
+                    if ($expected -le 0) { $expected = Get-ItemSize $item }
+                }
+                if (Test-Path $localPath) { Remove-Item $localPath -Force }
+                # 0x614 = SILENT | NOCONFIRMATION | NOCONFIRMMKDIR | NOERRORUI
+                $destination.CopyHere($item, 0x614)
+                $arrived = Wait-ForCondition {
+                    if (-not (Test-Path $localPath)) { return $false }
+                    $length = (Get-Item $localPath).Length
+                    if ($expected -gt 0) { return $length -eq $expected }
+                    return $length -gt 0
+                } $attemptTime
+            }
             if (-not $arrived) {
-                throw "copy did not complete within $timeoutSeconds s (expected $expected bytes)"
+                throw "copy did not complete after 3 attempts (expected $expected bytes)"
             }
             $actual = (Get-Item $localPath).Length
             Write-Result @{ ok = $true; bytes = $actual; expected = $expected }
@@ -168,9 +184,18 @@ try {
             $folder = Get-FolderFromPath (Get-StorageFolder) $relPath
             $leaf = [System.IO.Path]::GetFileName($localPath)
             $expected = (Get-Item $localPath).Length
+            # A pre-existing name makes the shell raise a modal "replace file?"
+            # prompt that CopyHere flags cannot suppress on MTP targets, and that
+            # prompt blocks until a human clicks it. Never overwrite over WPD:
+            # fail loudly so the caller can pick a fresh directory name instead.
+            $existing = $folder.Items() | Where-Object { $_.Name -eq $leaf } | Select-Object -First 1
+            if ($existing) {
+                throw "target '$leaf' already exists; refusing to trigger a replace prompt (use a fresh directory)"
+            }
             $sourceItem = $shell.NameSpace([System.IO.Path]::GetDirectoryName($localPath)).ParseName($leaf)
             if (-not $sourceItem) { throw "cannot open local file '$localPath'" }
-            $folder.CopyHere($sourceItem, 0x14)
+            # 0x614 = SILENT | NOCONFIRMATION | NOCONFIRMMKDIR | NOERRORUI
+            $folder.CopyHere($sourceItem, 0x614)
             $landed = Wait-ForCondition {
                 $probe = $folder.Items() | Where-Object { $_.Name -eq $leaf } | Select-Object -First 1
                 if (-not $probe) { return $false }

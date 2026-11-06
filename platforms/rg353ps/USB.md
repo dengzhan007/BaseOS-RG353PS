@@ -1,3 +1,14 @@
+- **Status:** the local script suite (16 cases) and the simulated-MTP full
+  dataset (31 checks) pass. On real hardware over Windows WPD with kernel
+  `7.2.7-baseos-rg353ps`, both dataset profiles completed **25 pass / 0 fail /
+  5 skip** (`fast` in 68 s, `full` in 99 s): device to host, host to device
+  (verified with the device's own SHA-256), nested mkdir and a unicode/spaced
+  file create. The `full` run moved `large-128m.bin` (134217728 bytes) in both
+  directions with matching digests. The five skips are
+  WPD platform limits — `overwrite`, `rename` and `delete` each make the Windows
+  Shell raise a modal confirmation that no `CopyHere` flag suppresses — and are
+  reported as SKIP, never as PASS. The Mass Storage hand-off is still open, and
+  MTP-only / long-running stability remain separate acceptance items.
 # RG353PS USB architecture
 
 ## Goals

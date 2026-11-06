@@ -1,11 +1,11 @@
 {
     "tool":  "rg353ps-mass-storage-readonly-check",
     "run_id":  "20261106-131355-4a3405",
-    "started_utc":  "2026-11-06T14:39:55Z",
-    "finished_utc":  "2026-11-06T14:39:57Z",
+    "started_utc":  "2026-11-06T15:00:21Z",
+    "finished_utc":  "2026-11-06T15:00:26Z",
     "mode":  "USB Mass Storage (VID_2207\u0026PID_0006)",
     "read_only":  true,
-    "device_selection":  "strict PnP parent/child + WMI disk/partition/volume mapping",
+    "device_selection":  "strict PnP parent/child + WMI disk/partition/volume, or volume GUID -\u003e PHYSICALDRIVE via read-only IOCTL_STORAGE_GET_DEVICE_NUMBER",
     "evidence":  {
                      "vid2207_devices":  [
                                              {
@@ -16,20 +16,265 @@
                                              }
                                          ],
                      "topology_source":  "live CIM/PnP",
+                     "ioctl_source":  "live read-only IOCTL_STORAGE_GET_DEVICE_NUMBER",
+                     "ioctl_candidate_count":  6,
                      "mapping":  {
-                                     "ok":  false,
-                                     "reason":  "no partition is associated with the mapped disk",
+                                     "ok":  true,
+                                     "reason":  "unique PnP -\u003e USBSTOR -\u003e PHYSICALDRIVE3 -\u003e IOCTL volume GUID mapping",
+                                     "path":  "superfloppy",
                                      "checks":  [
                                                     "unique_pnp_root",
                                                     "pnp_children_present",
-                                                    "unique_usb_disk"
+                                                    "unique_usb_disk",
+                                                    "no_partition_table_superfloppy_path",
+                                                    "physicaldrive_index=3",
+                                                    "unique_ioctl_volume_guid",
+                                                    "unique_superfloppy_volume"
                                                 ],
-                                     "disk":  null,
-                                     "volume":  null,
+                                     "disk":  {
+                                                  "DeviceID":  "\\\\.\\PHYSICALDRIVE3",
+                                                  "PNPDeviceID":  "USBSTOR\\DISK\u0026VEN_LINUX\u0026PROD_FILE-STOR_GADGET\u0026REV_0702\\7\u0026642BD20\u00260",
+                                                  "Index":  3,
+                                                  "Model":  "Linux File-Stor Gadget USB Device",
+                                                  "InterfaceType":  "USB",
+                                                  "Size":  14188608000
+                                              },
+                                     "volume":  {
+                                                    "DeviceID":  "\\\\?\\Volume{4508079a-d83f-11f1-9794-c8a3e85ae46c}\\",
+                                                    "DriveLetter":  "G:",
+                                                    "FileSystem":  "exFAT",
+                                                    "Capacity":  14190346240,
+                                                    "FreeSpace":  12279709696,
+                                                    "Label":  "BASEOS_DATA"
+                                                },
                                      "all_partitions":  [
 
                                                         ]
-                                 }
+                                 },
+                     "diagnostics":  {
+                                         "path":  "superfloppy",
+                                         "target_disk":  {
+                                                             "DeviceID":  "\\\\.\\PHYSICALDRIVE3",
+                                                             "PNPDeviceID":  "USBSTOR\\DISK\u0026VEN_LINUX\u0026PROD_FILE-STOR_GADGET\u0026REV_0702\\7\u0026642BD20\u00260",
+                                                             "Index":  3,
+                                                             "Model":  "Linux File-Stor Gadget USB Device",
+                                                             "InterfaceType":  "USB",
+                                                             "Size":  14188608000
+                                                         },
+                                         "target_disk_index":  3,
+                                         "partition_associations":  [
+
+                                                                    ],
+                                         "volumes":  [
+                                                         {
+                                                             "DeviceID":  "\\\\?\\Volume{97ab2f27-e273-4641-afa8-f2eaab3c70d9}\\",
+                                                             "DriveLetter":  "F:",
+                                                             "FileSystem":  "NTFS",
+                                                             "Capacity":  3000591446016,
+                                                             "FreeSpace":  1269006131200,
+                                                             "Label":  null
+                                                         },
+                                                         {
+                                                             "DeviceID":  "\\\\?\\Volume{344004dc-31cf-4bf0-90a6-9c3612df9e13}\\",
+                                                             "DriveLetter":  "D:",
+                                                             "FileSystem":  "NTFS",
+                                                             "Capacity":  254304841728,
+                                                             "FreeSpace":  195017621504,
+                                                             "Label":  null
+                                                         },
+                                                         {
+                                                             "DeviceID":  "\\\\?\\Volume{bbd3345b-0a92-42bb-93f6-19d71e1b2933}\\",
+                                                             "DriveLetter":  "C:",
+                                                             "FileSystem":  "NTFS",
+                                                             "Capacity":  257699082240,
+                                                             "FreeSpace":  156281495552,
+                                                             "Label":  null
+                                                         },
+                                                         {
+                                                             "DeviceID":  "\\\\?\\Volume{b85f880c-5c2d-4f49-9299-41259b6e46b1}\\",
+                                                             "DriveLetter":  "E:",
+                                                             "FileSystem":  "NTFS",
+                                                             "Capacity":  2048406843392,
+                                                             "FreeSpace":  1580351815680,
+                                                             "Label":  null
+                                                         },
+                                                         {
+                                                             "DeviceID":  "\\\\?\\Volume{4508079a-d83f-11f1-9794-c8a3e85ae46c}\\",
+                                                             "DriveLetter":  "G:",
+                                                             "FileSystem":  "exFAT",
+                                                             "Capacity":  14190346240,
+                                                             "FreeSpace":  12279709696,
+                                                             "Label":  "BASEOS_DATA"
+                                                         },
+                                                         {
+                                                             "DeviceID":  "\\\\?\\Volume{7602147c-447c-4298-be7d-3e375bbef3f3}\\",
+                                                             "DriveLetter":  null,
+                                                             "FileSystem":  "FAT32",
+                                                             "Capacity":  104026112,
+                                                             "FreeSpace":  67948544,
+                                                             "Label":  null
+                                                         }
+                                                     ],
+                                         "ioctl_map":  [
+                                                           {
+                                                               "VolumeGuidPath":  "\\\\?\\Volume{344004dc-31cf-4bf0-90a6-9c3612df9e13}",
+                                                               "IoctlOk":  true,
+                                                               "DeviceNumber":  1,
+                                                               "PartitionNumber":  2,
+                                                               "DeviceType":  7,
+                                                               "Error":  "",
+                                                               "DriveLetter":  "D:",
+                                                               "FileSystem":  "NTFS",
+                                                               "WmiDeviceID":  "\\\\?\\Volume{344004dc-31cf-4bf0-90a6-9c3612df9e13}\\",
+                                                               "WmiMetadataUnique":  true
+                                                           },
+                                                           {
+                                                               "VolumeGuidPath":  "\\\\?\\Volume{4508079a-d83f-11f1-9794-c8a3e85ae46c}",
+                                                               "IoctlOk":  true,
+                                                               "DeviceNumber":  3,
+                                                               "PartitionNumber":  1,
+                                                               "DeviceType":  7,
+                                                               "Error":  "",
+                                                               "DriveLetter":  "G:",
+                                                               "FileSystem":  "exFAT",
+                                                               "WmiDeviceID":  "\\\\?\\Volume{4508079a-d83f-11f1-9794-c8a3e85ae46c}\\",
+                                                               "WmiMetadataUnique":  true
+                                                           },
+                                                           {
+                                                               "VolumeGuidPath":  "\\\\?\\Volume{7602147c-447c-4298-be7d-3e375bbef3f3}",
+                                                               "IoctlOk":  true,
+                                                               "DeviceNumber":  1,
+                                                               "PartitionNumber":  1,
+                                                               "DeviceType":  7,
+                                                               "Error":  "",
+                                                               "DriveLetter":  "",
+                                                               "FileSystem":  "FAT32",
+                                                               "WmiDeviceID":  "\\\\?\\Volume{7602147c-447c-4298-be7d-3e375bbef3f3}\\",
+                                                               "WmiMetadataUnique":  true
+                                                           },
+                                                           {
+                                                               "VolumeGuidPath":  "\\\\?\\Volume{97ab2f27-e273-4641-afa8-f2eaab3c70d9}",
+                                                               "IoctlOk":  true,
+                                                               "DeviceNumber":  0,
+                                                               "PartitionNumber":  1,
+                                                               "DeviceType":  7,
+                                                               "Error":  "",
+                                                               "DriveLetter":  "F:",
+                                                               "FileSystem":  "NTFS",
+                                                               "WmiDeviceID":  "\\\\?\\Volume{97ab2f27-e273-4641-afa8-f2eaab3c70d9}\\",
+                                                               "WmiMetadataUnique":  true
+                                                           },
+                                                           {
+                                                               "VolumeGuidPath":  "\\\\?\\Volume{b85f880c-5c2d-4f49-9299-41259b6e46b1}",
+                                                               "IoctlOk":  true,
+                                                               "DeviceNumber":  2,
+                                                               "PartitionNumber":  1,
+                                                               "DeviceType":  7,
+                                                               "Error":  "",
+                                                               "DriveLetter":  "E:",
+                                                               "FileSystem":  "NTFS",
+                                                               "WmiDeviceID":  "\\\\?\\Volume{b85f880c-5c2d-4f49-9299-41259b6e46b1}\\",
+                                                               "WmiMetadataUnique":  true
+                                                           },
+                                                           {
+                                                               "VolumeGuidPath":  "\\\\?\\Volume{bbd3345b-0a92-42bb-93f6-19d71e1b2933}",
+                                                               "IoctlOk":  true,
+                                                               "DeviceNumber":  1,
+                                                               "PartitionNumber":  3,
+                                                               "DeviceType":  7,
+                                                               "Error":  "",
+                                                               "DriveLetter":  "C:",
+                                                               "FileSystem":  "NTFS",
+                                                               "WmiDeviceID":  "\\\\?\\Volume{bbd3345b-0a92-42bb-93f6-19d71e1b2933}\\",
+                                                               "WmiMetadataUnique":  true
+                                                           }
+                                                       ],
+                                         "ioctl_matched_volumes":  [
+                                                                       {
+                                                                           "VolumeGuidPath":  "\\\\?\\Volume{4508079a-d83f-11f1-9794-c8a3e85ae46c}",
+                                                                           "IoctlOk":  true,
+                                                                           "DeviceNumber":  3,
+                                                                           "PartitionNumber":  1,
+                                                                           "DeviceType":  7,
+                                                                           "Error":  "",
+                                                                           "DriveLetter":  "G:",
+                                                                           "FileSystem":  "exFAT",
+                                                                           "WmiDeviceID":  "\\\\?\\Volume{4508079a-d83f-11f1-9794-c8a3e85ae46c}\\",
+                                                                           "WmiMetadataUnique":  true
+                                                                       }
+                                                                   ],
+                                         "unresolved_ioctl_volumes":  [
+
+                                                                      ]
+                                     },
+                     "dataset_dir":  "G:\\baseos-mtp-test-20261106-131355-4a3405",
+                     "manifest_origin":  "device",
+                     "manifest_created_utc":  "2026-11-06T13:57:38Z",
+                     "file_verification":  [
+                                               {
+                                                   "path":  "small-4k.bin",
+                                                   "expected_size":  4096,
+                                                   "actual_size":  4096,
+                                                   "size_ok":  true,
+                                                   "sha256_ok":  true,
+                                                   "expected_sha256":  "24e7feafea57a3d4ada88e2199f4d0ba3e869e6611b8d410d879043574b73251",
+                                                   "actual_sha256":  "24e7feafea57a3d4ada88e2199f4d0ba3e869e6611b8d410d879043574b73251"
+                                               },
+                                               {
+                                                   "path":  "medium-1m.bin",
+                                                   "expected_size":  1048576,
+                                                   "actual_size":  1048576,
+                                                   "size_ok":  true,
+                                                   "sha256_ok":  true,
+                                                   "expected_sha256":  "c1edb546534f58350112da76a0e822917f070f27838c9e90566ef7299fa016f0",
+                                                   "actual_sha256":  "c1edb546534f58350112da76a0e822917f070f27838c9e90566ef7299fa016f0"
+                                               },
+                                               {
+                                                   "path":  "large-128m.bin",
+                                                   "expected_size":  134217728,
+                                                   "actual_size":  134217728,
+                                                   "size_ok":  true,
+                                                   "sha256_ok":  true,
+                                                   "expected_sha256":  "52b43720572483d215a3ba86436a8a9acda01cda1fa5c4135914ddc19cfc93cd",
+                                                   "actual_sha256":  "52b43720572483d215a3ba86436a8a9acda01cda1fa5c4135914ddc19cfc93cd"
+                                               },
+                                               {
+                                                   "path":  "中文文件名.txt",
+                                                   "expected_size":  1024,
+                                                   "actual_size":  1024,
+                                                   "size_ok":  true,
+                                                   "sha256_ok":  true,
+                                                   "expected_sha256":  "8cf0bc3f7efa4262e5f9c1ca20ce6e604e369b530cfae89e6a33821418f5b069",
+                                                   "actual_sha256":  "8cf0bc3f7efa4262e5f9c1ca20ce6e604e369b530cfae89e6a33821418f5b069"
+                                               },
+                                               {
+                                                   "path":  "name with spaces.txt",
+                                                   "expected_size":  1024,
+                                                   "actual_size":  1024,
+                                                   "size_ok":  true,
+                                                   "sha256_ok":  true,
+                                                   "expected_sha256":  "0756506b5d80d97096c44db742c14bd296364d92ac253a2f648ebd9cfdbf74f7",
+                                                   "actual_sha256":  "0756506b5d80d97096c44db742c14bd296364d92ac253a2f648ebd9cfdbf74f7"
+                                               },
+                                               {
+                                                   "path":  "中文 目录 with spaces/嵌套 子目录/深层 文件.txt",
+                                                   "expected_size":  1024,
+                                                   "actual_size":  1024,
+                                                   "size_ok":  true,
+                                                   "sha256_ok":  true,
+                                                   "expected_sha256":  "19f94e475a2880b4a7e17a994cf292d3934b6d8726168ba5bb4c6ad0cd9dc70a",
+                                                   "actual_sha256":  "19f94e475a2880b4a7e17a994cf292d3934b6d8726168ba5bb4c6ad0cd9dc70a"
+                                               },
+                                               {
+                                                   "path":  "nested/sub/deep.bin",
+                                                   "expected_size":  65536,
+                                                   "actual_size":  65536,
+                                                   "size_ok":  true,
+                                                   "sha256_ok":  true,
+                                                   "expected_sha256":  "50c256e4668448e6d164363e6c2b525324e4b17da1e3f18cbf425ff1b9fcc7ab",
+                                                   "actual_sha256":  "50c256e4668448e6d164363e6c2b525324e4b17da1e3f18cbf425ff1b9fcc7ab"
+                                               }
+                                           ]
                  },
     "checks":  [
                    {
@@ -59,12 +304,82 @@
                    },
                    {
                        "name":  "strict_device_mapping",
-                       "status":  "FAIL",
-                       "detail":  "no partition is associated with the mapped disk"
+                       "status":  "PASS",
+                       "detail":  "[superfloppy] unique PnP -\u003e USBSTOR -\u003e PHYSICALDRIVE3 -\u003e IOCTL volume GUID mapping"
+                   },
+                   {
+                       "name":  "topology_inspected",
+                       "status":  "PASS",
+                       "detail":  "path=superfloppy; partitions=0; ioctl_records=6"
+                   },
+                   {
+                       "name":  "no_raw_or_unknown_filesystem",
+                       "status":  "PASS",
+                       "detail":  "all inspected partitions/volumes on path superfloppy have a known filesystem"
+                   },
+                   {
+                       "name":  "volume_ownership_confirmed",
+                       "status":  "PASS",
+                       "detail":  "volume GUID \\\\?\\Volume{4508079a-d83f-11f1-9794-c8a3e85ae46c} -\u003e PHYSICALDRIVE3 via IOCTL"
+                   },
+                   {
+                       "name":  "target_volume_has_drive_letter",
+                       "status":  "PASS",
+                       "detail":  "volume=G:"
+                   },
+                   {
+                       "name":  "exfat_volume_visible",
+                       "status":  "PASS",
+                       "detail":  "filesystem=exFAT"
+                   },
+                   {
+                       "name":  "dataset_dir_found",
+                       "status":  "PASS",
+                       "detail":  "looked only on G:"
+                   },
+                   {
+                       "name":  "manifest_present",
+                       "status":  "PASS",
+                       "detail":  "G:\\baseos-mtp-test-20261106-131355-4a3405\\baseos-mtp-test-manifest.json"
+                   },
+                   {
+                       "name":  "seven_files_listed",
+                       "status":  "PASS",
+                       "detail":  "manifest entries=7"
+                   },
+                   {
+                       "name":  "all_sizes_match",
+                       "status":  "PASS",
+                       "detail":  "7/7 sizes match"
+                   },
+                   {
+                       "name":  "all_sha256_match",
+                       "status":  "PASS",
+                       "detail":  "7/7 SHA-256 match"
+                   },
+                   {
+                       "name":  "large_128mib_verified",
+                       "status":  "PASS",
+                       "detail":  "128 MiB file sized 134217728 and hashed"
+                   },
+                   {
+                       "name":  "unicode_name_verified",
+                       "status":  "PASS",
+                       "detail":  "Chinese filename read and hashed"
+                   },
+                   {
+                       "name":  "space_name_verified",
+                       "status":  "PASS",
+                       "detail":  "filename with spaces read and hashed"
+                   },
+                   {
+                       "name":  "three_level_dir_verified",
+                       "status":  "PASS",
+                       "detail":  "three-level directory read and hashed"
                    }
                ],
     "failures":  [
-                     "strict_device_mapping: no partition is associated with the mapped disk"
+
                  ],
-    "pass":  false
+    "pass":  true
 }

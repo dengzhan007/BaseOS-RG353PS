@@ -1,0 +1,311 @@
+{
+    "tool":  "rg353ps-mass-storage-write-check",
+    "suite":  "offline",
+    "hardware_contacted":  false,
+    "created_utc":  "2026-11-06T16:06:54Z",
+    "cases":  60,
+    "pass":  60,
+    "fail":  0,
+    "results":  [
+                    {
+                        "name":  "rejects traversal with backslash",
+                        "pass":  true,
+                        "detail":  "input=[..\\x.txt] reason=relative traversal segment"
+                    },
+                    {
+                        "name":  "rejects traversal with slash",
+                        "pass":  true,
+                        "detail":  "input=[../x.txt] reason=relative traversal segment"
+                    },
+                    {
+                        "name":  "rejects drive-qualified absolute path",
+                        "pass":  true,
+                        "detail":  "input=[C:\\Windows\\x] reason=drive-qualified path"
+                    },
+                    {
+                        "name":  "rejects UNC path",
+                        "pass":  true,
+                        "detail":  "input=[\\\\server\\share\\x] reason=UNC path"
+                    },
+                    {
+                        "name":  "rejects rooted path",
+                        "pass":  true,
+                        "detail":  "input=[/etc/passwd] reason=rooted path"
+                    },
+                    {
+                        "name":  "rejects alternate data stream",
+                        "pass":  true,
+                        "detail":  "input=[a:b.txt] reason=colon or alternate data stream in path"
+                    },
+                    {
+                        "name":  "rejects empty path",
+                        "pass":  true,
+                        "detail":  "input=[] reason=empty relative path"
+                    },
+                    {
+                        "name":  "rejects empty segment",
+                        "pass":  true,
+                        "detail":  "input=[dir//file.bin] reason=empty path segment"
+                    },
+                    {
+                        "name":  "rejects whitespace-only segment",
+                        "pass":  true,
+                        "detail":  "input=[   \\file.bin] reason=whitespace-only path segment"
+                    },
+                    {
+                        "name":  "accepts Unicode + spaces + three levels",
+                        "pass":  true,
+                        "detail":  "segments=3 reason=relative path stays inside the dataset directory"
+                    },
+                    {
+                        "name":  "accepts ASCII three-level path",
+                        "pass":  true,
+                        "detail":  "segments=3"
+                    },
+                    {
+                        "name":  "accepts a single name containing spaces",
+                        "pass":  true,
+                        "detail":  "relative path stays inside the dataset directory"
+                    },
+                    {
+                        "name":  "resolves an in-dataset path",
+                        "pass":  true,
+                        "detail":  "C:\\Users\\zhan\\AppData\\Local\\Temp\\rg353ps-write-test-ee2063362de649308e932079dd41c80b\\root\\nested\\sub\\deep.bin"
+                    },
+                    {
+                        "name":  "refuses to escape the dataset root",
+                        "pass":  true,
+                        "detail":  "relative traversal segment"
+                    },
+                    {
+                        "name":  "refuses inner traversal segments",
+                        "pass":  true,
+                        "detail":  "relative traversal segment"
+                    },
+                    {
+                        "name":  "tolerates a trailing separator on the root",
+                        "pass":  true,
+                        "detail":  "C:\\Users\\zhan\\AppData\\Local\\Temp\\rg353ps-write-test-ee2063362de649308e932079dd41c80b\\root\\a.bin"
+                    },
+                    {
+                        "name":  "refuses a sibling directory with a shared prefix",
+                        "pass":  true,
+                        "detail":  "relative traversal segment"
+                    },
+                    {
+                        "name":  "writes all seven payloads",
+                        "pass":  true,
+                        "detail":  "written=7 aborted=False reason="
+                    },
+                    {
+                        "name":  "reported sizes match the specification",
+                        "pass":  true,
+                        "detail":  "mismatches=0"
+                    },
+                    {
+                        "name":  "128 MiB payload is 134217728 bytes",
+                        "pass":  true,
+                        "detail":  "actual=134217728"
+                    },
+                    {
+                        "name":  "payloads have distinct content",
+                        "pass":  true,
+                        "detail":  "distinct hashes=7"
+                    },
+                    {
+                        "name":  "hash is computed while writing",
+                        "pass":  true,
+                        "detail":  "disk=ea6dfd3d7d69"
+                    },
+                    {
+                        "name":  "CreateNew refuses to overwrite an existing file",
+                        "pass":  true,
+                        "detail":  "error=target already exists; CreateNew refuses to overwrite"
+                    },
+                    {
+                        "name":  "existing dataset directory is a hard stop",
+                        "pass":  true,
+                        "detail":  "reason=dataset_dir_exists"
+                    },
+                    {
+                        "name":  "unsafe spec aborts before creating anything",
+                        "pass":  true,
+                        "detail":  "reason=unsafe_relative_path dirExists=False"
+                    },
+                    {
+                        "name":  "missing parent directory is rejected",
+                        "pass":  true,
+                        "detail":  "parent directory does not exist"
+                    },
+                    {
+                        "name":  "accepts a well-formed manifest",
+                        "pass":  true,
+                        "detail":  "manifest lists 2 entries"
+                    },
+                    {
+                        "name":  "rejects an empty files array",
+                        "pass":  true,
+                        "detail":  "manifest files array is empty"
+                    },
+                    {
+                        "name":  "rejects a manifest without files",
+                        "pass":  true,
+                        "detail":  "manifest has no files array"
+                    },
+                    {
+                        "name":  "rejects a traversal entry in the manifest",
+                        "pass":  true,
+                        "detail":  "unsafe relpath ..\\x.bin: relative traversal segment"
+                    },
+                    {
+                        "name":  "rejects an absolute entry in the manifest",
+                        "pass":  true,
+                        "detail":  "unsafe relpath C:\\x.bin: drive-qualified path"
+                    },
+                    {
+                        "name":  "rejects a malformed SHA-256",
+                        "pass":  true,
+                        "detail":  "sha256 is not 64 hex characters for a.bin"
+                    },
+                    {
+                        "name":  "rejects a negative size",
+                        "pass":  true,
+                        "detail":  "negative size for a.bin"
+                    },
+                    {
+                        "name":  "rejects duplicate entries",
+                        "pass":  true,
+                        "detail":  "duplicate relpath a.bin"
+                    },
+                    {
+                        "name":  "rejects a dataset_name that contains a path",
+                        "pass":  true,
+                        "detail":  "dataset_name is not a single safe directory name"
+                    },
+                    {
+                        "name":  "rejects an entry missing size",
+                        "pass":  true,
+                        "detail":  "file entry is missing size"
+                    },
+                    {
+                        "name":  "rejects a non-JSON manifest file",
+                        "pass":  true,
+                        "detail":  "manifest is not valid JSON: 传入的对象无效，应为“:”或“}”。 (8): { this is not json"
+                    },
+                    {
+                        "name":  "reports a missing manifest file",
+                        "pass":  true,
+                        "detail":  "manifest file not found: C:\\Users\\zhan\\AppData\\Local\\Temp\\rg353ps-write-test-ee2063362de649308e932079dd41c80b\\absent.json"
+                    },
+                    {
+                        "name":  "verifies matching files",
+                        "pass":  true,
+                        "detail":  "all manifest entries match on the device"
+                    },
+                    {
+                        "name":  "detects a size mismatch",
+                        "pass":  true,
+                        "detail":  "status=size_mismatch"
+                    },
+                    {
+                        "name":  "detects a SHA-256 mismatch at unchanged size",
+                        "pass":  true,
+                        "detail":  "status=sha256_mismatch size=1024"
+                    },
+                    {
+                        "name":  "reports a missing file and never recreates it",
+                        "pass":  true,
+                        "detail":  "status=missing"
+                    },
+                    {
+                        "name":  "missing dataset directory is reported",
+                        "pass":  true,
+                        "detail":  "dataset directory is missing"
+                    },
+                    {
+                        "name":  "mapping abort: zero PID_0006 roots",
+                        "pass":  true,
+                        "detail":  "exit=1 reason=device_absent files=0"
+                    },
+                    {
+                        "name":  "mapping abort: two PID_0006 roots",
+                        "pass":  true,
+                        "detail":  "exit=1 reason=device_duplicated files=0"
+                    },
+                    {
+                        "name":  "mapping abort: no PnP child",
+                        "pass":  true,
+                        "detail":  "exit=1 reason=child_missing files=0"
+                    },
+                    {
+                        "name":  "mapping abort: two disks claim the same child",
+                        "pass":  true,
+                        "detail":  "exit=1 reason=disk_mapping_ambiguous files=0"
+                    },
+                    {
+                        "name":  "mapping abort: RAW filesystem",
+                        "pass":  true,
+                        "detail":  "exit=1 reason=filesystem_raw files=0"
+                    },
+                    {
+                        "name":  "mapping abort: two volumes on the target disk",
+                        "pass":  true,
+                        "detail":  "exit=1 reason=ioctl_not_unique files=0"
+                    },
+                    {
+                        "name":  "accepts the unique topology without writing",
+                        "pass":  true,
+                        "detail":  "ok=True drive=C: path=superfloppy"
+                    },
+                    {
+                        "name":  "Verify stops when the local manifest is missing",
+                        "pass":  true,
+                        "detail":  "exit=1 reason=local_manifest_missing_or_invalid"
+                    },
+                    {
+                        "name":  "Verify stops when the dataset directory is absent",
+                        "pass":  true,
+                        "detail":  "exit=1 reason=dataset_dir_missing"
+                    },
+                    {
+                        "name":  "Phase None performs no device access",
+                        "pass":  true,
+                        "detail":  "exit=0"
+                    },
+                    {
+                        "name":  "no mutating or destructive cmdlets in the tool",
+                        "pass":  true,
+                        "detail":  "hits="
+                    },
+                    {
+                        "name":  "uses FileMode.CreateNew for payloads",
+                        "pass":  true,
+                        "detail":  "CreateNew present"
+                    },
+                    {
+                        "name":  "flushes to disk with Flush(true)",
+                        "pass":  true,
+                        "detail":  "Flush(true) present"
+                    },
+                    {
+                        "name":  "reuses the strict resolver and IOCTL ownership proof",
+                        "pass":  true,
+                        "detail":  "resolver reuse present"
+                    },
+                    {
+                        "name":  "has no fallback scan of USB disks or exFAT guessing",
+                        "pass":  true,
+                        "detail":  "no scan pattern"
+                    },
+                    {
+                        "name":  "declares Prepare and Verify phases",
+                        "pass":  true,
+                        "detail":  "phases present"
+                    },
+                    {
+                        "name":  "tool source stays pure ASCII",
+                        "pass":  true,
+                        "detail":  "non-ascii bytes=0"
+                    }
+                ]
+}

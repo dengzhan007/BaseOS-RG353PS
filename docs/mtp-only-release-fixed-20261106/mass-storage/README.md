@@ -17,16 +17,33 @@ manual operator action; this directory contains no device-side logic.
 - This revision adds a strictly bounded superfloppy ownership path. No
   device-side USB logic was changed, no image was rebuilt, no card was written.
   The earlier FAIL report is kept as history and is not a PASS.
+- **Re-test with that revision: PASS.** 20/20 host checks, `failures` empty.
+  Unique `VID_2207&PID_0006` root -> `USBSTOR` LUN -> the single
+  `\\.\PHYSICALDRIVE3` (zero partition associations); 6 read-only
+  `IOCTL_STORAGE_GET_DEVICE_NUMBER` records, exactly one matched
+  (`Volume{4508079a-...}` -> `DeviceNumber 3`), zero unresolved, giving `G:`
+  exFAT `BASEOS_DATA`; the other volumes (device numbers 0/1/2) were excluded.
+  7/7 sizes and 7/7 SHA-256 matched, including `large-128m.bin` (134217728
+  bytes), Chinese names, spaces and a three-level path. Raw evidence:
+  `mass-storage-host-report.json` / `.md`.
+- **Exit recovery (Mass Storage -> MTP): PASS.** After a safe eject, cable pull,
+  wait for the frontend to recover and a re-plug, the device returned as
+  MTP-only: exactly one `VID_2207&PID_0009` root, zero `PID_0006/0007/0008`
+  roots, a live WPD node (`PNPClass=WPD`, `Service=WUDFWpdMtp`) plus a live
+  `RG353PS` Shell item, and zero `VID_2207` network adapters. Raw evidence:
+  `exit-recovery-host-report.json` / `.md`. No file-transfer retest was run.
 
 ## Files
 
 | File | Purpose |
 | --- | --- |
 | `check-rg353ps-mass-storage.ps1` | Windows host, read-only verification |
+| `check-rg353ps-exit-recovery.ps1` | Windows host, read-only exit-recovery verification |
 | `Rg353psDeviceMap.ps1` | Injectable pure resolver + read-only IOCTL helper |
 | `test-rg353ps-mass-storage-device-map.ps1` | Offline tests for the resolver |
 | `offline-test-results.json` | Raw offline test results |
 | `mass-storage-host-report.json` / `.md` | Produced by the real-hardware host check |
+| `exit-recovery-host-report.json` / `.md` | Produced by the exit-recovery host check |
 
 ## Strict device identity (no fallback scanning)
 
@@ -64,6 +81,32 @@ there is no "scan all USB disks" and no "guess by exFAT" fallback.
 The report keeps `diagnostics` with: `target_disk`, `target_disk_index`,
 `partition_associations`, `volumes`, `ioctl_map`, `ioctl_matched_volumes` and
 `unresolved_ioctl_volumes`.
+
+## Exit recovery (Mass Storage -> MTP)
+
+Run only after the operator has safely ejected the Mass Storage volume, pulled
+the cable, given the frontend time to recover and re-plugged it:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "F:\workspace\2026-10-28-22-11-37\.tmp-doc\p0-fix\win\docs\mtp-only-release-fixed-20261106\mass-storage\check-rg353ps-exit-recovery.ps1"
+```
+
+It polls for up to 30 seconds and passes only when all four conditions hold:
+
+1. exactly one `USB\VID_2207&PID_0009\...` root node;
+2. zero `VID_2207&PID_0006`, `PID_0007` and `PID_0008` root nodes;
+3. WPD recognises `RG353PS`, proven by a **live** node with `PNPClass=WPD` /
+   `Service=WUDFWpdMtp`, or a live `RG353PS` item in the Shell "This PC"
+   namespace. Registry keys left behind by the older composite mode (for
+   example `USB#VID_2207&PID_0008&MI_02#...`) are recorded as legacy entries
+   and never count towards PASS;
+4. no `VID_2207` network adapter, therefore no device-provided RNDIS/NCM
+   interface.
+
+The report also records, informationally, whether any `BASEOS_DATA`/exFAT
+volume is still mounted; that field never changes the verdict. A failing run
+keeps its raw diagnostics and attempts nothing: no restart, no configuration
+change, no repair, no retry against another device.
 
 ## Read-only safeguards
 

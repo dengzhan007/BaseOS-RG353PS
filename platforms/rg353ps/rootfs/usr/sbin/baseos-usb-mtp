@@ -25,12 +25,21 @@ start() {
     fi
 
     mkdir -p "$MOUNTPOINT" || { log "cannot create $MOUNTPOINT"; return 1; }
-    if ! mounted; then
-        mount -t functionfs mtp "$MOUNTPOINT" 2>/dev/null || {
-            log "FunctionFS mount failed"
+    if mounted; then
+        # A responder that died without unmounting leaves a FunctionFS instance
+        # with dead endpoints. Reusing it would look "running" to a caller that
+        # only checks the mount, so release it and start from a clean mount.
+        log "stale FunctionFS mount found without a live responder; releasing it"
+        umount "$MOUNTPOINT" 2>/dev/null || :
+        if mounted; then
+            log "stale FunctionFS mount survived umount"
             return 1
-        }
+        fi
     fi
+    mount -t functionfs mtp "$MOUNTPOINT" 2>/dev/null || {
+        log "FunctionFS mount failed"
+        return 1
+    }
 
     rm -f "$PIDFILE"
     "$DAEMON" -conf "$CONFIG" >>"$LOG" 2>&1 &
@@ -74,16 +83,29 @@ stop() {
             sleep 0.1
             i=$((i + 1))
         done
-        kill -KILL "$pid" 2>/dev/null || :
+        if kill -0 "$pid" 2>/dev/null; then
+            kill -KILL "$pid" 2>/dev/null || :
+            i=0
+            while [ "$i" -lt 20 ] && kill -0 "$pid" 2>/dev/null; do
+                sleep 0.1
+                i=$((i + 1))
+            done
+            if kill -0 "$pid" 2>/dev/null; then
+                log "ERROR: umtprd pid=$pid survived SIGKILL; refusing to report FunctionFS released"
+                return 1
+            fi
+        fi
     fi
     rm -f "$PIDFILE"
     if mounted; then
-        umount "$MOUNTPOINT" 2>/dev/null || {
-            log "WARNING: FunctionFS remains mounted"
+        umount "$MOUNTPOINT" 2>/dev/null || :
+        if mounted; then
+            log "ERROR: FunctionFS is still mounted at $MOUNTPOINT after umount"
             return 1
-        }
+        fi
     fi
     log "stopped"
+    return 0
 }
 
 status() {

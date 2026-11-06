@@ -5,6 +5,16 @@ set -u
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
 export PATH
 
+# Shared USB mode ownership, UDC-release confirmation and mount verification.
+# Sourcing it here keeps Mass Storage, the network/MTP manager and the tests
+# on one implementation instead of three drifting copies.
+USB_MODE_LIB=${BASEOS_USB_MODE_LIB:-/usr/sbin/baseos-usb-mode-lib}
+if [ ! -r "$USB_MODE_LIB" ]; then
+  printf 'baseos-usb-storage: missing %s; refusing to touch the UDC\n' "$USB_MODE_LIB" >&2
+  exit 1
+fi
+. "$USB_MODE_LIB"
+
 REQUEST=/run/baseos-usb-storage.request
 PAUSED=/run/baseos-frontend-paused
 ACTIVE=/run/baseos-usb-storage.active
@@ -30,6 +40,12 @@ FSTYPE=
 BOUND=0
 CABLE_TRIGGERED=0
 CREATED_GADGET=0
+# Teardown bookkeeping. Each flag records something that was actually observed,
+# never something that was merely requested.
+ENTERED=0
+DEBUG_STOPPED=0
+UDC_RELEASED=0
+REMOUNT_OK=0
 BOOT_MODE=0
 RESET_NOT_CONFIGURED_SECONDS=0
 RESET_RECOVERY_ATTEMPTED=0
@@ -562,7 +578,18 @@ flush_on_idle() {
 cleanup() {
   cleanup_status=$?
   trap - EXIT INT TERM HUP
-  log "cleanup entry trigger=$CLEANUP_TRIGGER status=$cleanup_status elapsed_i=$i bound=$BOUND"
+  log "cleanup entry trigger=$CLEANUP_TRIGGER status=$cleanup_status elapsed_i=$i bound=$BOUND entered=$ENTERED debug_stopped=$DEBUG_STOPPED"
+
+  # Nothing was claimed yet (bad argument, lock timeout, unresolvable card, no
+  # cable): release what we hold and leave the running gadget alone. Starting
+  # baseos-usb-debug here would be a second start of a manager that was never
+  # stopped.
+  if [ "$ENTERED" -eq 0 ]; then
+    rm -f "$REQUEST" "$PAUSED" 2>/dev/null || :
+    usb_mode_lock_release || :
+    log "cleanup: no USB mode was claimed; normal gadget left untouched"
+    return 0
+  fi
 
   # With debug off nothing was mirrored to the card during the session, so a
   # session that failed would leave no evidence at all -- and a failed session is
@@ -586,43 +613,20 @@ cleanup() {
   # Preserve the v31 transfer pipeline. Keep teardown simple: the v32 log
   # stopped after UDC unbind, apparently during configfs function unlink.
   # Do not clear the LUN file or unlink/rmdir configfs objects on exit.
-  UNBIND_OK=1
-  if [ -n "$UDC" ] && [ -e "$G/UDC" ] && [ "$BOUND" -eq 1 ]; then
-    unbind_result=/run/baseos-usb-storage-unbind.result
-    rm -f "$unbind_result"
-    log "cleanup step=unbind begin; bounded asynchronous sysfs write"
-    (
-      printf '\n' > "$G/UDC" 2>/dev/null
-      printf '%s\n' "$?" > "$unbind_result" 2>/dev/null
-    ) &
-    unbind_pid=$!
-    unbind_ticks=0
-    while [ "$unbind_ticks" -lt 50 ] && [ ! -f "$unbind_result" ]; do
-      sleep 0.1
-      unbind_ticks=$((unbind_ticks+1))
-    done
-    if [ -f "$unbind_result" ]; then
-      unbind_rc="$(cat "$unbind_result" 2>/dev/null || echo 1)"
-      wait "$unbind_pid" 2>/dev/null || :
-      if [ "$unbind_rc" -eq 0 ]; then
-        BOUND=0
-        log "cleanup step=unbind complete write_rc=$unbind_rc"
-      else
-        UNBIND_OK=0
-        log "ERROR: UDC unbind write returned rc=$unbind_rc"
-      fi
-    else
-      UNBIND_OK=0
-      log "WARNING: UDC unbind exceeded 5 seconds; skipping remount to avoid concurrent host access"
-      kill -KILL "$unbind_pid" 2>/dev/null || :
-    fi
-    rm -f "$unbind_result"
-  elif [ "$BOUND" -eq 0 ]; then
-    log "cleanup step=unbind skipped; helper is not bound"
+  #
+  # The order lives in usb_mode_finish_session so the tests execute the same
+  # code the device runs: confirm the UDC release first, and only then remount
+  # the data partition and verify it is mounted from the expected device.
+  USB_MODE_LOG_FN=log
+  if usb_mode_finish_session "$G" "$UDC" "$BOUND" "$DEVICE" "$MOUNTPOINT" "$FSTYPE" \
+       /usr/sbin/baseos-usb-debug "$DEBUG_STOPPED"; then
+    TEARDOWN_OK=1
   else
-    UNBIND_OK=0
-    log "ERROR: cannot address UDC unbind path"
+    TEARDOWN_OK=0
   fi
+  UDC_RELEASED=$USB_MODE_FINISH_UDC_RELEASED
+  REMOUNT_OK=$USB_MODE_FINISH_REMOUNT_OK
+  [ "$UDC_RELEASED" -eq 1 ] && BOUND=0
 
   # Stop the on-screen prompt immediately so it cannot keep scrolling while
   # storage cleanup proceeds.
@@ -632,34 +636,15 @@ cleanup() {
     PROMPT_PID=
   fi
 
-  if [ "$UNBIND_OK" -eq 1 ]; then
-    # Restore the local filesystem only after UDC unbind returned successfully.
-    log "cleanup step=local-remount begin"
-    if [ -n "$MOUNTPOINT" ] && [ -n "$DEVICE" ] && ! is_mounted "$MOUNTPOINT"; then
-      mount -t "$FSTYPE" -o rw,noatime "$DEVICE" "$MOUNTPOINT" 2>/dev/null || \
-        log "WARNING: could not remount $DEVICE at $MOUNTPOINT"
-    fi
-    if [ -n "$MOUNTPOINT" ] && is_mounted "$MOUNTPOINT"; then
-      log "cleanup step=local-remount complete mountpoint=$MOUNTPOINT"
-    else
-      log "WARNING: local data partition is not mounted; avoid further writes until recovery"
-    fi
-  else
-    log "WARNING: UDC unbind not confirmed; backing device remains unmounted for safety"
-  fi
-
-  # Always release the frontend pause so diagnostics can resume. If unbind
-  # failed, retain ACTIVE as a guard against a second concurrent storage session.
+  # Always release the frontend pause so diagnostics can resume. The ACTIVE
+  # marker is handled inside usb_mode_finish_session: it is cleared only when
+  # both confirmations succeeded, and kept otherwise so usb-gadget-adb cannot
+  # claim the UDC while the state is unknown.
   rm -f "$REQUEST" "$PAUSED"
-  if [ "$UNBIND_OK" -eq 1 ]; then
-    rm -f "$ACTIVE"
-  else
-    log "WARNING: keeping active marker because UDC unbind was not confirmed"
-  fi
 
   restore_console_loglevel
-  log "storage mode ended; unbind_ok=$UNBIND_OK; configfs function retained for next entry"
-  if [ "$cleanup_status" -eq 0 ]; then
+  log "storage mode ended; udc_released=$UDC_RELEASED remount_ok=$REMOUNT_OK teardown_ok=$TEARDOWN_OK; configfs function retained for next entry"
+  if [ "$cleanup_status" -eq 0 ] && [ "$TEARDOWN_OK" -eq 1 ]; then
     /usr/bin/baseos-splash --important 100 "USB STORAGE FINISHED" 2>/dev/null || :
   else
     # Do not erase the failure state with the normal boot logo; hotkeyd keeps
@@ -672,10 +657,19 @@ cleanup() {
     cp "$DIAG_LOG" "$BOOT_LOG" 2>/dev/null || :
   fi
 
-  # Hand the controller back to the debug network when that mode is enabled.
-  # Backgrounded: rebinding takes a moment and nothing here waits for it.
-  if [ -x /usr/sbin/baseos-usb-debug ]; then
-    /usr/sbin/baseos-usb-debug start >/dev/null 2>&1 &
+  # Hand the controller back only when the teardown was CONFIRMED and this
+  # session is the one that stopped the manager. The lock is released first on
+  # purpose: baseos-usb-debug takes it itself, and a token inherited by a
+  # background child while this process exits would leave the lock behind.
+  usb_mode_lock_release || log "WARNING: USB mode lock was not owned at exit"
+  if [ "$TEARDOWN_OK" -eq 1 ] && [ "$DEBUG_STOPPED" -eq 1 ]; then
+    if usb_mode_resume_normal /usr/sbin/baseos-usb-debug 1; then
+      log "recovery: normal USB gadget resume requested"
+    else
+      log "ERROR: could not request the normal USB gadget resume"
+    fi
+  else
+    log "recovery: normal USB gadget NOT resumed (fail-closed); udc_released=$UDC_RELEASED remount_ok=$REMOUNT_OK debug_stopped=$DEBUG_STOPPED"
   fi
 }
 CLEANUP_TRIGGER=EXIT
@@ -683,6 +677,25 @@ trap 'CLEANUP_TRIGGER=INT; exit 130' INT
 trap 'CLEANUP_TRIGGER=TERM; exit 143' TERM
 trap 'CLEANUP_TRIGGER=HUP; exit 129' HUP
 trap cleanup EXIT
+
+# One owner at a time. The hotkey daemon and the diagnostic UI can both fork
+# this helper, and rcS starts baseos-usb-debug in parallel at boot; without a
+# shared lock two of them can build a gadget on the same UDC. Wait a bounded
+# 10 s, then refuse rather than race. The lock is token-based, so the
+# baseos-usb-debug stop/start calls made below are re-entrant, not deadlocks.
+if ! usb_mode_lock_acquire 100; then
+  USB_MODE_LOCK_HOLDER="$(usb_mode_lock_holder)"
+  log "ERROR: another USB mode operation owns the UDC (holder=${USB_MODE_LOCK_HOLDER:-unknown}); refusing to start Mass Storage"
+  /usr/bin/baseos-splash --important -1 "USB STORAGE: USB BUSY" 2>/dev/null || :
+  exit 1
+fi
+log "usb mode lock acquired token_pid=$$"
+# A marker from a previous session whose owner is gone must not keep
+# usb-gadget-adb away from the UDC forever.
+if usb_mode_reap_stale_marker; then
+  log "reaped stale active marker from a session that no longer exists"
+fi
+
 set_storage_console_quiet
 HELPER_CKSUM="$(cksum "$0" 2>/dev/null | awk '{print $1 ":" $2}')"
 log "helper_revision=usb-high-speed-dwc3-v34-simple-exit-cleanup cksum=$HELPER_CKSUM"
@@ -810,14 +823,22 @@ report_mount_users() {
 # /mnt/SDCARD. Stop it and confirm FunctionFS is released BEFORE unmounting
 # the volume or exporting its raw block device. If release fails, the EXIT
 # cleanup returns to the frontend without exporting the partition.
+# From here on this session owns the USB mode: the ACTIVE marker keeps
+# usb-gadget-adb away from the UDC, and the cleanup trap is responsible for
+# either restoring everything or keeping the marker as a fail-closed guard.
+ENTERED=1
+usb_mode_mark_active preparing || log "WARNING: could not write the active marker"
 if [ -x /usr/sbin/baseos-usb-debug ]; then
   log "releasing the normal USB gadget (network/MTP) before unmount"
-  if ! /usr/sbin/baseos-usb-debug stop >/dev/null 2>&1; then
+  /usr/sbin/baseos-usb-debug stop >/dev/null 2>&1
+  if [ $? -ne 0 ]; then
     log "ERROR: USB gadget or MTP did not stop cleanly; refusing Mass Storage"
     /usr/bin/baseos-splash --important -1 "USB STORAGE: USB BUSY" 2>/dev/null || :
     sleep 2
     exit 1
   fi
+  DEBUG_STOPPED=1
+  log "normal USB gadget stopped and its UDC/FunctionFS release was confirmed"
 fi
 
 umount_msg=
@@ -934,8 +955,16 @@ fi
 # detection below, so plugging in after entering storage mode still works.
 log "storage mode ready; binding gadget before waiting for DC data cable"
 if [ "$DEBUG" -eq 1 ]; then snapshot "immediately-before-bind"; fi
+# The stop above must have released the controller. Check the configfs view
+# instead of trusting it: a second gadget still naming this UDC means the bind
+# below would fail (or, worse, take over a live session).
+if usb_mode_udc_claimed_by_other "$UDC" "$G"; then
+  log "ERROR: $UDC is still bound by another gadget; refusing to bind mass storage"
+  exit 1
+fi
 if ! printf '%s' "$UDC" > "$G/UDC"; then log "could not bind USB controller $UDC"; exit 1; fi
 BOUND=1
+usb_mode_mark_active bound || :
 # Start flushing on write-idle as soon as the host can write anything.
 flush_on_idle &
 FLUSH_PID=$!

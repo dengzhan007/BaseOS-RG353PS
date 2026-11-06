@@ -1,0 +1,452 @@
+#!/bin/sh
+# Shared USB mode ownership and state confirmation for the RG353PS.
+#
+# Three programs share one UDC (dwc3): baseos-usb-storage (Mass Storage, gadget
+# "rockchip"), baseos-usb-debug (network/MTP, gadget "baseos_debug") and
+# baseos-usb-mtp (the umtprd FunctionFS responder). Any two of them binding at
+# the same time produces either a failed bind or, worse, a host that sees a
+# device while the local filesystem is still mounted.
+#
+# This library is sourced, never executed. It provides:
+#
+#   usb_mode_lock_acquire / usb_mode_lock_release
+#       A re-entrant, stale-aware exclusive lock for "who owns the USB mode".
+#       Re-entrancy is token based, so storage -> debug stop -> debug start
+#       cannot deadlock against itself. A lock left behind by a killed process
+#       is reclaimed only when the recorded PID is gone.
+#   usb_mode_udc_unbind
+#       Unbind and CONFIRM: the configfs "UDC" attribute must read back empty
+#       and the controller must no longer report configured/suspended. A
+#       successful write(2) is not evidence that the controller was released.
+#   usb_mode_restore_local
+#       Remount the data partition and verify it is mounted FROM THE EXPECTED
+#       DEVICE. mount(8) returning 0 is not evidence either.
+#   usb_mode_ffs_released
+#       FunctionFS mount must be gone before the data partition is unmounted.
+#   usb_mode_mark_active / usb_mode_clear_active / usb_mode_reap_stale_marker
+#       The /run marker that overlay/usr/sbin/usb-gadget-adb respects. It is
+#       created on entry and removed only after a confirmed teardown, and a
+#       marker whose owner is gone is reaped instead of lingering forever.
+#
+# Every path and the two mount commands are overridable so the offline tests
+# can run the real functions against a sandbox:
+#   BASEOS_USB_RUN_DIR BASEOS_USB_CONFIGFS BASEOS_USB_UDC_ROOT
+#   BASEOS_USB_MOUNTS BASEOS_USB_MOUNT_CMD BASEOS_USB_UMOUNT_CMD
+#
+# All functions fail closed: on any doubt they return non-zero and leave the
+# caller's diagnostics intact.
+
+BASEOS_USB_RUN_DIR=${BASEOS_USB_RUN_DIR:-/run}
+BASEOS_USB_CONFIGFS=${BASEOS_USB_CONFIGFS:-/sys/kernel/config}
+BASEOS_USB_UDC_ROOT=${BASEOS_USB_UDC_ROOT:-/sys/class/udc}
+BASEOS_USB_MOUNTS=${BASEOS_USB_MOUNTS:-/proc/mounts}
+BASEOS_USB_MOUNT_CMD=${BASEOS_USB_MOUNT_CMD:-mount}
+BASEOS_USB_UMOUNT_CMD=${BASEOS_USB_UMOUNT_CMD:-umount}
+
+# Sleep is a function so the tests can remove the waiting without changing the
+# order of operations. The poll counts stay the same.
+usb_mode_sleep() { sleep "$1" 2>/dev/null || :; }
+
+usb_mode_lock_dir() { printf '%s/baseos-usb-mode.lock' "$BASEOS_USB_RUN_DIR"; }
+usb_mode_active_marker() { printf '%s/baseos-usb-storage.active' "$BASEOS_USB_RUN_DIR"; }
+usb_mode_teardown_failed_marker() { printf '%s/baseos-usb-storage.teardown-failed' "$BASEOS_USB_RUN_DIR"; }
+
+usb_mode_now() { date '+%s' 2>/dev/null || printf '0'; }
+
+# ---------------------------------------------------------------------------
+# Exclusive mode lock
+# ---------------------------------------------------------------------------
+
+# Print the live holder PID, or nothing when the lock is free or stale.
+usb_mode_lock_holder() {
+    _lm_dir="$(usb_mode_lock_dir)"
+    _lm_pid="$(cat "$_lm_dir/pid" 2>/dev/null || :)"
+    [ -n "$_lm_pid" ] || return 0
+    kill -0 "$_lm_pid" 2>/dev/null || return 0
+    printf '%s' "$_lm_pid"
+}
+
+# True when this process (or a caller that handed us its token) owns the lock.
+usb_mode_lock_is_ours() {
+    _lo_dir="$(usb_mode_lock_dir)"
+    [ -f "$_lo_dir/token" ] || return 1
+    [ -n "${BASEOS_USB_LOCK_TOKEN:-}" ] || return 1
+    [ "$(cat "$_lo_dir/token" 2>/dev/null || :)" = "$BASEOS_USB_LOCK_TOKEN" ]
+}
+
+# True when somebody else holds the lock.
+usb_mode_lock_held_by_other() {
+    _lh_holder="$(usb_mode_lock_holder)"
+    [ -n "$_lh_holder" ] || return 1
+    usb_mode_lock_is_ours && return 1
+    return 0
+}
+
+# Reap a lock whose recorded PID is dead. Only the exact stale lock is removed:
+# the PID file is re-read and must still name the dead process.
+usb_mode_lock_reap_stale() {
+    _lr_dir="$(usb_mode_lock_dir)"
+    _lr_pid="$(cat "$_lr_dir/pid" 2>/dev/null || :)"
+    [ -n "$_lr_pid" ] || return 1
+    kill -0 "$_lr_pid" 2>/dev/null && return 1
+    [ "$(cat "$_lr_dir/pid" 2>/dev/null || :)" = "$_lr_pid" ] || return 1
+    rm -f "$_lr_dir/pid" "$_lr_dir/token" "$_lr_dir/owner" "$_lr_dir/since" 2>/dev/null || :
+    rmdir "$_lr_dir" 2>/dev/null || :
+    # Only report a reclaim when the lock is actually gone; a directory that
+    # survives would otherwise make the caller retry forever.
+    [ ! -d "$_lr_dir" ] || return 1
+    return 0
+}
+
+# usb_mode_lock_acquire [timeout_tenths]
+# 0 = owned (fresh or inherited), 1 = timeout or unusable run dir.
+usb_mode_lock_acquire() {
+    _la_limit=${1:-100}
+    _la_dir="$(usb_mode_lock_dir)"
+    mkdir -p "$BASEOS_USB_RUN_DIR" 2>/dev/null || return 1
+
+    # Re-entrant path: the caller exported our token down the call chain. Mark
+    # it inherited so this process does not delete a lock it does not own.
+    if usb_mode_lock_is_ours; then
+        BASEOS_USB_LOCK_INHERITED=1
+        export BASEOS_USB_LOCK_INHERITED
+        return 0
+    fi
+
+    _la_waited=0
+    _la_reaped=0
+    while :; do
+        if mkdir "$_la_dir" 2>/dev/null; then
+            _la_token="$$-$(usb_mode_now)-$(od -An -N4 -tu4 /dev/urandom 2>/dev/null | tr -d ' \n')"
+            [ -n "$_la_token" ] || _la_token="$$-$(usb_mode_now)"
+            printf '%s\n' "$$" > "$_la_dir/pid" 2>/dev/null || {
+                rmdir "$_la_dir" 2>/dev/null || :
+                return 1
+            }
+            printf '%s\n' "$_la_token" > "$_la_dir/token" 2>/dev/null || :
+            printf '%s\n' "$0" > "$_la_dir/owner" 2>/dev/null || :
+            printf '%s\n' "$(usb_mode_now)" > "$_la_dir/since" 2>/dev/null || :
+            BASEOS_USB_LOCK_TOKEN=$_la_token
+            BASEOS_USB_LOCK_INHERITED=0
+            export BASEOS_USB_LOCK_TOKEN BASEOS_USB_LOCK_INHERITED
+            return 0
+        fi
+        if [ -d "$_la_dir" ]; then
+            if usb_mode_lock_reap_stale; then
+                # Bound the reclaim attempts: a lock directory that keeps
+                # failing to disappear must not turn into a busy loop.
+                _la_reaped=$((_la_reaped+1))
+                if [ "$_la_reaped" -ge 5 ]; then
+                    break
+                fi
+                continue
+            fi
+            # An owner file with no PID yet is a lock being initialised; give it
+            # the same grace as a live owner instead of stealing it.
+        fi
+        [ "$_la_waited" -ge "$_la_limit" ] && break
+        usb_mode_sleep 0.1
+        _la_waited=$((_la_waited+1))
+    done
+    return 1
+}
+
+# Release only if this process created the lock. An inherited lock (a nested
+# call handed the token) is dropped from this process only; the owner still
+# holds it and decides when the mode ends.
+usb_mode_lock_release() {
+    _lx_dir="$(usb_mode_lock_dir)"
+    if [ "${BASEOS_USB_LOCK_INHERITED:-0}" -eq 1 ]; then
+        unset BASEOS_USB_LOCK_TOKEN BASEOS_USB_LOCK_INHERITED
+        return 0
+    fi
+    [ -f "$_lx_dir/token" ] || return 0
+    usb_mode_lock_is_ours || return 1
+    rm -f "$_lx_dir/pid" "$_lx_dir/token" "$_lx_dir/owner" "$_lx_dir/since" 2>/dev/null || :
+    rmdir "$_lx_dir" 2>/dev/null || :
+    unset BASEOS_USB_LOCK_TOKEN BASEOS_USB_LOCK_INHERITED
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# ACTIVE marker (consumed by overlay/usr/sbin/usb-gadget-adb)
+# ---------------------------------------------------------------------------
+
+usb_mode_mark_active() {
+    _ma_marker="$(usb_mode_active_marker)"
+    mkdir -p "$BASEOS_USB_RUN_DIR" 2>/dev/null || return 1
+    printf 'pid=%s since=%s phase=%s\n' "$$" "$(usb_mode_now)" "${1:-bound}" \
+        > "$_ma_marker" 2>/dev/null || return 1
+    return 0
+}
+
+usb_mode_clear_active() {
+    rm -f "$(usb_mode_active_marker)" 2>/dev/null || :
+    return 0
+}
+
+# A marker left by a process that no longer exists would keep usb-gadget-adb
+# away from the UDC forever. Reap only that case: the marker records a PID and
+# that PID is gone and nobody holds the mode lock.
+usb_mode_reap_stale_marker() {
+    _rs_marker="$(usb_mode_active_marker)"
+    [ -f "$_rs_marker" ] || return 1
+    _rs_pid="$(sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' "$_rs_marker" 2>/dev/null | head -1)"
+    [ -n "$_rs_pid" ] || return 1
+    kill -0 "$_rs_pid" 2>/dev/null && return 1
+    [ -n "$(usb_mode_lock_holder)" ] && return 1
+    rm -f "$_rs_marker" 2>/dev/null || :
+    return 0
+}
+
+usb_mode_mark_teardown_failed() {
+    printf 'pid=%s since=%s reason=%s\n' "$$" "$(usb_mode_now)" "${1:-unknown}" \
+        > "$(usb_mode_teardown_failed_marker)" 2>/dev/null || :
+}
+
+usb_mode_clear_teardown_failed() {
+    rm -f "$(usb_mode_teardown_failed_marker)" 2>/dev/null || :
+}
+
+# ---------------------------------------------------------------------------
+# UDC state
+# ---------------------------------------------------------------------------
+
+usb_mode_udc_binding() {
+    cat "$1/UDC" 2>/dev/null || printf ''
+}
+
+usb_mode_udc_state() {
+    cat "$BASEOS_USB_UDC_ROOT/$1/state" 2>/dev/null || printf ''
+}
+
+# True when any gadget directory under configfs still binds this controller.
+# Used as a fail-closed guard before a second gadget is built.
+usb_mode_udc_claimed_by_other() {
+    _uc_udc=$1
+    _uc_skip=${2:-}
+    [ -n "$_uc_udc" ] || return 1
+    for _uc_g in "$BASEOS_USB_CONFIGFS"/usb_gadget/*; do
+        [ -d "$_uc_g" ] || continue
+        [ "$_uc_g" = "$_uc_skip" ] && continue
+        _uc_bound="$(usb_mode_udc_binding "$_uc_g")"
+        [ "$_uc_bound" = "$_uc_udc" ] && return 0
+    done
+    return 1
+}
+
+# usb_mode_udc_unbind <gadget_dir> <udc> [write_timeout_tenths] [confirm_tenths]
+# Returns 0 only when the controller is CONFIRMED released.
+usb_mode_udc_unbind() {
+    _uu_g=$1
+    _uu_udc=$2
+    _uu_write_limit=${3:-50}
+    _uu_confirm_limit=${4:-30}
+
+    [ -n "$_uu_g" ] && [ -e "$_uu_g/UDC" ] || return 1
+
+    # The write itself can block inside the kernel; keep it asynchronous and
+    # bounded, but treat its exit status as a hint only.
+    _uu_rcfile="$BASEOS_USB_RUN_DIR/baseos-usb-unbind.$$.rc"
+    rm -f "$_uu_rcfile" 2>/dev/null || :
+    (
+        printf '\n' > "$_uu_g/UDC" 2>/dev/null
+        printf '%s\n' "$?" > "$_uu_rcfile" 2>/dev/null || :
+    ) 2>/dev/null &
+    _uu_writer=$!
+    _uu_i=0
+    while [ "$_uu_i" -lt "$_uu_write_limit" ] && [ ! -f "$_uu_rcfile" ]; do
+        usb_mode_sleep 0.1
+        _uu_i=$((_uu_i+1))
+    done
+    if [ -f "$_uu_rcfile" ]; then
+        USB_MODE_UNBIND_WRITE_RC="$(cat "$_uu_rcfile" 2>/dev/null || printf 'unknown')"
+        wait "$_uu_writer" 2>/dev/null || :
+    else
+        USB_MODE_UNBIND_WRITE_RC="timeout"
+        kill -KILL "$_uu_writer" 2>/dev/null || :
+    fi
+    rm -f "$_uu_rcfile" 2>/dev/null || :
+
+    # Confirmation is independent of the write result: the attribute must read
+    # back empty and the controller must not still be configured or suspended.
+    _uu_c=0
+    while [ "$_uu_c" -le "$_uu_confirm_limit" ]; do
+        _uu_bound="$(cat "$_uu_g/UDC" 2>/dev/null || printf 'unreadable')"
+        _uu_state="$(usb_mode_udc_state "$_uu_udc")"
+        USB_MODE_UNBIND_BINDING="$_uu_bound"
+        USB_MODE_UNBIND_STATE="$_uu_state"
+        if [ -z "$_uu_bound" ]; then
+            case "$_uu_state" in
+                configured|suspended) : ;;
+                *) return 0 ;;
+            esac
+        fi
+        [ "$_uu_c" -ge "$_uu_confirm_limit" ] && break
+        usb_mode_sleep 0.1
+        _uu_c=$((_uu_c+1))
+    done
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# Mount state
+# ---------------------------------------------------------------------------
+
+usb_mode_mounts_has() {
+    [ -n "${1:-}" ] || return 1
+    grep -q " $1 " "$BASEOS_USB_MOUNTS" 2>/dev/null
+}
+
+usb_mode_mounts_source() {
+    awk -v m="$1" '$2 == m { print $1; exit }' "$BASEOS_USB_MOUNTS" 2>/dev/null
+}
+
+# usb_mode_restore_local <device> <mountpoint> <fstype>
+# 0 only when the mountpoint is mounted FROM <device>.
+usb_mode_restore_local() {
+    _rl_dev=$1
+    _rl_mp=$2
+    _rl_fs=$3
+    [ -n "$_rl_dev" ] && [ -n "$_rl_mp" ] || return 1
+
+    if usb_mode_mounts_has "$_rl_mp"; then
+        _rl_src="$(usb_mode_mounts_source "$_rl_mp")"
+        [ "$_rl_src" = "$_rl_dev" ] && return 0
+        # Something else is mounted there: refuse rather than write through it.
+        USB_MODE_RESTORE_SOURCE="$_rl_src"
+        return 1
+    fi
+
+    "$BASEOS_USB_MOUNT_CMD" -t "$_rl_fs" -o rw,noatime "$_rl_dev" "$_rl_mp" >/dev/null 2>&1 || {
+        USB_MODE_RESTORE_SOURCE="mount-failed"
+        return 1
+    }
+    usb_mode_mounts_has "$_rl_mp" || {
+        # mount(8) returned success but nothing is mounted: do not trust it.
+        USB_MODE_RESTORE_SOURCE="mount-vanished"
+        return 1
+    }
+    _rl_src="$(usb_mode_mounts_source "$_rl_mp")"
+    USB_MODE_RESTORE_SOURCE="$_rl_src"
+    [ "$_rl_src" = "$_rl_dev" ] || return 1
+    [ -d "$_rl_mp" ] || return 1
+    return 0
+}
+
+# FunctionFS must be gone before the partition it serves is unmounted.
+usb_mode_ffs_released() {
+    _fr_mp=${1:-/dev/ffs-mtp}
+    if usb_mode_mounts_has "$_fr_mp"; then
+        return 1
+    fi
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# Resume the normal gadget
+# ---------------------------------------------------------------------------
+
+# usb_mode_resume_normal <debug_script> <allowed>
+# <allowed> must be 1: the caller has confirmed both UDC release and remount.
+# Backgrounded on purpose; the caller does not wait for re-enumeration.
+usb_mode_resume_normal() {
+    _rn_script=$1
+    _rn_allowed=${2:-0}
+    [ "$_rn_allowed" -eq 1 ] || return 1
+    [ -x "$_rn_script" ] || return 0
+    "$_rn_script" start >/dev/null 2>&1 &
+    return 0
+}
+
+# usb_mode_resume_veto <udc_binding> <mount_ok>
+# Single decision point so the storage cleanup cannot drift from the tests.
+usb_mode_resume_veto() {
+    [ "${1:-}" = "" ] || return 0
+    [ "${2:-0}" -eq 1 ] || return 0
+    return 1
+}
+
+# ---------------------------------------------------------------------------
+# Teardown state machine
+# ---------------------------------------------------------------------------
+
+# Optional logging callback; the caller sets USB_MODE_LOG_FN to its own log().
+usb_mode_emit() {
+    [ -n "${USB_MODE_LOG_FN:-}" ] || return 0
+    "$USB_MODE_LOG_FN" "$*"
+}
+
+# usb_mode_finish_session <gadget> <udc> <bound> <device> <mountpoint> <fstype> \
+#                          <debug_script> <debug_stopped>
+#
+# The whole exit path, in the only order that is safe:
+#   confirm UDC release -> (only then) remount the data partition and verify
+#   it is mounted from that device -> clear or keep the ACTIVE marker.
+# Returning 0 means both confirmations succeeded. The normal gadget is NOT
+# started here: the caller releases the mode lock first and then calls
+# usb_mode_resume_normal with USB_MODE_FINISH_TEARDOWN_OK.
+usb_mode_finish_session() {
+    _fs_g=$1
+    _fs_udc=$2
+    _fs_bound=$3
+    _fs_dev=$4
+    _fs_mp=$5
+    _fs_fs=$6
+    _fs_debug=$7
+    _fs_debug_stopped=$8
+
+    USB_MODE_FINISH_UDC_RELEASED=0
+    USB_MODE_FINISH_REMOUNT_OK=0
+    USB_MODE_FINISH_TEARDOWN_OK=0
+
+    if [ "$_fs_bound" -eq 1 ] && [ -n "$_fs_udc" ] && [ -e "$_fs_g/UDC" ]; then
+        usb_mode_emit "cleanup step=unbind begin; release must be confirmed, not assumed"
+        if usb_mode_udc_unbind "$_fs_g" "$_fs_udc" 50 30; then
+            USB_MODE_FINISH_UDC_RELEASED=1
+            usb_mode_emit "cleanup step=unbind confirmed; gadget UDC empty, controller state=${USB_MODE_UNBIND_STATE:-unknown} write_rc=${USB_MODE_UNBIND_WRITE_RC:-unknown}"
+        else
+            usb_mode_emit "ERROR: UDC release NOT confirmed (write_rc=${USB_MODE_UNBIND_WRITE_RC:-unknown} binding=${USB_MODE_UNBIND_BINDING:-unknown} state=${USB_MODE_UNBIND_STATE:-unknown})"
+        fi
+    elif [ -z "$(usb_mode_udc_binding "$_fs_g")" ]; then
+        USB_MODE_FINISH_UDC_RELEASED=1
+        usb_mode_emit "cleanup step=unbind skipped; gadget UDC attribute is empty"
+    else
+        usb_mode_emit "ERROR: helper believed unbound but the gadget still names $(usb_mode_udc_binding "$_fs_g")"
+    fi
+
+    if [ "$USB_MODE_FINISH_UDC_RELEASED" -eq 1 ]; then
+        if [ -z "$_fs_dev" ] || [ -z "$_fs_mp" ]; then
+            USB_MODE_FINISH_REMOUNT_OK=1
+            usb_mode_emit "cleanup step=local-remount skipped; no exported device was recorded"
+        elif usb_mode_restore_local "$_fs_dev" "$_fs_mp" "$_fs_fs"; then
+            USB_MODE_FINISH_REMOUNT_OK=1
+            usb_mode_emit "cleanup step=local-remount verified source=$_fs_dev mountpoint=$_fs_mp"
+        else
+            usb_mode_emit "ERROR: $_fs_mp is not mounted from $_fs_dev (source=${USB_MODE_RESTORE_SOURCE:-none}); refusing to report recovery"
+        fi
+    else
+        usb_mode_emit "WARNING: UDC unbind not confirmed; backing device remains unmounted for safety"
+    fi
+
+    if [ "$USB_MODE_FINISH_UDC_RELEASED" -eq 1 ] && [ "$USB_MODE_FINISH_REMOUNT_OK" -eq 1 ]; then
+        USB_MODE_FINISH_TEARDOWN_OK=1
+        usb_mode_clear_active
+        usb_mode_clear_teardown_failed
+    elif [ "$USB_MODE_FINISH_UDC_RELEASED" -eq 1 ]; then
+        usb_mode_mark_teardown_failed remount_failed
+        usb_mode_emit "WARNING: keeping active marker; local partition was not restored"
+    else
+        usb_mode_mark_teardown_failed udc_unbind_unconfirmed
+        usb_mode_emit "WARNING: keeping active marker; UDC release was not confirmed"
+    fi
+
+    if [ "$_fs_debug_stopped" -eq 1 ]; then
+        USB_MODE_FINISH_RESUME_NEEDED=1
+    else
+        USB_MODE_FINISH_RESUME_NEEDED=0
+    fi
+    [ "$USB_MODE_FINISH_TEARDOWN_OK" -eq 1 ] || return 1
+    return 0
+}
+

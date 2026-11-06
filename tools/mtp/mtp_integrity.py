@@ -477,6 +477,36 @@ def cmd_ops(args, backend, checks: Checks) -> int:
     return 0
 
 
+def probe_device(args, checks: "Checks") -> dict:
+    """Record the handheld environment when an SSH command is supplied.
+
+    Optional: without --device-ssh the run still works, but the report says the
+    device side was not identified instead of inventing a version string.
+    """
+    if not args.device_ssh:
+        checks.skipped("device:environment",
+                       "no --device-ssh given; device environment not recorded")
+        return {"probed": False}
+    probe = ("uname -a; "
+             "cat /etc/baseos-release 2>/dev/null; "
+             "cat /etc/baseos_build 2>/dev/null; "
+             "for u in /sys/class/udc/*; do printf 'udc=%s state=%s speed=%s\\n' "
+             "\"$u\" \"$(cat $u/state 2>/dev/null)\" \"$(cat $u/current_speed 2>/dev/null)\"; done")
+    argv = args.device_ssh.split() + [probe]
+    try:
+        result = subprocess.run(argv, capture_output=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        checks.failed("device:environment", f"device probe failed: {error}")
+        return {"probed": False, "error": str(error)}
+    text = (result.stdout or b"").decode("utf-8", "replace").strip()
+    if result.returncode != 0:
+        detail = (result.stderr or b"").decode("utf-8", "replace").strip()
+        checks.failed("device:environment", f"device probe exited {result.returncode}: {detail[:300]}")
+        return {"probed": False, "error": detail[:300]}
+    checks.passed("device:environment", "device environment recorded", summary=text[:600])
+    return {"probed": True, "summary": text}
+
+
 def cmd_run(args, backend, checks: Checks) -> int:
     run_id = args.run_id or common.new_run_id()
     args.run_id = run_id
@@ -507,6 +537,7 @@ def cmd_run(args, backend, checks: Checks) -> int:
         connection.failed("connection:list-storage-root", f"cannot list the storage root: {error}")
         report["mtp_connected"] = False
     report["checks"].extend(connection.items)
+    report["device"] = probe_device(args, connection)
 
     if not report["mtp_connected"]:
         report["finished_utc"] = _timestamp()
@@ -659,6 +690,9 @@ def main(argv=None) -> int:
                         help="second confirmation required together with --force")
     parser.add_argument("--confirm-cleanup", action="store_true",
                         help="required for cleanup: delete the test tree")
+    parser.add_argument("--device-ssh",
+                        help="optional command prefix used to record the handheld environment, "
+                             "e.g. \"ssh root@192.168.42.1\" or \"plink -pw root root@192.168.42.1\"")
     parser.add_argument("--timeout", type=int, default=900, help="per-operation timeout in seconds")
     args = parser.parse_args(argv)
 

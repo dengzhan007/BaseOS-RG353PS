@@ -45,6 +45,7 @@ def stage_args(root: str, **overrides) -> argparse.Namespace:
         "out": None,
         "workdir": None,
         "keep_workdir": False,
+        "device_ssh": None,
         "force": False,
         "confirm_force": False,
         "confirm_cleanup": False,

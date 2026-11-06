@@ -82,7 +82,9 @@ from a successful enumeration.
   nested file, plus a JSON manifest of sizes and digests.
 - **Automated check:** `python3 tools/mtp/mtp_integrity.py run --backend auto
   --run-id <id> --dataset-profile full --out <dir>` performs device→host,
-  host→device→host and create/mkdir/overwrite/rename/delete checks.
+  host→device→host and create/mkdir/overwrite/rename/delete checks. Adding
+  `--device-ssh "ssh root@192.168.42.1"` records the handheld environment in the
+  report; without it the device side is reported as unidentified, not guessed.
 - **Reports:** `report.json` and `report.md` in the `--out` directory, with per
   file direction, size, digest comparison, operation results, failure reasons
   and totals. Reports stay outside the repository.

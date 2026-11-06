@@ -90,8 +90,13 @@ python3 tools/mtp/mtp_integrity.py run \
     --backend auto \
     --run-id 20261106-120000-abcdef \
     --dataset-profile full \
+    --device-ssh "ssh root@192.168.42.1" \
     --out ./mtp-integrity-20261106-120000-abcdef
 ```
+
+`--device-ssh` is optional: when given, its output (`uname`, release, UDC state)
+is recorded as the device environment so the report describes both ends. Without
+it the report says the device side was not identified rather than guessing.
 
 `run` executes prepare (idempotent check), pull, push and ops, then writes:
 

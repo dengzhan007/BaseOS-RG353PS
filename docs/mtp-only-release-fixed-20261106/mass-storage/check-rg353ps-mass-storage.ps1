@@ -1,9 +1,13 @@
 # RG353PS Mass Storage mode - Windows host side READ-ONLY verification.
 #
-# Preparation / verification only. Run AFTER the operator has manually entered
-# USB Mass Storage mode. The target volume is selected by a STRICT PnP -> WMI
-# mapping from VID_2207&PID_0006; the script never scans arbitrary USB disks
-# or arbitrary exFAT volumes, and stops on any ambiguity.
+# Run AFTER the operator has manually entered USB Mass Storage mode.
+# Target selection is a STRICT PnP -> USBSTOR -> Win32_DiskDrive mapping. Two
+# ownership paths are supported:
+#   * partitioned: WMI disk -> partition -> logical disk -> volume
+#   * superfloppy: Win32_Volume GUID -> read-only IOCTL_STORAGE_GET_DEVICE_NUMBER
+#                  -> DeviceNumber == the confirmed PHYSICALDRIVE index
+# The script never scans arbitrary USB disks, never guesses a volume by its
+# filesystem, and never opens any file before ownership is proven.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\check-rg353ps-mass-storage.ps1
 #
@@ -48,13 +52,13 @@ function Write-Reports {
         finished_utc = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
         mode = 'USB Mass Storage (VID_2207&PID_0006)'
         read_only = $true
-        device_selection = 'strict PnP parent/child + WMI disk/partition/volume mapping'
+        device_selection = 'strict PnP parent/child + WMI disk/partition/volume, or volume GUID -> PHYSICALDRIVE via read-only IOCTL_STORAGE_GET_DEVICE_NUMBER'
         evidence = $Evidence
         checks = @($Checks)
         failures = @($Failures)
         pass = $allPass
     }
-    $json = $report | ConvertTo-Json -Depth 8
+    $json = $report | ConvertTo-Json -Depth 10
     $enc = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($ReportJson, $json, $enc)
     $md = New-Object System.Collections.ArrayList
@@ -62,7 +66,14 @@ function Write-Reports {
     [void]$md.Add('')
     [void]$md.Add('- Run ID: `' + $RunId + '`')
     [void]$md.Add('- Overall: ' + $(if ($allPass) { '**PASS**' } else { '**FAIL**' }))
-    [void]$md.Add('- Device selection: strict PnP/WMI mapping, no fallback scanning')
+    [void]$md.Add('- Device selection: strict PnP/WMI mapping + IOCTL volume ownership; no fallback scanning')
+    if ($Evidence.Contains('diagnostics')) {
+        $d = $Evidence['diagnostics']
+        [void]$md.Add('- Mapping path: `' + [string]$d['path'] + '`')
+        [void]$md.Add('- PHYSICALDRIVE index: ' + $(if ($null -eq $d['target_disk_index']) { 'n/a' } else { [string]$d['target_disk_index'] }))
+        [void]$md.Add('- IOCTL volume records: ' + @($d['ioctl_map']).Count + '; matched: ' + @($d['ioctl_matched_volumes']).Count + '; unresolved: ' + @($d['unresolved_ioctl_volumes']).Count)
+        [void]$md.Add('- Partition associations: ' + @($d['partition_associations']).Count)
+    }
     [void]$md.Add('')
     [void]$md.Add('| Check | Status | Detail |')
     [void]$md.Add('| --- | --- | --- |')
@@ -76,7 +87,7 @@ function Write-Reports {
         foreach ($f in $Failures) { [void]$md.Add('- ' + $f) }
     }
     [void]$md.Add('')
-    [void]$md.Add('> Read-only observation. Ambiguous or unrecognised volumes are')
+    [void]$md.Add('> Read-only observation. Ambiguous, RAW or unowned volumes are')
     [void]$md.Add('> never opened; a format prompt is an immediate hard stop.')
     [System.IO.File]::WriteAllText($ReportMd, (($md -join "`r`n") + "`r`n"), $enc)
 }
@@ -91,8 +102,8 @@ Write-Host '== RG353PS Mass Storage read-only check ==' -ForegroundColor Cyan
 Write-Host ('Run ID: ' + $RunId)
 
 # Format-prompt detection is only ONE layer. The structural safeguards are the
-# strict device mapping and the RAW/unknown-filesystem partition checks in the
-# resolver; those stop the script before any volume is accessed at all.
+# strict device mapping, the RAW/unknown filesystem checks and the exact
+# IOCTL volume ownership proof; those stop before any volume is accessed.
 $prompt = Get-FormatPrompt
 if ($prompt.Count -gt 0) {
     Add-Check 'no_format_prompt' $false 'Windows format prompt detected; stopping immediately'
@@ -142,26 +153,49 @@ if ($TopologyMockPath) {
         Disks = @($mock.Disks); DiskPartitions = @($mock.DiskPartitions)
         Volumes = @($mock.Volumes)
     }
+    $ioctlMap = @($mock.IoctlVolumes)
     $Evidence['topology_source'] = 'offline mock'
+    $Evidence['ioctl_source'] = 'offline mock'
 } else {
     $topo = Get-Rg353psLiveTopology
     $Evidence['topology_source'] = 'live CIM/PnP'
+    try {
+        $ioctlMap = @(Get-Rg353psIoctlVolumeMap -Volumes $topo.Volumes)
+        $Evidence['ioctl_source'] = 'live read-only IOCTL_STORAGE_GET_DEVICE_NUMBER'
+    } catch {
+        $ioctlMap = @()
+        $Evidence['ioctl_source'] = 'IOCTL collection failed: ' + $_.Exception.Message
+        Add-Check 'ioctl_collection' $false ('read-only volume mapping unavailable: ' + $_.Exception.Message)
+        Write-Reports 1
+        Write-Host 'FAIL: cannot establish volume ownership; no file was read.' -ForegroundColor Red
+        exit 1
+    }
 }
+
+$Evidence['ioctl_candidate_count'] = @($ioctlMap).Count
 $map = Resolve-Rg353psTarget -PnpDevices $topo.PnpDevices -PnpChildren $topo.PnpChildren `
-    -Disks $topo.Disks -DiskPartitions $topo.DiskPartitions -Volumes $topo.Volumes
+    -Disks $topo.Disks -DiskPartitions $topo.DiskPartitions -Volumes $topo.Volumes `
+    -IoctlVolumes $ioctlMap
+
 $Evidence['mapping'] = [ordered]@{
-    ok = $map.Ok; reason = $map.Reason; checks = @($map.Checks)
+    ok = $map.Ok; reason = $map.Reason; path = $map.Path
+    checks = @($map.Checks)
     disk = $map.Disk; volume = $map.Volume
     all_partitions = @($map.Partitions)
 }
-Add-Check 'strict_device_mapping' $map.Ok $map.Reason
+$Evidence['diagnostics'] = $map.Diagnostics
+Add-Check 'strict_device_mapping' $map.Ok ('[' + $map.Path + '] ' + $map.Reason)
 if (-not $map.Ok) {
     Write-Reports 1
     Write-Host ('FAIL: ' + $map.Reason) -ForegroundColor Red
     exit 1
 }
-Add-Check 'no_driveletter_partition_inspected' $true ('partitions inspected=' + @($map.Partitions).Count)
-Add-Check 'no_raw_partition' $true 'all partitions of the mapped disk have a known filesystem'
+Add-Check 'topology_inspected' $true ('path=' + $map.Path + '; partitions=' + @($map.Partitions).Count + '; ioctl_records=' + @($map.Diagnostics['ioctl_map']).Count)
+Add-Check 'no_raw_or_unknown_filesystem' $true ('all inspected partitions/volumes on path ' + $map.Path + ' have a known filesystem')
+if ($map.Path -eq 'superfloppy') {
+    $mv = @($map.Diagnostics['ioctl_matched_volumes'])
+    Add-Check 'volume_ownership_confirmed' $true ('volume GUID ' + [string]$mv[0].VolumeGuidPath + ' -> PHYSICALDRIVE' + [string]$map.Diagnostics['target_disk_index'] + ' via IOCTL')
+}
 
 # ---- Use ONLY the uniquely mapped volume ------------------------------------
 $drive = [string]$map.Volume.DriveLetter

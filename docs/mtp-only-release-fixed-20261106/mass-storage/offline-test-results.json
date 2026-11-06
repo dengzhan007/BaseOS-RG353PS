@@ -1,0 +1,146 @@
+{
+    "tool":  "rg353ps-mass-storage-device-map-offline-tests",
+    "utc":  "2026-11-06T14:32:50Z",
+    "total":  15,
+    "passed":  15,
+    "failed":  0,
+    "wrong_device_selected_count":  0,
+    "overall":  "PASS",
+    "cases":  [
+                  {
+                      "name":  "correct device -\u003e unique target volume",
+                      "expected_ok":  true,
+                      "actual_ok":  true,
+                      "reason":  "unique PnP -\u003e USBSTOR -\u003e disk -\u003e partition -\u003e volume mapping",
+                      "selected_disk":  "\\\\.\\PHYSICALDRIVE2",
+                      "wrong_device_selected":  false,
+                      "pass":  true
+                  },
+                  {
+                      "name":  "other USB disk only (no target identity)",
+                      "expected_ok":  false,
+                      "actual_ok":  false,
+                      "reason":  "expected exactly one VID_2207\u0026PID_0006 root, found 0",
+                      "selected_disk":  "",
+                      "wrong_device_selected":  false,
+                      "pass":  true
+                  },
+                  {
+                      "name":  "target + other exFAT disk -\u003e still target",
+                      "expected_ok":  true,
+                      "actual_ok":  true,
+                      "reason":  "unique PnP -\u003e USBSTOR -\u003e disk -\u003e partition -\u003e volume mapping",
+                      "selected_disk":  "\\\\.\\PHYSICALDRIVE2",
+                      "wrong_device_selected":  false,
+                      "pass":  true
+                  },
+                  {
+                      "name":  "two PID_0006 roots -\u003e FAIL",
+                      "expected_ok":  false,
+                      "actual_ok":  false,
+                      "reason":  "expected exactly one VID_2207\u0026PID_0006 root, found 2",
+                      "selected_disk":  "",
+                      "wrong_device_selected":  false,
+                      "pass":  true
+                  },
+                  {
+                      "name":  "two USBSTOR children -\u003e two disks -\u003e FAIL",
+                      "expected_ok":  false,
+                      "actual_ok":  false,
+                      "reason":  "child-to-disk mapping is not unique: 2 candidates",
+                      "selected_disk":  "",
+                      "wrong_device_selected":  false,
+                      "pass":  true
+                  },
+                  {
+                      "name":  "RAW partition on target disk -\u003e FAIL",
+                      "expected_ok":  false,
+                      "actual_ok":  false,
+                      "reason":  "RAW/unknown filesystem on 1 partition(s); stopping before volume access",
+                      "selected_disk":  "\\\\.\\PHYSICALDRIVE2",
+                      "wrong_device_selected":  false,
+                      "pass":  true
+                  },
+                  {
+                      "name":  "unknown filesystem partition -\u003e FAIL",
+                      "expected_ok":  false,
+                      "actual_ok":  false,
+                      "reason":  "RAW/unknown filesystem on 1 partition(s); stopping before volume access",
+                      "selected_disk":  "\\\\.\\PHYSICALDRIVE2",
+                      "wrong_device_selected":  false,
+                      "pass":  true
+                  },
+                  {
+                      "name":  "no-letter partition is still inspected (RAW) -\u003e FAIL",
+                      "expected_ok":  false,
+                      "actual_ok":  false,
+                      "reason":  "RAW/unknown filesystem on 1 partition(s); stopping before volume access",
+                      "selected_disk":  "\\\\.\\PHYSICALDRIVE2",
+                      "wrong_device_selected":  false,
+                      "pass":  true
+                  },
+                  {
+                      "name":  "no-letter normal partition -\u003e no usable volume -\u003e FAIL",
+                      "expected_ok":  false,
+                      "actual_ok":  false,
+                      "reason":  "expected exactly one accessible exFAT/FAT32 volume on the target disk, found 0",
+                      "selected_disk":  "\\\\.\\PHYSICALDRIVE2",
+                      "wrong_device_selected":  false,
+                      "pass":  true
+                  },
+                  {
+                      "name":  "no PnP children -\u003e identity uncertain -\u003e FAIL",
+                      "expected_ok":  false,
+                      "actual_ok":  false,
+                      "reason":  "no PnP child for the target USB device; identity cannot be established",
+                      "selected_disk":  "",
+                      "wrong_device_selected":  false,
+                      "pass":  true
+                  },
+                  {
+                      "name":  "child cannot map to any disk -\u003e FAIL",
+                      "expected_ok":  false,
+                      "actual_ok":  false,
+                      "reason":  "child-to-disk mapping is not unique: 0 candidates",
+                      "selected_disk":  "",
+                      "wrong_device_selected":  false,
+                      "pass":  true
+                  },
+                  {
+                      "name":  "no partitions for target disk -\u003e FAIL",
+                      "expected_ok":  false,
+                      "actual_ok":  false,
+                      "reason":  "no partition is associated with the mapped disk",
+                      "selected_disk":  "",
+                      "wrong_device_selected":  false,
+                      "pass":  true
+                  },
+                  {
+                      "name":  "two accessible exFAT volumes on target disk -\u003e FAIL",
+                      "expected_ok":  false,
+                      "actual_ok":  false,
+                      "reason":  "expected exactly one accessible exFAT/FAT32 volume on the target disk, found 2",
+                      "selected_disk":  "\\\\.\\PHYSICALDRIVE2",
+                      "wrong_device_selected":  false,
+                      "pass":  true
+                  },
+                  {
+                      "name":  "volume metadata not unique -\u003e FAIL",
+                      "expected_ok":  false,
+                      "actual_ok":  false,
+                      "reason":  "volume metadata for the target partition is not unique",
+                      "selected_disk":  "\\\\.\\PHYSICALDRIVE2",
+                      "wrong_device_selected":  false,
+                      "pass":  true
+                  },
+                  {
+                      "name":  "mapped disk is not USBSTOR/USB -\u003e FAIL",
+                      "expected_ok":  false,
+                      "actual_ok":  false,
+                      "reason":  "mapped disk is not a USB/USBSTOR disk",
+                      "selected_disk":  "",
+                      "wrong_device_selected":  false,
+                      "pass":  true
+                  }
+              ]
+}

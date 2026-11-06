@@ -1,10 +1,9 @@
 # RG353PS Mass Storage mode - Windows host side READ-ONLY verification.
 #
-# Preparation only. Run this AFTER the operator has manually entered USB Mass
-# Storage mode on the handheld. This script performs metadata reads and file
-# hashing only; it never initialises, formats, repairs, mounts, renames,
-# changes drive letters, writes to the device, or deletes anything.
-# It does not use SSH (the MTP-only Release image has no SSH).
+# Preparation / verification only. Run AFTER the operator has manually entered
+# USB Mass Storage mode. The target volume is selected by a STRICT PnP -> WMI
+# mapping from VID_2207&PID_0006; the script never scans arbitrary USB disks
+# or arbitrary exFAT volumes, and stops on any ambiguity.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\check-rg353ps-mass-storage.ps1
 #
@@ -12,11 +11,19 @@
 param(
     [string]$RunId = '20261106-131355-4a3405',
     [int]$ProbeRetries = 3,
-    [int]$ProbeIntervalSeconds = 5
+    [int]$ProbeIntervalSeconds = 5,
+    [string]$TopologyMockPath = ''
 )
 
 $ErrorActionPreference = 'Continue'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$Module = Join-Path $ScriptDir 'Rg353psDeviceMap.ps1'
+if (-not (Test-Path -LiteralPath $Module -PathType Leaf)) {
+    Write-Host 'FAIL: Rg353psDeviceMap.ps1 is missing next to this script.' -ForegroundColor Red
+    exit 1
+}
+. $Module
+
 $ReportJson = Join-Path $ScriptDir 'mass-storage-host-report.json'
 $ReportMd = Join-Path $ScriptDir 'mass-storage-host-report.md'
 $StartedUtc = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
@@ -31,14 +38,6 @@ function Add-Check {
     if (-not $Ok) { [void]$Failures.Add(($Name + ': ' + $Detail)) }
 }
 
-# A Windows format prompt means the volume was not recognised. Stop at once
-# rather than letting any further enumeration touch an unreadable volume.
-function Get-FormatPrompt {
-    return @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
-        $_.MainWindowTitle -match 'format|格式化|You need to format'
-    })
-}
-
 function Write-Reports {
     param([int]$ExitCode)
     $allPass = ($Failures.Count -eq 0)
@@ -47,8 +46,9 @@ function Write-Reports {
         run_id = $RunId
         started_utc = $StartedUtc
         finished_utc = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-        mode = 'USB Mass Storage (PID_0006)'
+        mode = 'USB Mass Storage (VID_2207&PID_0006)'
         read_only = $true
+        device_selection = 'strict PnP parent/child + WMI disk/partition/volume mapping'
         evidence = $Evidence
         checks = @($Checks)
         failures = @($Failures)
@@ -57,14 +57,12 @@ function Write-Reports {
     $json = $report | ConvertTo-Json -Depth 8
     $enc = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($ReportJson, $json, $enc)
-
     $md = New-Object System.Collections.ArrayList
     [void]$md.Add('# RG353PS Mass Storage host read-only report')
     [void]$md.Add('')
     [void]$md.Add('- Run ID: `' + $RunId + '`')
-    [void]$md.Add('- Started: ' + $StartedUtc)
     [void]$md.Add('- Overall: ' + $(if ($allPass) { '**PASS**' } else { '**FAIL**' }))
-    [void]$md.Add('- Read-only: no device write, no format, no repair, no drive-letter change, no SSH')
+    [void]$md.Add('- Device selection: strict PnP/WMI mapping, no fallback scanning')
     [void]$md.Add('')
     [void]$md.Add('| Check | Status | Detail |')
     [void]$md.Add('| --- | --- | --- |')
@@ -78,88 +76,109 @@ function Write-Reports {
         foreach ($f in $Failures) { [void]$md.Add('- ' + $f) }
     }
     [void]$md.Add('')
-    [void]$md.Add('> Host-side read-only observation. If a format prompt appeared,')
-    [void]$md.Add('> the script stopped without touching the volume.')
+    [void]$md.Add('> Read-only observation. Ambiguous or unrecognised volumes are')
+    [void]$md.Add('> never opened; a format prompt is an immediate hard stop.')
     [System.IO.File]::WriteAllText($ReportMd, (($md -join "`r`n") + "`r`n"), $enc)
+}
+
+function Get-FormatPrompt {
+    return @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.MainWindowTitle -match 'format|格式化|You need to format'
+    })
 }
 
 Write-Host '== RG353PS Mass Storage read-only check ==' -ForegroundColor Cyan
 Write-Host ('Run ID: ' + $RunId)
 
-# ---- Finite wait for PID_0006 ------------------------------------------------
+# Format-prompt detection is only ONE layer. The structural safeguards are the
+# strict device mapping and the RAW/unknown-filesystem partition checks in the
+# resolver; those stop the script before any volume is accessed at all.
+$prompt = Get-FormatPrompt
+if ($prompt.Count -gt 0) {
+    Add-Check 'no_format_prompt' $false 'Windows format prompt detected; stopping immediately'
+    Write-Reports 1
+    Write-Host 'STOP: a format prompt is open. Nothing was touched.' -ForegroundColor Red
+    exit 1
+}
+Add-Check 'no_format_prompt' $true 'no Windows format prompt detected (additional guard)'
+
+# ---- Finite wait for the target PnP identity ---------------------------------
 $pnp = @()
 $seen = $false
 for ($i = 1; $i -le $ProbeRetries; $i++) {
-    $prompt = Get-FormatPrompt
-    if ($prompt.Count -gt 0) {
-        Add-Check 'no_format_prompt' $false 'Windows format prompt detected; stopping immediately'
-        Write-Reports 1
-        Write-Host 'STOP: a Windows format prompt is open. Nothing was touched.' -ForegroundColor Red
-        exit 1
-    }
     $pnp = @(Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue |
         Where-Object { $_.PNPDeviceID -match 'VID_2207' } |
         Select-Object Name, PNPDeviceID, PNPClass, Status)
-    $pid6 = @($pnp | Where-Object { $_.PNPDeviceID -match 'VID_2207&PID_0006' })
-    if ($pid6.Count -gt 0) { $seen = $true; break }
-    Write-Host ('Probe ' + $i + '/' + $ProbeRetries + ': PID_0006 not present yet.')
+    $roots = @($pnp | Where-Object {
+        $_.PNPDeviceID -match '^USB\\VID_2207&PID_0006\\' -and $_.PNPDeviceID -notmatch '&MI_'
+    })
+    if ($roots.Count -eq 1) { $seen = $true; break }
+    Write-Host ('Probe ' + $i + '/' + $ProbeRetries + ': unique PID_0006 root not present.')
     if ($i -lt $ProbeRetries) { Start-Sleep -Seconds $ProbeIntervalSeconds }
 }
-Add-Check 'no_format_prompt' $true 'no Windows format prompt detected'
 $Evidence['vid2207_devices'] = @($pnp)
+Add-Check 'pid_0006_root_unique' $seen ('unique VID_2207&PID_0006 roots=' + @($pnp | Where-Object {
+    $_.PNPDeviceID -match '^USB\\VID_2207&PID_0006\\' -and $_.PNPDeviceID -notmatch '&MI_'
+}).Count)
 
-$pid6 = @($pnp | Where-Object { $_.PNPDeviceID -match 'VID_2207&PID_0006' })
 $pid9 = @($pnp | Where-Object { $_.PNPDeviceID -match 'VID_2207&PID_0009' })
 $wpd = @($pnp | Where-Object { $_.PNPClass -eq 'WPD' -or $_.Name -match 'RG353PS' })
-Add-Check 'pid_0006_present' ($pid6.Count -gt 0) ('VID_2207&PID_0006 matches=' + $pid6.Count)
 Add-Check 'mtp_pid_0009_absent' ($pid9.Count -eq 0) ('PID_0009 matches=' + $pid9.Count)
 Add-Check 'wpd_mtp_absent' ($wpd.Count -eq 0) ('WPD RG353PS entries=' + $wpd.Count)
-
 if (-not $seen) {
-    Add-Check 'device_ready' $false 'PID_0006 did not appear within the finite probe window; see vid2207_devices'
+    Add-Check 'device_ready' $false 'unique PID_0006 identity did not appear within the finite probe window'
     Write-Reports 1
     Write-Host 'FAIL: device is not in Mass Storage mode (or not connected).' -ForegroundColor Red
     foreach ($p in $pnp) { Write-Host ('  ' + $p.Name + ' | ' + $p.PNPClass + ' | ' + $p.PNPDeviceID) }
     exit 1
 }
-Add-Check 'device_ready' $true 'PID_0006 device present'
+Add-Check 'device_ready' $true 'unique PID_0006 identity present'
 
-# ---- Disk / partition / volume metadata (read-only) -------------------------
-$disks = @(Get-CimInstance Win32_DiskDrive -ErrorAction SilentlyContinue |
-    Where-Object { $_.PNPDeviceID -match 'VID_2207' -or $_.InterfaceType -eq 'USB' } |
-    Select-Object Index, Model, InterfaceType, PNPDeviceID, Size, Partitions)
-$Evidence['usb_disks'] = @($disks)
-Add-Check 'usb_disk_detected' ($disks.Count -gt 0) ('candidate USB disks=' + $disks.Count)
-
-$volumes = @(Get-CimInstance Win32_Volume -ErrorAction SilentlyContinue |
-    Where-Object { $_.DriveLetter } |
-    Select-Object DriveLetter, FileSystem, Label, Capacity, FreeSpace, DeviceID)
-$Evidence['volumes'] = @($volumes)
-
-$rawVolumes = @($volumes | Where-Object { [string]::IsNullOrEmpty($_.FileSystem) })
-if ($rawVolumes.Count -gt 0) {
-    Add-Check 'no_unrecognised_volume' $false 'a volume has no filesystem - Windows may offer to format it; stopping'
+# ---- Strict topology mapping (no fallback to scanning all USB disks) --------
+if ($TopologyMockPath) {
+    $mock = Get-Content -LiteralPath $TopologyMockPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $topo = [pscustomobject]@{
+        PnpDevices = @($mock.PnpDevices); PnpChildren = @($mock.PnpChildren)
+        Disks = @($mock.Disks); DiskPartitions = @($mock.DiskPartitions)
+        Volumes = @($mock.Volumes)
+    }
+    $Evidence['topology_source'] = 'offline mock'
+} else {
+    $topo = Get-Rg353psLiveTopology
+    $Evidence['topology_source'] = 'live CIM/PnP'
+}
+$map = Resolve-Rg353psTarget -PnpDevices $topo.PnpDevices -PnpChildren $topo.PnpChildren `
+    -Disks $topo.Disks -DiskPartitions $topo.DiskPartitions -Volumes $topo.Volumes
+$Evidence['mapping'] = [ordered]@{
+    ok = $map.Ok; reason = $map.Reason; checks = @($map.Checks)
+    disk = $map.Disk; volume = $map.Volume
+    all_partitions = @($map.Partitions)
+}
+Add-Check 'strict_device_mapping' $map.Ok $map.Reason
+if (-not $map.Ok) {
     Write-Reports 1
-    Write-Host 'STOP: a volume without a filesystem was detected.' -ForegroundColor Red
+    Write-Host ('FAIL: ' + $map.Reason) -ForegroundColor Red
     exit 1
 }
-Add-Check 'no_unrecognised_volume' $true 'no RAW/unformatted volume'
+Add-Check 'no_driveletter_partition_inspected' $true ('partitions inspected=' + @($map.Partitions).Count)
+Add-Check 'no_raw_partition' $true 'all partitions of the mapped disk have a known filesystem'
 
-$exfat = @($volumes | Where-Object { $_.FileSystem -match 'exFAT|FAT32' })
-Add-Check 'exfat_volume_visible' ($exfat.Count -gt 0) ('exFAT/FAT32 volumes=' + $exfat.Count)
-$Evidence['candidate_volumes'] = @($exfat)
-
-# ---- Locate the existing 7-file dataset and verify (read-only) ---------------
-$datasetDir = ''
-foreach ($v in $exfat) {
-    $candidate = ($v.DriveLetter.TrimEnd('\') + '\baseos-mtp-test-' + $RunId)
-    if (Test-Path -LiteralPath $candidate -PathType Container) { $datasetDir = $candidate; break }
-}
-Add-Check 'dataset_dir_found' ($datasetDir -ne '') ('looked for baseos-mtp-test-' + $RunId)
-$Evidence['dataset_dir'] = $datasetDir
-if ($datasetDir -eq '') {
+# ---- Use ONLY the uniquely mapped volume ------------------------------------
+$drive = [string]$map.Volume.DriveLetter
+if ([string]::IsNullOrEmpty($drive)) {
+    Add-Check 'target_volume_has_drive_letter' $false 'mapped volume has no drive letter'
     Write-Reports 1
-    Write-Host 'FAIL: dataset directory not found on any exFAT volume.' -ForegroundColor Red
+    exit 1
+}
+Add-Check 'target_volume_has_drive_letter' $true ('volume=' + $drive)
+Add-Check 'exfat_volume_visible' ($map.Volume.FileSystem -match '^(exFAT|FAT32)$') ('filesystem=' + $map.Volume.FileSystem)
+
+$datasetDir = $drive.TrimEnd('\') + '\baseos-mtp-test-' + $RunId
+Add-Check 'dataset_dir_found' (Test-Path -LiteralPath $datasetDir -PathType Container) ('looked only on ' + $drive)
+$Evidence['dataset_dir'] = $datasetDir
+if (-not (Test-Path -LiteralPath $datasetDir -PathType Container)) {
+    Write-Reports 1
+    Write-Host 'FAIL: dataset directory not found on the uniquely mapped volume.' -ForegroundColor Red
     exit 1
 }
 
@@ -228,5 +247,5 @@ if ($Failures.Count -gt 0) {
     foreach ($f in $Failures) { Write-Host ('  - ' + $f) -ForegroundColor Red }
     exit 1
 }
-Write-Host 'PASS: Mass Storage enumeration and read-only dataset integrity verified.' -ForegroundColor Green
+Write-Host 'PASS: Mass Storage device identity and read-only dataset integrity verified.' -ForegroundColor Green
 exit 0

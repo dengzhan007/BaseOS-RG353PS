@@ -33,7 +33,10 @@ concurrency:
 jobs:
   local-checks:
     name: Syntax, unit and simulated-MTP checks (py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    # Pinned like the other workflows in this repository. ubuntu-latest moved to
+    # 26.04, where setup-python has no 3.9 build; 24.04 keeps the lower bound of
+    # the documented "Python 3.8+" support testable.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false

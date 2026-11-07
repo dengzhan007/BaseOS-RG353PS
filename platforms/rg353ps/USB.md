@@ -13,7 +13,9 @@ gadget setup independently.
 | Either profile, on request | Exclusive | Exclusive | Existing Mass Storage mode |
 
 A card-side `/mnt/SDCARD/baseos.conf` overrides image defaults using the
-independent `usb_debug=yes|no` and `usb_mtp=yes|no` switches.
+independent `usb_debug=yes|no` and `usb_mtp=yes|no` switches. Persistent USB
+failure reports have a separate `usb_diagnostics=yes|no` opt-in (default
+`no`); it does not enable USB networking or SSH.
 
 ## Composite Gadget
 
@@ -62,83 +64,6 @@ be changing. MTP avoids simultaneous raw block-device mounting, but does not
 prevent application-level conflicts on the same file. The responder flushes
 completed transfers before acknowledging them.
 
-## MTP file-transfer integrity acceptance
-
-MTP is only useful if files arrive intact. `tools/mtp/` holds a repeatable
-acceptance harness that proves it per file with SHA-256 instead of inferring it
-from a successful enumeration.
-
-- **Tool location:** `tools/mtp/` (see `tools/mtp/README.md`). The harness is a
-  test tool: it is not installed into the rootfs and never runs at boot.
-- **Host requirements:** Python 3.8+ and one MTP adapter — Windows WPD
-  (`hosts/wpd.ps1`) or a gvfs MTP mount on Linux. No drive letter is assumed.
-  The `linux-mtp-tools` adapter is disabled: libmtp addresses objects by numeric
-  IDs, so a path-based adapter cannot be implemented reliably.
-- **Handheld requirements:** the normal profile with `usb_mtp=yes`, storage root
-  `/mnt/SDCARD` (the only writable user-data mount; `/` is a read-only rootfs and
-  `/mnt/boot` is the boot partition, and both scripts refuse anything else), and
-  BusyBox with `sh`, `printf`, `[`, `date`, `od`, `tr`, `grep`, `cut`, `head`,
-  `wc`, `dd`, `mkdir`, `dirname`, `sha256sum`, `rm`, `mv`, `sync`, `cat` and
-  `pwd`. All of these were checked on the RG353PS (BusyBox v1.37.0), together
-  with `pwd -P`, `readlink -f`, `test -L`, `grep -Eq` and `sha256sum < file`.
-- **Prepare the data:** copy `tools/mtp/device/mtp-prepare.sh` to the device and
-  run it with `--storage /mnt/SDCARD`; it prints the `run_id` and creates one
-  marked directory holding a 4 KiB file, a 1 MiB file, a 128 MiB file, a
-  non-ASCII name, a name with spaces, a unicode+space nested path and a plain
-  nested file, plus a JSON manifest of sizes and digests.
-- **Automated check:** after the dataset exists, pass that `run_id` with
-  `--skip-prepare` and point `--device-ssh` at the handheld:
-
-  ```sh
-  # Under Git Bash on Windows, prefix with MSYS_NO_PATHCONV=1 so /mnt/SDCARD is
-  # not rewritten into a C:/... path.
-  python3 tools/mtp/mtp_integrity.py run --backend auto \
-      --run-id <id> --dataset-profile full --skip-prepare \
-      --device-ssh "ssh root@192.168.42.1" --device-storage-root /mnt/SDCARD \
-      --out <dir>
-  ```
-
-  This performs device→host verification against the device manifest,
-  host→device upload with verification, and the create/mkdir checks the adapter
-  can express. `--device-ssh` also records the handheld environment; without it
-  the device side is reported as unidentified, not guessed.
-- **Reports:** `report.json` and `report.md` in the `--out` directory, with per
-  file direction, size, digest comparison, operation results, failure reasons
-  and totals. Reports stay outside the repository.
-- **Cleanup:** a separate step,
-  `device/mtp-cleanup.sh --run-id <id> --confirm` on the device, which validates
-  the marker, the run id and the resolved path first. The host `cleanup`
-  subcommand refuses to run on WPD (its delete would raise a modal dialog) and
-  prints this command instead.
-- **Safety boundary:** only `<storage>/baseos-mtp-test-<run_id>` is created or
-  removed. Manifest paths are normalised and containment-checked, symlinks are
-  refused, a directory without this tool's marker is never replaced or deleted,
-  a delete is never attempted through an adapter that reports no delete
-  capability, and the tool never touches block devices, mounts, the UDC,
-  configfs or the USB gadget state.
-- **CI:** `.github/workflows/rg353ps-mtp-integrity.yml` runs the local suite,
-  the device-script syntax checks and a simulated full-dataset run on every pull
-  request touching `tools/mtp/**`. CI has no attached device, so it never claims
-  hardware acceptance.
-- **Status — local and simulated:** the script suite passes all 35 cases
-  (including the new symlink-escape, forged-marker, delete-capability and
-  device-storage-root guards), and the simulated `full` dataset reports 31
-  checks with 0 failures. A simulated run sets `mtp: false` in its report, so it
-  is never mistaken for a device result.
-- **Status — real hardware, executed (Windows WPD, kernel
-  `7.2.7-baseos-rg353ps`):** both dataset profiles finished **25 pass / 0 fail /
-  5 skip** (`fast` in 68 s, `full` in 99 s). Device→host transferred every file
-  over MTP and compared size + SHA-256 against the device manifest, including
-  `large-128m.bin` (134217728 bytes), a Chinese name, a name with spaces and a
-  three-level unicode/spaced path. Host→device uploaded seven files over MTP and
-  then computed their SHA-256 **on the device over SSH** (`push-device-hash`);
-  that is not a post-upload MTP read-back, because reading back a just-written
-  object makes the Windows Shell raise a modal prompt. The 5 SKIPs are
-  `overwrite-file`, `rename-file`, `rename-dir`, `delete-file` and `delete-dir`:
-  each Shell verb prompts and cannot be suppressed, so those are reported as
-  SKIP and never as PASS. **Not yet covered:** the Mass Storage hand-off,
-  MTP-only sessions and long-running stability.
-
 ## Mass Storage hand-off
 
 Mass Storage remains separate and exclusive, preserving the existing helper and
@@ -163,6 +88,52 @@ The manager is started in the background by `rcS`. MTP does not run on the
 synchronous frontend boot path, and no storage pre-scan is done at boot; files
 are enumerated in response to host requests. The intended extra boot-path delay
 is zero by design, but actual USB enumeration time needs hardware measurement.
+
+## Persistent USB diagnostics
+
+The USB manager keeps its live log and probe snapshot in `/run` for the
+current session. By default it does not copy these reports to the user-data
+card. This is intentional: a recoverable reconnect event should not leave
+diagnostic files behind during normal use.
+
+The image-side default file
+`platforms/rg353ps/rootfs/etc/baseos.conf` contains `usb_diagnostics=no`.
+The editable card-side file `/mnt/SDCARD/baseos.conf` is created by
+`baseos-init-userdata` only when the file does not already exist, and is never
+overwritten on later boots or system updates. The first-boot template now also
+writes `usb_diagnostics=no` explicitly. Earlier images had this setting in the
+system copy but omitted it from the generated card-side template, so even a
+freshly flashed card could have a `baseos.conf` without the line. Existing
+files are intentionally not rewritten; a missing key still falls back to the
+built-in `no` default and does not enable persistent diagnostics.
+
+For existing installations, you can add this line to
+`/mnt/SDCARD/baseos.conf` to make the setting visible and explicit:
+
+```ini
+usb_diagnostics=no
+```
+
+To collect persistent evidence, change the setting to `yes` and reproduce
+the USB issue:
+
+```ini
+usb_diagnostics=yes
+```
+
+When enabled, the manager may write:
+
+- `/mnt/SDCARD/rg353ps-usb-probe.txt` — UDC, PHY/extcon, power-supply and
+  relevant kernel-message snapshots.
+- `/mnt/SDCARD/rg353ps-usb-debug.txt` — the USB manager's recent runtime log,
+  including Supervisor recovery activity.
+
+The switch is independent of `usb_debug` (RNDIS/NCM/ECM and SSH) and
+`debug` (verbose Mass Storage tracing). It gates persistent card copies only;
+it does not disable in-memory logging, USB reconnect supervision, or recovery.
+The forced-save path used for failed start/stop operations also respects this
+opt-in. Set it back to `no` after collecting evidence. Files already written
+are not automatically deleted when the switch is turned off.
 
 ## Kernel and source dependencies
 
@@ -248,18 +219,60 @@ captures:
 
 Do not copy the DWC3 diagnostic injector into the clean release build.
 
-### Remaining hardware validation
+### MTP and Mass Storage real-hardware acceptance (2026-11-06/07)
 
-The reconnect matrix confirms enumeration recovery and host detection of
-RNDIS/DHCP/MTP. The MTP integrity harness has since covered byte-for-byte
-integrity of large transfers in both directions (including 128 MiB), Chinese
-names, spaces and deep paths, and file/directory creation. It does not establish:
+The reconnect enumeration matrix above is a separate test. The following
+results cover the MTP and Mass Storage data paths; they must not be conflated
+with enumeration recovery or with one another.
 
-- MTP `rename`, `overwrite` and `delete` on hardware: all three are SKIP under
-  Windows WPD (modal Shell prompts) and were not re-run through a gvfs mount;
-- MTP-only release-profile enumeration on hardware;
-- long-duration unexpected-unplug stress;
-- complete Mass Storage enter/exit hardware regression.
+#### MTP
 
-Keep these as separate release checklist items. The 39-cycle reconnect result and
-the MTP integrity runs are not a full USB feature certification.
+| Test | Result | Evidence / boundary |
+|---|---|---|
+| MTP-only Release enumeration | **PASS** | Real RG353PS; VID_2207&PID_0009 only, no PID_0007/0008 or device RNDIS/NCM; 14/14 host checks |
+| Device -> host transfer integrity | **PASS** | 7/7 files: actual sizes and SHA-256 match, including 128 MiB, Chinese/spaced names and nested paths |
+| Host -> device transfer | **PASS, with boundary** | PR #5 Windows WPD test uploaded the dataset; hashes were then computed on-device over SSH and matched. This is not an MTP read-back verification |
+| WPD overwrite / file rename / directory rename / file delete / directory delete | **SKIP** | Five operations were deliberately not attempted because Windows Shell/WPD presents modal confirmation prompts; no PASS is claimed |
+| Linux GVFS backend on real hardware | **NOT TESTED** | No hardware result is recorded |
+| MTP long-duration / repeated-unplug stress | **NOT TESTED** | The 30-minute stability report below is Mass Storage, not MTP |
+
+The PR #5 integrity-tool report records Windows WPD fast and full datasets at
+25 PASS / 0 FAIL / 5 SKIP each. The five SKIPs are the five mutating WPD
+operations listed above. Local unit tests and the simulated local backend are
+not MTP hardware evidence.
+
+Authoritative MTP-only acceptance records:
+- [Real-hardware upgrade and acceptance](../../docs/mtp-only-release-fixed-20261106/REAL-HARDWARE-ACCEPTANCE-20261106.md)
+- [Normalized MTP-only acceptance](../../docs/mtp-only-release-fixed-20261106/hardware-acceptance/mtp-only-acceptance.md)
+- [MTP-only host report](../../docs/mtp-only-release-fixed-20261106/hardware-acceptance/mtp-only-host-report.md)
+- [PR #5 integrity-tool evidence and limitations](https://github.com/dengzhan007/BaseOS-RG353PS/pull/5)
+
+#### Mass Storage
+
+| Test | Result | Evidence / boundary |
+|---|---|---|
+| Mass Storage host identification and read-only data checks | **PASS** | 20/20 checks; unique PID_0006; strict PnP -> disk -> IOCTL volume ownership; 7/7 sizes and SHA-256 |
+| Exit recovery: Mass Storage -> MTP | **PASS** | PID_0009 returned; PID_0006/0007/0008 absent; live WPD RG353PS present; no device network adapter |
+| 30-minute stability | **PASS** | 166/166 polls over 1803 s, zero anomalies; seven 128 MiB SHA-256 checks matched |
+| Write integrity | **PASS** | Prepare 10/10; after safe eject, cable removal and re-entry, Verify 10/10; 7/7 sizes and SHA-256 matched |
+| MTP <-> Mass Storage mutual exclusion under load | **NOT TESTED** | The exit-recovery test proves restoration after leaving Mass Storage, not concurrent/under-load mutual-exclusion stress |
+
+Authoritative Mass Storage records:
+- [Host identification and integrity report](../../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-host-report.md)
+- [Exit recovery report](../../docs/mtp-only-release-fixed-20261106/mass-storage/exit-recovery-host-report.md)
+- [30-minute stability report](../../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-stability-report.md)
+- [Write Prepare report](../../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-write-prepare-report.md)
+- [Write Verify report](../../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-write-verify-report.md)
+
+#### Remaining USB acceptance items
+
+1. Exercise the five WPD mutating operations through a backend that can do so
+   without modal UI, or record an explicit decision that this is unsupported.
+2. Run the MTP integrity suite through Linux GVFS on real hardware.
+3. Stress MTP <-> Mass Storage mutual exclusion under load, including entry,
+   exit, cable removal and return to the configured USB profile.
+4. Run a separate MTP long-duration / repeated-unplug stability test.
+
+The existing Mass Storage stability and write-integrity PASS results do not
+close these four items. Likewise, the 39-cycle reconnect matrix establishes
+enumeration recovery, not full USB feature certification.

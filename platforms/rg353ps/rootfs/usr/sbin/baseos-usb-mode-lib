@@ -357,11 +357,7 @@ usb_mode_resume_normal() {
     _rn_allowed=${2:-0}
     [ "$_rn_allowed" -eq 1 ] || return 1
     usb_mode_lock_is_ours || return 1
-    if [ ! -x "$_rn_script" ]; then
-        usb_mode_clear_active
-        usb_mode_clear_teardown_failed
-        return 0
-    fi
+    [ -x "$_rn_script" ] || return 1
     if "$_rn_script" start >/dev/null 2>&1; then
         usb_mode_clear_active
         usb_mode_clear_teardown_failed

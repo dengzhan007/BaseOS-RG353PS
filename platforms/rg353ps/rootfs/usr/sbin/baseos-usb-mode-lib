@@ -349,14 +349,25 @@ usb_mode_ffs_released() {
 
 # usb_mode_resume_normal <debug_script> <allowed>
 # <allowed> must be 1: the caller has confirmed both UDC release and remount.
-# Backgrounded on purpose; the caller does not wait for re-enumeration.
+# Called by the storage owner while it still holds the shared lock and ACTIVE
+# marker. Start synchronously; clear ACTIVE only after the manager confirms that
+# it has completed its start path. This closes the unlock/background-start gap.
 usb_mode_resume_normal() {
     _rn_script=$1
     _rn_allowed=${2:-0}
     [ "$_rn_allowed" -eq 1 ] || return 1
-    [ -x "$_rn_script" ] || return 0
-    "$_rn_script" start >/dev/null 2>&1 &
-    return 0
+    usb_mode_lock_is_ours || return 1
+    if [ ! -x "$_rn_script" ]; then
+        usb_mode_clear_active
+        usb_mode_clear_teardown_failed
+        return 0
+    fi
+    if "$_rn_script" start >/dev/null 2>&1; then
+        usb_mode_clear_active
+        usb_mode_clear_teardown_failed
+        return 0
+    fi
+    return 1
 }
 
 # usb_mode_resume_veto <udc_binding> <mount_ok>
@@ -431,7 +442,8 @@ usb_mode_finish_session() {
 
     if [ "$USB_MODE_FINISH_UDC_RELEASED" -eq 1 ] && [ "$USB_MODE_FINISH_REMOUNT_OK" -eq 1 ]; then
         USB_MODE_FINISH_TEARDOWN_OK=1
-        usb_mode_clear_active
+        # ACTIVE remains set until usb_mode_resume_normal has synchronously
+        # started the replacement gadget while the storage owner holds the lock.
         usb_mode_clear_teardown_failed
     elif [ "$USB_MODE_FINISH_UDC_RELEASED" -eq 1 ]; then
         usb_mode_mark_teardown_failed remount_failed

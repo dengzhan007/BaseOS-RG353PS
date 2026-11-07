@@ -12,10 +12,13 @@
 > (`mtp-only-acceptance.md` / `.json`, `pnp-enumeration.json`, raw logs).
 > Verified: `VID_2207&PID_0009` only, no PID_0007/0008, no device-provided
 > RNDIS/NCM, 14/14 host checks, 7/7 file sizes and SHA-256 matches.
-> Sections 4, 9 and 10 below retain the historical build-time state and are
-> superseded only on that point; all measured data is unchanged. Mass Storage,
-> long-run stability and Linux gvfs remain untested - an MTP-only PASS does not
-> imply those pass.
+> Sections 4, 9 and 10 below retain the historical build-time state.
+Subsequent reports in README.md record later real-hardware results:
+MTP-only acceptance passed; Mass Storage hand-off, exit recovery, 30-minute
+Mass Storage stability and write-integrity checks also passed. The remaining
+items are Linux GVFS on hardware, the five WPD mutating operations, MTP
+long-duration/repeated-unplug stability, and MTP <-> Mass Storage mutual
+exclusion under load. A Mass Storage PASS does not imply those MTP items pass.
 
 ## 1. Independent fix branch and PR
 

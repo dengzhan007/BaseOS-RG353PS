@@ -32,7 +32,8 @@ IDLE -----------------------------> CLAIMED (ACTIVE marker written)
                                         |
                      confirm /proc/mounts: mp backed by DEVICE
                                         |
-                     both confirmed -> release lock -> debug start
+                     both confirmed -> keep ACTIVE + lock -> debug start
+                                        -> clear ACTIVE -> release lock
                      either failed  -> keep ACTIVE, keep debug down
 ```
 
@@ -40,7 +41,7 @@ IDLE -----------------------------> CLAIMED (ACTIVE marker written)
 
 | Invariant | Mechanism |
 | --- | --- |
-| One UDC, one gadget | `usb_mode_lock_acquire` on every mutating entry point; `usb_mode_udc_claimed_by_other` re-checked immediately before the storage bind |
+| One UDC, one gadget | shared lock on storage and debug manager; foreign Gadget ownership re-checked immediately before the storage bind |
 | No partition unmount while FunctionFS is alive | `do_stop`: unbind, `baseos-usb-mtp stop`, then `usb_mode_ffs_released`; failure refuses the hand-off |
 | No local mount while the LUN is bound | `usb_mode_finish_session` only reaches the remount step after a confirmed UDC release |
 | No remount before the UDC is confirmed free | same ordering; the remount block is unreachable on `UDC_RELEASED=0` |
@@ -78,13 +79,13 @@ IDLE -----------------------------> CLAIMED (ACTIVE marker written)
 ## Test mapping
 
 `tests/test-rg353ps-usb-mutual-exclusion.sh` executes these functions against a
-sandbox configfs/UDC/mounts and asserts the results (31 cases, no hardware):
+sandbox configfs/UDC/mounts and asserts the results (33 cases, no hardware):
 
 | Area | Cases |
 | --- | --- |
 | Lock | acquire/release, re-entrancy, contention, stale PID, SIGKILL, SIGTERM |
 | UDC release | confirmed, write-ok-but-bound, empty-but-configured, timeout, missing |
 | Remount | already mounted, wrong source, verified, silent success, mount error |
-| Teardown | success clears marker, failed unbind never remounts, unverified remount keeps marker |
-| Resume | allowed start, vetoed start |
+| Teardown | confirmed unbind/remount keep ACTIVE until replacement gadget starts under the same lock; failed unbind never remounts |
+| Resume | synchronous start under lock, failed/unlocked start retains marker |
 | Marker | dead owner reaped, live owner kept |

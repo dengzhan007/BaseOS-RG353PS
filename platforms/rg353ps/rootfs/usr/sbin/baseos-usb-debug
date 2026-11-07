@@ -156,10 +156,18 @@ PROBE_RAM=/run/baseos-usb-probe.txt
 PROBE_PUSHED=0
 USB_TROUBLE=0
 
-# The card copies exist for the failure case, so that is when they are written.
-# debug=yes still asks for them on every boot, which is what makes a card copy
-# available while the channel is healthy.
+# Persistent USB failure reports are opt-in and independent of USB
+# networking/SSH and the general storage debug switch. Runtime diagnostics
+# remain in /run; this setting controls only copies written to user data.
+usb_diagnostics_enabled() {
+    case "$(config_value usb_diagnostics)" in
+        yes|YES|Yes|1|on|true) return 0 ;;
+    esac
+    return 1
+}
+
 persist_enabled() {
+    usb_diagnostics_enabled || return 1
     [ "$USB_TROUBLE" = 1 ] && return 0
     [ "$(config_value debug)" = yes ] && return 0
     return 1
@@ -693,6 +701,10 @@ stop_watch() {
 # stayed up leaves nothing behind. "force" is for the few callers that are
 # themselves the event worth recording: a failed start, an explicit stop.
 persist_log() {
+    # "force" bypasses the ordinary trouble/debug condition, never the
+    # explicit user opt-in. This keeps failed-stop/start captures available
+    # when requested without writing persistent reports by default.
+    usb_diagnostics_enabled || return 0
     [ "${1:-}" = force ] || persist_enabled || return 0
     [ -d /mnt/SDCARD ] || return 0
     tail -n 120 "$LOG" 2>/dev/null >/mnt/SDCARD/rg353ps-usb-debug.txt 2>/dev/null || :
@@ -1121,6 +1133,7 @@ do_status() {
     UDC=$(find_udc)
     printf 'usb_debug: %s\n' "$(config_value usb_debug || echo unset)"
     printf 'usb_mtp:   %s\n' "$(config_value usb_mtp || echo unset)"
+    printf 'usb_diagnostics: %s\n' "$(config_value usb_diagnostics || echo no)"
     printf 'gadget:    %s\n' "$([ -d "$G" ] && echo present || echo absent)"
     if [ -x /usr/sbin/baseos-usb-mtp ]; then
         /usr/sbin/baseos-usb-mtp status | sed 's/^/mtp:       /'

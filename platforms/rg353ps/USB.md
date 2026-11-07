@@ -13,7 +13,9 @@ gadget setup independently.
 | Either profile, on request | Exclusive | Exclusive | Existing Mass Storage mode |
 
 A card-side `/mnt/SDCARD/baseos.conf` overrides image defaults using the
-independent `usb_debug=yes|no` and `usb_mtp=yes|no` switches.
+independent `usb_debug=yes|no` and `usb_mtp=yes|no` switches. Persistent USB
+failure reports have a separate `usb_diagnostics=yes|no` opt-in (default
+`no`); it does not enable USB networking or SSH.
 
 ## Composite Gadget
 
@@ -86,6 +88,34 @@ The manager is started in the background by `rcS`. MTP does not run on the
 synchronous frontend boot path, and no storage pre-scan is done at boot; files
 are enumerated in response to host requests. The intended extra boot-path delay
 is zero by design, but actual USB enumeration time needs hardware measurement.
+
+## Persistent USB diagnostics
+
+The USB manager keeps its live log and probe snapshot in `/run` for the
+current session. By default it does not copy these reports to the user-data
+card. This is intentional: a recoverable reconnect event should not leave
+diagnostic files behind during normal use.
+
+To collect persistent evidence, add this line to
+`/mnt/SDCARD/baseos.conf` and reproduce the USB issue:
+
+```ini
+usb_diagnostics=yes
+```
+
+When enabled, the manager may write:
+
+- `/mnt/SDCARD/rg353ps-usb-probe.txt` — UDC, PHY/extcon, power-supply and
+  relevant kernel-message snapshots.
+- `/mnt/SDCARD/rg353ps-usb-debug.txt` — the USB manager's recent runtime log,
+  including Supervisor recovery activity.
+
+The switch is independent of `usb_debug` (RNDIS/NCM/ECM and SSH) and
+`debug` (verbose Mass Storage tracing). It gates persistent card copies only;
+it does not disable in-memory logging, USB reconnect supervision, or recovery.
+The forced-save path used for failed start/stop operations also respects this
+opt-in. Set it back to `no` after collecting evidence. Files already written
+are not automatically deleted when the switch is turned off.
 
 ## Kernel and source dependencies
 

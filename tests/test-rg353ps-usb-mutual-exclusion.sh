@@ -589,6 +589,44 @@ report "wiring: ACTIVE marker precedes the manager stop" "$ok" \
     report "resume: missing lock refuses start and keeps ACTIVE" "$ok" "rc=$rc calls=$calls"
 )
 
+# 34. An unreadable UDC attribute is not an empty binding.
+(
+    new_sandbox
+    rm -f "$SB/cfg/usb_gadget/rockchip/UDC"
+    mkdir "$SB/cfg/usb_gadget/rockchip/UDC"
+    usb_mode_udc_binding "$SB/cfg/usb_gadget/rockchip" >/dev/null 2>&1; rc=$?
+    ok=1
+    [ "$rc" -ne 0 ] && ok=0
+    report "udc: unreadable binding is distinct from empty" "$ok" "rc=$rc"
+)
+
+# 35. An unreadable other gadget must block a new UDC claim.
+(
+    new_sandbox
+    rm -f "$SB/cfg/usb_gadget/baseos_debug/UDC"
+    mkdir "$SB/cfg/usb_gadget/baseos_debug/UDC"
+    usb_mode_udc_claimed_by_other dwc3 "$SB/cfg/usb_gadget/rockchip"; rc=$?
+    ok=1
+    [ "$rc" -eq 0 ] && ok=0
+    report "udc: unreadable other gadget binding blocks claim" "$ok" "rc=$rc"
+)
+
+# 36. If the helper believed it was unbound but cannot read the attribute,
+#     teardown must keep ACTIVE and must not remount the data partition.
+(
+    new_sandbox
+    rm -f "$SB/cfg/usb_gadget/rockchip/UDC"
+    mkdir "$SB/cfg/usb_gadget/rockchip/UDC"
+    usb_mode_mark_active bound
+    usb_mode_finish_session "$SB/cfg/usb_gadget/rockchip" dwc3 0 \
+        /dev/mmcblk0p4 "$SB/mnt/data" exfat "$SB/bin/baseos-usb-debug" 1; rc=$?
+    mount_calls=$(wc -l < "$SB/mount.calls" | tr -d ' ')
+    ok=1
+    [ "$rc" -eq 1 ] && [ "$USB_MODE_FINISH_UDC_RELEASED" -eq 0 ] &&
+        [ "$mount_calls" -eq 0 ] && marker_present && ok=0
+    report "teardown: unreadable binding never permits remount" "$ok" "rc=$rc mount_calls=$mount_calls"
+)
+
 TOTAL=0
 FAILED=0
 while IFS='|' read -r verdict name detail; do

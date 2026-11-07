@@ -627,6 +627,18 @@ report "wiring: ACTIVE marker precedes the manager stop" "$ok" \
     report "teardown: unreadable binding never permits remount" "$ok" "rc=$rc mount_calls=$mount_calls"
 )
 
+# 37. An unreadable controller state is not proof that the UDC is released.
+(
+    new_sandbox
+    : > "$SB/cfg/usb_gadget/rockchip/UDC"
+    rm -f "$SB/udc/dwc3/state"
+    mkdir "$SB/udc/dwc3/state"
+    usb_mode_udc_unbind "$SB/cfg/usb_gadget/rockchip" dwc3 5 2; rc=$?
+    ok=1
+    [ "$rc" -eq 1 ] && [ "${USB_MODE_UNBIND_STATE:-}" = unreadable ] && ok=0
+    report "udc: unreadable controller state fails confirmation" "$ok" "rc=$rc state=${USB_MODE_UNBIND_STATE:-}"
+)
+
 TOTAL=0
 FAILED=0
 while IFS='|' read -r verdict name detail; do

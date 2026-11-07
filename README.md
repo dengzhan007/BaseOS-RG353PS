@@ -33,7 +33,7 @@ BaseOS 与游戏前端分层工作：
 
 **游戏识别属于前端的工作，不是 BaseOS 的 ROM 扫描功能。** BaseOS 负责挂载存储设备并向前端提供路径；不同前端可以有不同的游戏目录规则和跨卡能力。
 
-当前 RG353PS 的 Slot 适配以被选中的前端卡作为存储根目录，并从该根目录下的 `Games` 目录扫描游戏。因此，使用当前 Slot 适配时，建议将 Slot 前端和它的游戏目录放在同一张 TF 卡上。这个限制属于当前前端适配的存储规则，不代表 BaseOS 强制所有前端都必须与游戏同卡。若其他前端支持多个游戏根目录，也可以采用不同的存储布局。
+当前 RG353PS 的 Slot 适配以被选中的前端卡作为存储根目录，并从该根目录下的 `Games` 目录扫描游戏。因此，使用当前 Slot 适配时，建议将 Slot 前端和它的游戏目录放在同一张 TF 卡上。这个限制属于当前前端适配的存储规则，不代表 BaseOS 对所有前端都必须与游戏同卡。若其他前端支持多个游戏根目录，也可以采用不同的存储布局。
 
 ### 安装与升级
 
@@ -51,7 +51,8 @@ BaseOS 支持完整镜像全新安装和 `.bosupd` 原地升级。A/B 更新切�
 RG353PS 的 USB 文件传输和调试功能使用机身 **DC 接口**。MTP、Mass Storage 和 USB 虚拟网卡 SSH 均应连接 DC 接口；连接 OTG 接口不能使用这里描述的这些功能。
 
 - **Release 默认配置：** MTP-only，可通过电脑访问用户数据分区中的文件。
-- **开发配置：** USB 虚拟网卡 + SSH + MTP，用于连接电脑进行远程调试和文件传输。USB 虚拟网卡提供的是设备与电脑之间的点对点调试通道，**不是互联网共享或网络热点**。
+- **开发配置：** USB 虚拟网卡 + SSH + MTP，用于连接电脑进行远程调试和文件传输。SSH 默认用户名为 `root`，默认密码为 `root`。此默认凭据仅用于开发调试配置；请勿将该配置暴露到不可信网络，并建议在实际使用前修改密码。
+- **USB 虚拟网卡：** 提供设备与电脑之间的点对点调试通道，**不是互联网共享或网络热点**。
 - **Mass Storage：** 独占导出用户数据卷，设备在该模式下不会同时挂载和访问被导出的卷。
 
 进入 Mass Storage 时，建议先将数据线连接到 RG353PS 的 DC 接口，再按住 **Function 并按 Power 开机**。先插线通常更容易完成 USB 枚举；开机进入等待状态后再插线，可能需要较长时间才能连接。
@@ -71,6 +72,13 @@ HDMI 相关代码和设备树支持仍在平台中，但 **RG353PS 实机 HDMI �
 - [USB 架构与硬件验证](platforms/rg353ps/USB.md)
 - [启动画面持久化规范](platforms/rg353ps/BOOTLOGO.md)
 - [更新与发布工作流](.github/workflows/rg353ps-release.yml)
+- [贡献指南](CONTRIBUTING.md)
+
+### Contributors
+
+- [dengzhan007](https://github.com/dengzhan007) — 项目维护与平台移植
+- [ChatGPT](https://chatgpt.com/) — AI 辅助分析、开发与文档协作
+- [DeepSeek](https://www.deepseek.com/) — AI 辅助分析与开发协作
 
 ### 致谢
 
@@ -125,7 +133,8 @@ See the [RG353PS platform guide](platforms/rg353ps/README.md) and [frontend inst
 The RG353PS USB transfer and debugging features use the device's **DC port**. MTP, Mass Storage, and USB virtual-network SSH must be connected through the DC port; the OTG port does not support the functions described here.
 
 - **Release default:** MTP-only, allowing a computer to access files in the user-data partition.
-- **Development configuration:** USB virtual network + SSH + MTP for remote debugging and file transfer. The USB virtual network is a point-to-point debugging link between the handheld and the computer; **it does not provide internet sharing or a network hotspot**.
+- **Development configuration:** USB virtual network + SSH + MTP for remote debugging and file transfer. The default SSH username is `root` and the default password is `root`. These default credentials are for the development configuration only. Do not expose this configuration to untrusted networks; change the password before practical use.
+- **USB virtual network:** a point-to-point debugging link between the handheld and the computer; **it does not provide internet sharing or a network hotspot**.
 - **Mass Storage:** exclusively exports the user-data volume. The device does not mount or access that volume locally while it is exported.
 
 To enter Mass Storage, connect the data cable to the RG353PS DC port first, then hold **Function and press Power** to boot. Connecting the cable first generally makes USB enumeration more reliable. If the device is already waiting for a connection before the cable is inserted, connection may take considerably longer.
@@ -145,6 +154,13 @@ HDMI-related code and device-tree support are present, but **HDMI output has not
 - [USB architecture and hardware validation](platforms/rg353ps/USB.md)
 - [Boot-logo persistence contract](platforms/rg353ps/BOOTLOGO.md)
 - [Release workflow](.github/workflows/rg353ps-release.yml)
+- [Contributing guide](CONTRIBUTING.md)
+
+### Contributors
+
+- [dengzhan007](https://github.com/dengzhan007) — project maintainer and platform port
+- [ChatGPT](https://chatgpt.com/) — AI-assisted analysis, development, and documentation
+- [DeepSeek](https://www.deepseek.com/) — AI-assisted analysis and development
 
 ### Acknowledgements
 

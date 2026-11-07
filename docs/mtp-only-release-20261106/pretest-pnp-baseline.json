@@ -1,0 +1,93 @@
+{
+    "tool":  "rg353ps-mtp-only-release-acceptance",
+    "run_id":  "20261106-120429-62aa6d",
+    "started_utc":  "2026-11-06T12:11:01Z",
+    "finished_utc":  "2026-11-06T12:11:01Z",
+    "profile":  "MTP-only release (usb_debug=no, usb_mtp=yes, pid=0x0009)",
+    "device_seen":  false,
+    "pnp":  {
+                "expected_match":  "VID_2207\u0026PID_0009",
+                "forbidden_matches":  [
+                                          "VID_2207\u0026PID_0007",
+                                          "VID_2207\u0026PID_0008"
+                                      ],
+                "vid2207_devices":  [
+                                        {
+                                            "Name":  "RG353PS",
+                                            "PNPClass":  "WPD",
+                                            "PNPDeviceID":  "USB\\VID_2207\u0026PID_0008\u0026MI_02\\7\u002626A4B16B\u00260\u00260002",
+                                            "Status":  "OK"
+                                        },
+                                        {
+                                            "Name":  "Remote NDIS Compatible Device",
+                                            "PNPClass":  "Net",
+                                            "PNPDeviceID":  "USB\\VID_2207\u0026PID_0008\u0026MI_00\\7\u002626A4B16B\u00260\u00260000",
+                                            "Status":  "OK"
+                                        },
+                                        {
+                                            "Name":  "USB Composite Device",
+                                            "PNPClass":  "USB",
+                                            "PNPDeviceID":  "USB\\VID_2207\u0026PID_0008\\BASEOS-RG353PS",
+                                            "Status":  "OK"
+                                        }
+                                    ],
+                "wpd_storages":  [
+                                     "RG353PS"
+                                 ]
+            },
+    "mtp_pull":  {
+                     "command":  "python tools/mtp/mtp_integrity.py pull --backend windows-wpd --skip-prepare --keep-workdir --timeout 300",
+                     "exit_code":  1,
+                     "log":  "F:\\workspace\\2026-10-28-22-11-37\\.tmp-doc\\mtp-only\\wt\\work\\rg353ps-mtp-only-test\\mtp-pull.log",
+                     "report_dir":  "F:\\workspace\\2026-10-28-22-11-37\\.tmp-doc\\mtp-only\\wt\\work\\rg353ps-mtp-only-test\\mtp-report"
+                 },
+    "checks":  [
+                   {
+                       "name":  "tool_present",
+                       "status":  "PASS",
+                       "detail":  "F:\\workspace\\2026-10-28-22-11-37\\.tmp-doc\\mtp-only\\wt\\tools\\mtp\\mtp_integrity.py"
+                   },
+                   {
+                       "name":  "python_available",
+                       "status":  "PASS",
+                       "detail":  "python"
+                   },
+                   {
+                       "name":  "pnp_pid_0009",
+                       "status":  "FAIL",
+                       "detail":  "VID_2207\u0026PID_0009 matches=0"
+                   },
+                   {
+                       "name":  "no_pid_0007_0008",
+                       "status":  "FAIL",
+                       "detail":  "forbidden PID matches=3"
+                   },
+                   {
+                       "name":  "no_rndis_ncm_adapter",
+                       "status":  "FAIL",
+                       "detail":  "device-provided network adapters=1"
+                   },
+                   {
+                       "name":  "wpd_rg353ps",
+                       "status":  "PASS",
+                       "detail":  "WPD/RG353PS entries=1"
+                   },
+                   {
+                       "name":  "wpd_sdcard_storage",
+                       "status":  "PASS",
+                       "detail":  "WPD storages=RG353PS"
+                   },
+                   {
+                       "name":  "device_ready",
+                       "status":  "FAIL",
+                       "detail":  "PID_0009 device did not appear within the finite probe window; see PnP table above"
+                   }
+               ],
+    "failures":  [
+                     "pnp_pid_0009: VID_2207\u0026PID_0009 matches=0",
+                     "no_pid_0007_0008: forbidden PID matches=3",
+                     "no_rndis_ncm_adapter: device-provided network adapters=1",
+                     "device_ready: PID_0009 device did not appear within the finite probe window; see PnP table above"
+                 ],
+    "pass":  false
+}

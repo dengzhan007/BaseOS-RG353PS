@@ -1,0 +1,126 @@
+name: RG353PS MTP integrity tool checks
+
+# Runs the MTP file-transfer integrity harness in tools/mtp/.
+#
+# Scope: every check here is local or simulated. No MTP device is attached to a
+# runner, so this workflow never produces a hardware acceptance result. The
+# real-device runs are recorded in platforms/rg353ps/USB.md and remain a manual
+# step; nothing in this file may be cited as "MTP verified on hardware".
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+    paths:
+      - "tools/mtp/**"
+      - "tests/test-rg353ps-mtp-integrity.sh"
+      - ".github/workflows/rg353ps-mtp-integrity.yml"
+  pull_request:
+    paths:
+      - "tools/mtp/**"
+      - "tests/test-rg353ps-mtp-integrity.sh"
+      - ".github/workflows/rg353ps-mtp-integrity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mtp-integrity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-checks:
+    name: Syntax, unit and simulated-MTP checks (py${{ matrix.python-version }})
+    # Pinned like the other workflows in this repository. ubuntu-latest moved to
+    # 26.04, where setup-python has no 3.9 build; 24.04 keeps the lower bound of
+    # the documented "Python 3.8+" support testable.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.12"]
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Tool versions
+        run: |
+          python3 --version
+          dash -c 'echo "dash available"'
+
+      - name: Device scripts parse as POSIX sh and as dash
+        run: |
+          sh -n tools/mtp/device/mtp-prepare.sh
+          sh -n tools/mtp/device/mtp-cleanup.sh
+          dash -n tools/mtp/device/mtp-prepare.sh
+          dash -n tools/mtp/device/mtp-cleanup.sh
+
+      - name: Python sources compile
+        run: |
+          python3 -m py_compile \
+            tools/mtp/mtp_common.py \
+            tools/mtp/mtp_backends.py \
+            tools/mtp/mtp_integrity.py \
+            tools/mtp/tests/test_mtp_integrity.py
+
+      - name: Unit, path-safety, cleanup-safety and simulated-MTP suite
+        run: tests/test-rg353ps-mtp-integrity.sh
+
+      - name: Simulated MTP, full dataset (128 MiB, both directions)
+        run: |
+          SIM="$RUNNER_TEMP/mtp-sim"
+          mkdir -p "$SIM/storage"
+          python3 tools/mtp/mtp_integrity.py run \
+            --backend local \
+            --root "$SIM/storage" \
+            --dataset-profile full \
+            --out "$SIM/report"
+
+      - name: Assert the simulated run is honest about what it is
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+
+          path = os.path.join(os.environ["RUNNER_TEMP"], "mtp-sim", "report", "report.json")
+          with open(path, encoding="utf-8") as handle:
+              report = json.load(handle)
+
+          totals = report["totals"]
+          print("totals:", totals)
+          print("backend:", report["backend"])
+
+          problems = []
+          if totals["fail"] != 0:
+              problems.append(f"{totals['fail']} failing checks")
+          if totals["pass"] < 20:
+              problems.append(f"only {totals['pass']} passing checks")
+          if report["backend"]["mtp"]:
+              problems.append("local simulation must not claim an MTP transport")
+
+          if problems:
+              print("FAILED:", "; ".join(problems), file=sys.stderr)
+              raise SystemExit(1)
+          print("simulated run is green and correctly labelled as a simulation")
+          PY
+
+      - name: Upload the simulated report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mtp-integrity-simulated-py${{ matrix.python-version }}
+          path: ${{ runner.temp }}/mtp-sim/report
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: State the scope of this run
+        run: |
+          echo "::notice::These are local and simulated results only. No MTP device is attached to the runner, so this job is not a hardware acceptance test. Real-device results live in platforms/rg353ps/USB.md."

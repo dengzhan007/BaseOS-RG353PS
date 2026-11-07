@@ -1,0 +1,85 @@
+
+=== sh /root/work/baseos-rg353ps-mtp-only/wt/platforms/rg353ps/build-image.sh ===
+== assembling RG353PS smoke-test image ==
+  [12:47:31 +0s] container start
+debian apt repositories now use mirror: http://mirrors.tuna.tsinghua.edu.cn/debian
+  [12:47:31 +0s] apt update start
+debconf: delaying package configuration, since apt-utils is not installed
+Selecting previously unselected package dosfstools.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 6096 files and directories currently installed.)
+Preparing to unpack .../dosfstools_4.2-1_amd64.deb ...
+Unpacking dosfstools (4.2-1) ...
+Selecting previously unselected package libncursesw6:amd64.
+Preparing to unpack .../libncursesw6_6.4-4_amd64.deb ...
+Unpacking libncursesw6:amd64 (6.4-4) ...
+Selecting previously unselected package libpopt0:amd64.
+Preparing to unpack .../libpopt0_1.19+dfsg-1_amd64.deb ...
+Unpacking libpopt0:amd64 (1.19+dfsg-1) ...
+Selecting previously unselected package gdisk.
+Preparing to unpack .../gdisk_1.0.9-2.1_amd64.deb ...
+Unpacking gdisk (1.0.9-2.1) ...
+Selecting previously unselected package mtools.
+Preparing to unpack .../mtools_4.0.33-1+really4.0.32-1_amd64.deb ...
+Unpacking mtools (4.0.33-1+really4.0.32-1) ...
+Setting up mtools (4.0.33-1+really4.0.32-1) ...
+Setting up dosfstools (4.2-1) ...
+Setting up libncursesw6:amd64 (6.4-4) ...
+Setting up libpopt0:amd64 (1.19+dfsg-1) ...
+Setting up gdisk (1.0.9-2.1) ...
+Processing triggers for libc-bin (2.36-9+deb12u14) ...
+  [12:47:46 +15s] apt done
+Creating new GPT entries in memory.
+Warning: The kernel is still using the old partition table.
+The new table will be used at the next reboot or after you
+run partprobe(8) or kpartx(8)
+The operation has completed successfully.
+  [12:47:48 +17s] boot vfat start
+mkfs.fat 4.2 (2021-01-31)
+  [12:47:48 +17s] rootfs ext4 start
+mke2fs 1.47.0 (5-Feb-2023)
+Discarding device blocks:      0/131072             done                            
+Creating filesystem with 131072 4k blocks and 32768 inodes
+Filesystem UUID: 26f0113d-1ede-489c-8610-cbad10892a9b
+Superblock backups stored on blocks: 
+	32768, 98304
+
+Allocating group tables: 0/4   done                            
+Writing inode tables: 0/4   done                            
+Creating journal (1024 blocks): done
+Copying files into the device: done
+Writing superblocks and filesystem accounting information: 0/4   done
+
+  [12:47:54 +23s] rootfs ext4 done
+  [12:47:54 +23s] dd start
+  [12:47:59 +28s] dd done
+
+Caution: Partition 4 doesn't end on a 2048-sector boundary. This may
+result in problems with some disk encryption tools.
+
+No problems found. 1327070 free sectors (648.0 MiB) available in 3
+segments, the largest of which is 1048576 (512.0 MiB) in size.
+Partition layout:
+Disk /work/baseos-rg353ps-smoke.img: 4194304 sectors, 2.0 GiB
+Sector size (logical): 512 bytes
+Disk identifier (GUID): 343429B9-6F0C-4371-AB0B-7663A205D72F
+Partition table holds up to 128 entries
+Main partition table begins at sector 2 and ends at sector 33
+First usable sector is 34, last usable sector is 4194270
+Partitions will be aligned on 2048-sector boundaries
+Total free space is 1327070 sectors (648.0 MiB)
+
+Number  Start (sector)    End (sector)  Size       Code  Name
+   1           16384           32767   8.0 MiB     8300  BASEOS_UBOOT
+   2           32768          294911   128.0 MiB   0700  BASEOS_BOOT
+   3          557056         1605631   512.0 MiB   8300  BASEOS_ROOT
+   4         2654208         4194270   752.0 MiB   0700  BASEOS
+  [12:47:59 +28s] gzip start
+  [12:48:12 +41s] gzip done
+Created SD-card smoke-test image:
+-rw-r--r-- 1 root root 2.0G Nov  6 12:47 /work/baseos-rg353ps-smoke.img
+-rw-r--r-- 1 root root 134M Nov  6 12:48 /work/baseos-rg353ps-smoke.img.gz
+-rw-r--r-- 1 root root  185 Nov  6 12:48 /work/baseos-rg353ps-smoke.img.sha256
+-rw-r--r-- 1 root root  736 Nov  6 12:47 /work/image-build.json
+Smoke-test image: /root/work/baseos-rg353ps-mtp-only/wt/work/rg353ps-mtp-only-test/baseos-rg353ps-smoke.img.gz
+Checksum file: /root/work/baseos-rg353ps-mtp-only/wt/work/rg353ps-mtp-only-test/baseos-rg353ps-smoke.img.sha256
+Use a spare SD card only; this is not the finished frontend build.

@@ -48,6 +48,7 @@ IDLE -----------------------------> CLAIMED (ACTIVE marker written)
 | No MTP against an unmounted partition | `preflight_start` disables MTP (and refuses to start when MTP is the only function) if `/mnt/SDCARD` is not in `/proc/mounts` |
 | Never report recovery that did not happen | remount counts only when `/proc/mounts` names the expected device; `mount(8)` exit 0 alone is not enough |
 | Unknown state stays closed | `UDC_RELEASED=0` / `REMOUNT_OK=0` keep the ACTIVE marker, skip the manager start, and print `USB STORAGE FAILED` |
+| UDC attribute/state unreadable | Read failure is distinct from an empty value; a possible foreign binding blocks a new claim, and teardown never remounts on an unreadable binding/state |
 
 ## Lock semantics
 
@@ -79,12 +80,12 @@ IDLE -----------------------------> CLAIMED (ACTIVE marker written)
 ## Test mapping
 
 `tests/test-rg353ps-usb-mutual-exclusion.sh` executes these functions against a
-sandbox configfs/UDC/mounts and asserts the results (33 cases, no hardware):
+sandbox configfs/UDC/mounts and asserts the results (36 cases, no hardware):
 
 | Area | Cases |
 | --- | --- |
 | Lock | acquire/release, re-entrancy, contention, stale PID, SIGKILL, SIGTERM |
-| UDC release | confirmed, write-ok-but-bound, empty-but-configured, timeout, missing |
+| UDC release | confirmed, write-ok-but-bound, empty-but-configured, timeout, missing, unreadable attribute/state and foreign binding |
 | Remount | already mounted, wrong source, verified, silent success, mount error |
 | Teardown | confirmed unbind/remount keep ACTIVE until replacement gadget starts under the same lock; failed unbind never remounts |
 | Resume | synchronous start under lock, failed/unlocked start retains marker |

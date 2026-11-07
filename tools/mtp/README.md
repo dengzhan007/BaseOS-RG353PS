@@ -218,8 +218,18 @@ What the two hardware runs actually did:
   suppresses, so the adapter declares them unsupported and the caller records
   SKIP.
 
-Not covered on hardware yet: the Mass Storage hand-off, MTP-only sessions and
-long-running stability. Those are separate acceptance items.
+Subsequent real-hardware reports on main have since completed the MTP-only
+Release acceptance (14/14 host checks, 7/7 device-to-host size + SHA-256),
+Mass Storage identification (20/20), Mass Storage -> MTP exit recovery,
+30-minute Mass Storage stability (166/166) and Mass Storage write integrity
+(Prepare 10/10, Verify 10/10). See
+../../docs/mtp-only-release-fixed-20261106/README.md for the reports.
+
+Still not covered on hardware: Linux GVFS operation, the five WPD mutating
+operations listed above, MTP long-duration/repeated-unplug stability, and
+MTP <-> Mass Storage mutual exclusion under load. The Mass Storage stability
+report is not an MTP stability test; Mass Storage exit recovery is not an
+under-load mutual-exclusion test.
 
 ## Limitations
 

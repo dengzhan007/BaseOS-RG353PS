@@ -1,33 +1,113 @@
-# RG353PS port — experimental
+# RG353PS port — BaseOS 1.2.6
 
-This directory is an isolated porting target for the Anbernic RG353PS
-(Rockchip RK3566). It is intentionally separate from the existing Miyoo Flip
-build so the current `my355` release path remains unchanged.
+This directory contains the independent BaseOS target for the Anbernic RG353PS
+(Rockchip RK3566). It does not replace or alter the existing Miyoo Flip
+(`my355`) build path.
 
-## Current status
+## Release status
 
-The branch now builds an end-to-end **2 GiB experimental SD smoke image**:
-mainline U-Boot, Linux kernel and RG353PS DTB, modules, RTL8821CS firmware,
-a minimal BusyBox root filesystem, and a GPT-partitioned disk image. The
-latest successful build before the current JPEG test-helper addition is
-[workflow run #62](https://github.com/dengzhan007/baseos-my355/actions/runs/38702742778).
+**Version: 1.2.6.** The RG353PS target now has a complete release build path:
+U-Boot, Linux kernel and device tree, kernel modules, wireless firmware,
+BusyBox-based root filesystem, GPT SD-card image, and A/B system-update
+payload. The release workflow can build the full image and update package
+separately (`full` or `update`) or together (`both`).
 
-The image has been booted on physical RG353PS hardware. The submitted hardware
-report shows `/dev/video0` (Hantro stateless decoder) and `/dev/video1`
-(Hantro JPEG encoder) both pass `v4l2-compliance 1.28.1` with 48/48 tests,
-96/96 combined. A one-frame YM12-to-JPEG encode also succeeded. Physical testing
-has additionally confirmed controller navigation, RK817 playback volume changes
-and clean shutdown on a 2-second power-key hold. Remaining work includes actual
-audio playback, Wi-Fi/BT association and audio, battery/charging accuracy, HDMI,
-3D graphics, suspend/resume, storage endurance and long-duration stability.
+The 1.2.6 full image and update package have both been tested on physical
+RG353PS hardware:
+- A fresh SD-card flash boots successfully.
+- An in-place system update completes successfully.
+- The persistent user-data partition is kept separate from the A/B system
+  slots, so normal system updates do not replace ROMs, saves, frontend files,
+  or user settings stored there.
 
-**This remains an experimental bring-up image, not a finished BaseOS release.** The built-in diagnostic UI is the fallback when no usable frontend adapter is found. Frontend selection is automatic; users do not need to edit `baseos.conf` to identify a frontend.
+The current release branch is
+[`release/1.2.6-log-cleanup`](https://github.com/dengzhan007/BaseOS-RG353PS/tree/release/1.2.6-log-cleanup).
+The formal GitHub Release is created from this branch with the tag `v1.2.6`.
 
-At boot, BaseOS scans TF2 first (normally `/dev/mmcblk2p1`) and mounts it at `/mnt/TF2`. If the card root contains a recognized, usable adapter at `.baseos/frontends/<name>/launch.sh`, that frontend is selected. If TF2 is absent, cannot be mounted, or has no usable frontend, BaseOS scans TF1's `BASEOS` partition at `/mnt/SDCARD`. The `/mnt/sdcard` compatibility link follows the selected frontend root. Slot is staged onto writable `/tmp` before launch because exFAT/Windows extraction does not reliably preserve Unix executable permissions. If neither card contains a usable adapter, the diagnostic UI starts. Storage initialization logs are saved as `BASEOS_BOOT/baseos-userdata-init.txt`, and frontend discovery logs as `BASEOS_BOOT/baseos-frontend-detection.txt`, for PC-side troubleshooting. The tty1 selector is not started until TF1 user storage has been initialized, mounted, and recorded with a persistent marker. If storage is not ready, a full-screen retry prompt is shown instead of diagnostics. After first initialization succeeds, BaseOS asks for A/Enter once, then continues automatic frontend discovery. The old `frontend=...` and `allow_external_frontend_adapters=...` configuration keys are ignored; frontend adapter scripts execute with root privileges, so install only trusted packages.
+## Installation
 
-The image layout separates `BASEOS_BOOT`, a fixed-size `BASEOS_ROOT`, and `BASEOS` for frontend/user files. At first boot, the blank user partition is expanded to the physical card's end and formatted as exFAT, then mounted at `/mnt/SDCARD`. Install frontend ZIP contents at the root of TF2 for priority use, or at the root of TF1's `BASEOS` for fallback use—not on the small FAT boot partition. Existing images from before this change do not gain a dedicated user-data partition unless reflashed; back up the card first. Only the BASEOS user partition shows up on a PC: BASEOS_BOOT carries the hidden and no-automount GPT flags, and BASEOS_ROOT is ext4. Maintenance files on the boot volume are reachable from a Linux host, not from Windows or macOS. The system still lacks a final read-only root, A/B updater and release packaging. Use a spare TF card. The file `work/rg353ps/rg353ps-uboot.bin` remains an intermediate bootloader region, not a standalone SD-card image.
+### New installation
 
-For details, see [FRONTENDS.md](FRONTENDS.md).
+1. Download the complete `baseos-rg353ps-1.2.6.img.gz` image from the
+   [GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases)
+   page.
+2. Write the image to the TF1 card with an SD-card imaging tool.
+3. Insert the card into TF1 and boot the RG353PS.
+4. On first boot, the user-data partition is expanded to the end of the card
+   and initialized for user files.
+
+**Writing the full image erases the target card. Back up its contents first.**
+
+### Upgrade an existing BaseOS RG353PS installation
+
+1. Download `baseos-rg353ps-1.2.6.bosupd`.
+2. Copy the update package to the root of either card's accessible volume,
+   following the system's update procedure.
+3. Restart the device and allow the updater to complete.
+
+The `.bosupd` package updates the A/B system BOOT and ROOTFS regions. It does
+not include the Rockchip U-Boot region and does not overwrite the persistent
+`BASEOS` user-data partition. A U-Boot change therefore requires a full
+card reflash rather than a normal `.bosupd` update.
+
+The release provides a SHA-256 checksum file alongside the selected binary
+artifacts. Verify downloaded files against it before installation.
+
+## Platform layout and services
+
+The SD card separates the bootloader, A/B system slots and persistent user
+data. The user-data partition is mounted at `/mnt/SDCARD`; the compatibility
+path `/mnt/sdcard` follows the selected frontend root. Frontend discovery
+checks TF2 first and then TF1, and starts the diagnostic UI if no supported
+frontend is available. The diagnostic UI remains available for hardware and
+input checks.
+
+The platform includes:
+- BaseOS startup and frontend supervision, with automatic frontend discovery.
+- Persistent boot-logo selection and restoration across system updates.
+- Audio, display, input, Wi-Fi and Bluetooth platform integration.
+- USB device-mode networking/MTP for development and MTP for release builds.
+- Exclusive USB Mass Storage mode, accessible from the diagnostic UI or by
+  holding Function while powering on.
+- A/B system updates that preserve the user-data partition.
+
+For USB modes, host compatibility, reconnect behavior and test results, see
+[USB architecture and validation](USB.md). For the boot-logo file format and
+frontend integration contract, see [BOOTLOGO.md](BOOTLOGO.md). For frontend
+discovery and adapter integration, see [FRONTENDS.md](FRONTENDS.md).
+
+## Building
+
+Run the platform build scripts from the repository root. The release workflow
+is the recommended reproducible path and performs the required cross-builds,
+static checks, image assembly, update packaging and checksum generation.
+
+The individual build steps are:
+
+```sh
+./platforms/rg353ps/build-uboot.sh
+./platforms/rg353ps/build-firmware.sh
+./platforms/rg353ps/build-kernel.sh
+./platforms/rg353ps/build-rootfs.sh
+./platforms/rg353ps/build-image.sh
+./platforms/rg353ps/build-update.sh
+```
+
+`build-update.sh` consumes the composed image, so the image is still built as
+an intermediate input even when the workflow publishes only the update
+package. See the workflow
+[`.github/workflows/rg353ps-release.yml`](../../.github/workflows/rg353ps-release.yml)
+for the independent `package_type` choices and release attachment behavior.
+
+## Detailed documentation
+
+- [USB architecture and reconnect validation](USB.md)
+- [Boot-logo persistence and frontend contract](BOOTLOGO.md)
+- [Frontend discovery and adapter contract](FRONTENDS.md)
+- [Kernel sources, patches and configuration](kernel/UPSTREAM.md)
+- [Release baseline and historical validation notes](../../docs/RG353PS-RELEASE-BASELINE-1.2.4.md)
+
+---
 
 ## Boot logo
 
@@ -66,31 +146,19 @@ separate, exclusive mode using the existing Function + Power / diagnostic
 controls. See [USB.md](USB.md) for the architecture, profiles, FunctionFS
 startup order, storage boundary and hardware validation checklist.
 
-## USB storage mode: plug the cable first
+## USB Mass Storage mode
 
-Connect the USB data cable **before** triggering storage mode (long-press
-Function while powering on, or the diagnostic menu entry). Entering with the
-cable already attached lets the controller finish negotiating with the host
-before the wait loop starts, so the screen goes straight from `WAITING` to
-`CONNECTING`. Plugging in while the device is already waiting races the
-USB2 PHY against the DWC3 bind; the recovery ladder (soft pulse, re-probe,
-unbind/rebind, re-probe) rescues most but not all cable/host combinations,
-and a failure there is indistinguishable from a real fault in the logs.
-One volume is exported, and it is the card the frontend is reading games
-from: `/mnt/sdcard` is repointed at the selected card, so the session
-exports whichever card is on screen rather than guessing. A session
-triggered at power-on runs before that selection exists and therefore
-prefers a mounted second card, otherwise TF1's `BASEOS` user partition; it
-mounts that card itself, because the frontend session that normally owns it
-is held behind the storage request and the card does not enumerate until
-~1.2 s into the boot. With no second card inserted this adds nothing beyond
-a bounded 3 s wait.
-A `*.bosupd` placed on the exported volume is picked up on the next boot,
-which makes the cable the way to install an update: the frontend card is
-mounted by `baseos-update` for the scan, so the payload does not have to be
-moved to TF1 first.
-Unplugging does not need an eject first: pending writes are flushed after
-two idle seconds.
+Mass Storage is an exclusive USB mode. To enter it at power-on, connect the
+device as needed, hold **Function** and press **Power**. The device enters its
+storage screen and waits for the USB data cable/host connection. The diagnostic
+UI also provides a Mass Storage entry.
+
+Only the selected user-data volume is exported. While the host has the volume
+as a raw USB disk, do not access or mount that same filesystem locally on the
+device. Exit the mode or disconnect the host before returning to the frontend.
+
+For the USB gadget hand-off, supported host profiles, reconnect recovery and
+hardware test evidence, see [USB.md](USB.md).
 
 ## USB debug channel: a shell without pulling the card
 
@@ -99,7 +167,7 @@ not exist on Alpine. Instead the port can present itself as an RNDIS network
 device with a dropbear listener, which gives the same practical result: a shell
 on the unit over the cable.
 
-On by default in this bring-up build. The unit takes `192.168.42.1`, hands the
+Enabled by default in development builds; release builds default to MTP-only. When USB networking is enabled, the unit takes `192.168.42.1`, hands the
 PC `192.168.42.100` over DHCP, and listens on port 22 for root, with either the
 key in the image or the password `root`:
 

@@ -142,11 +142,7 @@ jobs:
           name: baseos-rg353ps-${{ steps.version.outputs.version }}
           if-no-files-found: error
           retention-days: 30
-          path: |
-            work/release/baseos-rg353ps-${{ steps.version.outputs.version }}.img.gz
-            work/release/baseos-rg353ps-${{ steps.version.outputs.version }}.bosupd
-            work/release/baseos-rg353ps-${{ steps.version.outputs.version }}.sha256
-            work/release/baseos-rg353ps-${{ steps.version.outputs.version }}.build.txt
+          path: work/release/*
 
       - name: Attach artifacts to a release
         if: ${{ inputs.release_tag != '' || startsWith(github.ref, 'refs/tags/v') }}

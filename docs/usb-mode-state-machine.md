@@ -80,7 +80,7 @@ IDLE -----------------------------> CLAIMED (ACTIVE marker written)
 ## Test mapping
 
 `tests/test-rg353ps-usb-mutual-exclusion.sh` executes these functions against a
-sandbox configfs/UDC/mounts and asserts the results (36 cases, no hardware):
+sandbox configfs/UDC/mounts and asserts the results (37 cases, no hardware):
 
 | Area | Cases |
 | --- | --- |

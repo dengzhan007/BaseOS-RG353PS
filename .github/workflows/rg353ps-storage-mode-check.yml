@@ -55,8 +55,8 @@ jobs:
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-debug
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-mtp
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-mode-lib
+          # This suite also invokes the 37-case mutual-exclusion/failure-path test.
           sh tests/test-rg353ps-usb-mtp.sh
-          sh tests/test-rg353ps-usb-mutual-exclusion.sh
           sh -n platforms/rg353ps/rootfs/etc/init.d/rcS
           sh -n platforms/rg353ps/rootfs/usr/bin/baseos-splash
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session

@@ -13,6 +13,15 @@ on:
         description: "Tag to attach the artifacts to (leave empty to keep them as workflow artifacts only)"
         required: false
         default: ""
+      package_type:
+        description: "Select which deliverable to build and publish"
+        required: true
+        type: choice
+        options:
+          - full
+          - update
+          - both
+        default: both
   push:
     branches:
       - main
@@ -93,21 +102,31 @@ jobs:
       - name: Assemble SD card image
         run: ./platforms/rg353ps/build-image.sh
 
+      # The update payload is derived from the composed image, so the image
+      # remains an intermediate input even when only the update is published.
       - name: Build .bosupd update payload
+        if: ${{ inputs.package_type != 'full' }}
         run: ./platforms/rg353ps/build-update.sh
 
       - name: Stage release files
         id: stage
         run: |
           version="${{ steps.version.outputs.version }}"
+          package_type="${{ inputs.package_type || 'both' }}"
           work=work/rg353ps
           out=work/release
           mkdir -p "$out"
-          cp "$work/baseos-rg353ps-smoke.img.gz" "$out/baseos-rg353ps-$version.img.gz"
-          cp "$work/baseos-rg353ps-$version.bosupd" "$out/baseos-rg353ps-$version.bosupd"
-          # One checksum file for both deliverables, relative to the download
-          # directory so it stays valid wherever the user unpacks it.
-          ( cd "$out" && sha256sum "baseos-rg353ps-$version.img.gz" "baseos-rg353ps-$version.bosupd" > "baseos-rg353ps-$version.sha256" )
+          files=""
+          if [ "$package_type" = full ] || [ "$package_type" = both ]; then
+            cp "$work/baseos-rg353ps-smoke.img.gz" "$out/baseos-rg353ps-$version.img.gz"
+            files="$files baseos-rg353ps-$version.img.gz"
+          fi
+          if [ "$package_type" = update ] || [ "$package_type" = both ]; then
+            cp "$work/baseos-rg353ps-$version.bosupd" "$out/baseos-rg353ps-$version.bosupd"
+            files="$files baseos-rg353ps-$version.bosupd"
+          fi
+          # Checksums cover exactly the selected deliverables.
+          ( cd "$out" && sha256sum $files > "baseos-rg353ps-$version.sha256" )
           {
             echo "version: $version"
             echo "commit: ${{ github.sha }}"

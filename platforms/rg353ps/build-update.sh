@@ -18,7 +18,7 @@ REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 . "$REPO_ROOT/tools/common.sh"
 
 WORK="${RG353PS_WORK:-$REPO_ROOT/work/rg353ps}"
-IMAGE="$WORK/baseos-rg353ps-smoke.img"
+IMAGE="$WORK/baseos-rg353ps.img"
 [ -f "$IMAGE" ] || { echo "missing $IMAGE (run ./platforms/rg353ps/build-image.sh)" >&2; exit 1; }
 
 VERSION="$(tr -d ' \n' < "$REPO_ROOT/VERSION")"

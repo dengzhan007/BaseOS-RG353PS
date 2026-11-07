@@ -358,7 +358,7 @@ same clock the kernel's printk uses. `start_kernel` should land near the
 `before Linux` figure in `/mnt/SDCARD/Logs/boot.log`; the gaps between the
 records are what the unmeasured residual in the boot budget is made of.
 
-## Build a first-boot SD smoke image
+## Build the RG353PS BaseOS SD image
 
 The scripts are deliberately separated from the Miyoo Flip build. From the
 repository root, run:
@@ -380,16 +380,19 @@ the current wireless-regdb signing certificate is included as an additional
 trusted key. Kernel config/patch and certificate provenance is in
 [kernel/UPSTREAM.md](kernel/UPSTREAM.md).
 
-The result is `work/rg353ps/baseos-rg353ps-smoke.img.gz`, a 2 GiB SD-card
-**bring-up image**. It uses a 256 MiB FAT `BASEOS_BOOT` partition, a bounded
-1280 MiB ext4 `BASEOS_ROOT` partition, and a blank `BASEOS` partition.
+The result is `work/rg353ps/baseos-rg353ps.img.gz`, a complete 2 GiB RG353PS
+**BaseOS system image**. It uses a 256 MiB FAT `BASEOS_BOOT` partition, a
+bounded 1280 MiB ext4 `BASEOS_ROOT` partition, and a blank `BASEOS` partition.
 The first-boot initializer expands the user partition to the actual TF-card end
 and formats it as exFAT, then mounts it at `/mnt/SDCARD`. This allows the same
-card to hold user-installed frontend packages, ROMs and saves. It boots a
-minimal BusyBox userspace plus hardware diagnostic tools and an evdev-driven
-text UI on tty1; it is not the finished game frontend or the final read-only/A-B
-BaseOS update system. It is not considered supported until tested on real
-RG353PS hardware.
+card to hold user-installed frontend packages, ROMs and saves.
+
+The image boots the BaseOS userspace with system services, read-only A/B system
+slots, frontend discovery and an evdev-driven diagnostic UI as a fallback when
+no supported frontend is found. The game frontend is installed separately on
+a user-data TF card; it is not bundled into the BaseOS image. CI verifies the
+image layout and update payload, while hardware support status is documented
+separately in this guide and must not be inferred from a successful build.
 
 After boot, run `/usr/sbin/rg353ps-v4l2-report` to capture driver status,
 V4L2 capabilities, and advertised capture/output formats to

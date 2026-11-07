@@ -1,5 +1,5 @@
 #!/bin/sh
-# Assemble a 2 GiB RG353PS first-boot smoke-test SD image.
+# Assemble the complete 2 GiB RG353PS BaseOS SD image.
 # This writes a disk image file only; it never opens a physical block device.
 set -eu
 
@@ -12,7 +12,7 @@ KERNEL_OUT="$WORK/kernel/output"
 KERNEL_META="$KERNEL_OUT/kernel-build.json"
 ROOTFS="$WORK/rootfs"
 UBOOT="$WORK/rg353ps-uboot.bin"
-OUTPUT="$WORK/baseos-rg353ps-smoke.img"
+OUTPUT="$WORK/baseos-rg353ps.img"
 # A/B layout. Every region that an update may write reserves twice the space it
 # needs, and only one half is a partition at a time — the spare is deliberately
 # left unallocated so no desktop offers to format it and no partition number
@@ -44,7 +44,7 @@ done
 KREL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["kernel_release"])' "$KERNEL_META")"
 [ -d "$ROOTFS/lib/modules/$KREL" ] || { echo "rootfs has no matching modules for $KREL" >&2; exit 1; }
 
-echo "== assembling RG353PS smoke-test image =="
+echo "== assembling RG353PS BaseOS image =="
 mkdir -p "$WORK"
 docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
   -v "$WORK":/work \
@@ -83,7 +83,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
       gdisk dosfstools mtools e2fsprogs coreutils gzip util-linux
     ts "apt done"
 
-    IMG=/work/baseos-rg353ps-smoke.img
+    IMG=/work/baseos-rg353ps.img
     BOOTFS=/work/boot-fat.img
     ROOTFS_IMG=/work/rootfs-ext4.img
     rm -f "$IMG" "$BOOTFS" "$ROOTFS_IMG" "$IMG.gz" "$IMG.sha256"
@@ -168,7 +168,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
     # yanked card or a dead battery cannot corrupt it.
     cat > /tmp/extlinux.conf <<EOF
 LABEL BaseOS-RG353PS
-  MENU LABEL BaseOS RG353PS experimental bring-up
+  MENU LABEL BaseOS RG353PS
   LINUX /Image
   FDT /device_trees/rk3566-anbernic-rg353ps.dtb
   APPEND root=PARTUUID=$ROOT_PARTUUID rootfstype=ext4 rootwait ro console=ttyS2,1500000n8 quiet loglevel=3 vt.global_cursor_default=0 init=/sbin/init
@@ -210,7 +210,7 @@ EOF
     cat > /work/image-build.json <<EOF
 {
   "target": "Anbernic RG353PS",
-  "image": "baseos-rg353ps-smoke.img.gz",
+  "image": "baseos-rg353ps.img.gz",
   "disk_size": "2 GiB",
   "bootloader_lba": 64,
   "uboot_partition_start_lba": "${IMG_UBOOT_START}",
@@ -223,8 +223,9 @@ EOF
   "user_data_partition_start_lba": "$DATA_START",
   "user_data_partition_initial_end_lba": "$DATA_END",
   "user_data_filesystem": "exFAT, initialized and expanded on first boot",
-  "purpose": "first-boot hardware bring-up",
-  "finished_frontend": false,
+  "purpose": "RG353PS BaseOS system image",
+  "frontend_model": "external; discovered from TF2 then TF1",
+  "diagnostic_ui": true,
   "hardware_tested": false
 }
 EOF
@@ -233,10 +234,10 @@ EOF
     cd /work
     sha256sum "$(basename "$IMG")" "$(basename "$IMG.gz")" > "$(basename "$IMG").sha256"
     ts "gzip done"
-    echo "Created SD-card smoke-test image:"
+    echo "Created RG353PS BaseOS SD-card image:"
     ls -lh "$IMG" "$IMG.gz" "$IMG.sha256" /work/image-build.json
   '
 
-echo "Smoke-test image: $OUTPUT.gz"
+echo "BaseOS image: $OUTPUT.gz"
 echo "Checksum file: $OUTPUT.sha256"
-echo "Use a spare SD card only; this is not the finished frontend build."
+echo "Use a spare SD card for installation; install a supported frontend separately."

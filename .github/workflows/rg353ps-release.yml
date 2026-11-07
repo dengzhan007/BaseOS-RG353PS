@@ -3,8 +3,8 @@ name: RG353PS release build
 # Produces the two artifacts a user actually needs:
 #   baseos-rg353ps-<version>.img.gz   complete card image, for a new SD card
 #   baseos-rg353ps-<version>.bosupd   update payload, for a card already running
-# The bring-up workflow deliberately stops at the smoke image; this one also
-# runs build-update.sh and keeps the checksums next to the binaries.
+# The release workflow builds the complete BaseOS image and derives the A/B
+# update payload from that exact image. The game frontend remains user-installed.
 
 on:
   workflow_dispatch:
@@ -104,7 +104,7 @@ jobs:
       - name: Build RG353PS Linux kernel, DTB and modules
         run: ./platforms/rg353ps/build-kernel.sh
 
-      - name: Build diagnostic rootfs and evdev UI
+      - name: Build BaseOS rootfs and diagnostic fallback UI
         run: |
           case "$GITHUB_REF" in
             refs/heads/feature/*) profile=development ;;
@@ -116,11 +116,62 @@ jobs:
       - name: Assemble SD card image
         run: ./platforms/rg353ps/build-image.sh
 
+      - name: Verify complete SD card image
+        run: |
+          image=work/rg353ps/baseos-rg353ps.img
+          gzip -t "$image.gz"
+          python3 - "$image" work/rg353ps/image-build.json <<'PY'
+          import json, struct, sys
+          from pathlib import Path
+          image, metadata = map(Path, sys.argv[1:])
+          assert image.stat().st_size == 2 * 1024**3, f"unexpected image size: {image.stat().st_size}"
+          with image.open('rb') as f:
+              f.seek(512)
+              header = f.read(512)
+              assert header[:8] == b'EFI PART', 'primary GPT signature missing'
+              entries_lba = struct.unpack_from('<Q', header, 72)[0]
+              count, entry_size = struct.unpack_from('<II', header, 80)
+              f.seek(entries_lba * 512)
+              table = f.read(count * entry_size)
+          names = []
+          for i in range(count):
+              entry = table[i * entry_size:(i + 1) * entry_size]
+              name = entry[56:128].decode('utf-16-le').rstrip(chr(0))
+              if name:
+                  names.append(name)
+          required = {'BASEOS_UBOOT', 'BASEOS_BOOT', 'BASEOS_ROOT', 'BASEOS'}
+          assert required.issubset(names), f"missing GPT partitions: {required - set(names)}"
+          meta = json.loads(metadata.read_text())
+          assert meta['purpose'] == 'RG353PS BaseOS system image'
+          assert meta['frontend_model'].startswith('external;')
+          assert meta['diagnostic_ui'] is True
+          assert 'smoke' not in meta['image']
+          print('Image verification passed:', ', '.join(names))
+          PY
+
       # The update payload is derived from the composed image, so the image
       # remains an intermediate input even when only the update is published.
       - name: Build .bosupd update payload
         if: ${{ inputs.package_type != 'full' }}
         run: ./platforms/rg353ps/build-update.sh
+
+      - name: Verify .bosupd manifest
+        if: ${{ inputs.package_type != 'full' }}
+        run: |
+          python3 - work/rg353ps/baseos-rg353ps-${{ steps.version.outputs.version }}.bosupd "${{ steps.version.outputs.version }}" <<'PY'
+          import sys, tarfile
+          payload, version = sys.argv[1:]
+          with tarfile.open(payload, 'r:') as archive:
+              manifest = archive.extractfile('manifest').read().decode()
+              members = set(archive.getnames())
+          fields = dict(line.split('=', 1) for line in manifest.splitlines() if '=' in line)
+          assert fields.get('format') == 'baseos-update/2'
+          assert fields.get('target') == 'rg353ps'
+          assert fields.get('version') == version
+          assert {'boot.img.gz', 'rootfs.img.gz'}.issubset(members)
+          assert fields.get('boot-sha256') and fields.get('rootfs-sha256')
+          print('Update payload verification passed:', version, fields.get('build'))
+          PY
 
       - name: Stage release files
         id: stage
@@ -132,7 +183,7 @@ jobs:
           mkdir -p "$out"
           files=""
           if [ "$package_type" = full ] || [ "$package_type" = both ]; then
-            cp "$work/baseos-rg353ps-smoke.img.gz" "$out/baseos-rg353ps-$version.img.gz"
+            cp "$work/baseos-rg353ps.img.gz" "$out/baseos-rg353ps-$version.img.gz"
             files="$files baseos-rg353ps-$version.img.gz"
           fi
           if [ "$package_type" = update ] || [ "$package_type" = both ]; then
@@ -159,20 +210,41 @@ jobs:
           path: work/release/*
 
       - name: Attach artifacts to a release
-        if: ${{ inputs.release_tag != '' || startsWith(github.ref, 'refs/tags/v') }}
+        if: ${{ inputs.release_tag != '' || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/heads/release/') || (github.event_name == 'pull_request' && github.head_ref == 'release/1.2.6-rebuild') }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           version="${{ steps.version.outputs.version }}"
-          if [ -n "${{ inputs.release_tag }}" ]; then tag="${{ inputs.release_tag }}"; else tag="${GITHUB_REF_NAME}"; fi
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" work/release/* --clobber
+          if [ -n "${{ inputs.release_tag }}" ]; then
+            tag="${{ inputs.release_tag }}"
           else
-            gh release create "$tag" work/release/* \
-              --title "BaseOS RG353PS $version" \
-              --notes "Complete image and .bosupd update payload for $version." \
-              --verify-tag 2>/dev/null || \
-            gh release create "$tag" work/release/* \
-              --title "BaseOS RG353PS $version" \
-              --notes "Complete image and .bosupd update payload for $version."
+            case "$GITHUB_REF" in
+              refs/tags/*) tag="$GITHUB_REF_NAME" ;;
+              refs/heads/release/*) tag="$version" ;;
+              *)
+                if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$GITHUB_HEAD_REF" = "release/1.2.6-rebuild" ]; then
+                  tag="$version"
+                else
+                  tag=""
+                fi
+                ;;
+            esac
+          fi
+          if [ -n "$tag" ]; then
+            if [ "$GITHUB_REF" = "refs/heads/release/1.2.6-rebuild" ] || { [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$GITHUB_HEAD_REF" = "release/1.2.6-rebuild" ]; }; then
+              # A release rebuild must update the existing release, never create
+              # a second tag or release by accident.
+              gh release view "$tag" >/dev/null
+              gh release upload "$tag" work/release/* --clobber
+            elif gh release view "$tag" >/dev/null 2>&1; then
+              gh release upload "$tag" work/release/* --clobber
+            else
+              gh release create "$tag" work/release/* \
+                --title "BaseOS RG353PS $version" \
+                --notes "Complete image and .bosupd update payload for $version." \
+                --verify-tag 2>/dev/null || \
+              gh release create "$tag" work/release/* \
+                --title "BaseOS RG353PS $version" \
+                --notes "Complete image and .bosupd update payload for $version."
+            fi
           fi

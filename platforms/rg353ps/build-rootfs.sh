@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build the RG353PS diagnostic rootfs: BusyBox, hardware tools and evdev console UI.
+# Build the RG353PS BaseOS rootfs, including its diagnostic fallback UI and hardware tools.
 # The Miyoo Flip stock-library harvest and all my355-specific scripts are excluded.
 #
 # ALPINE_MIRROR (optional): point apk at a mirror, e.g.
@@ -52,7 +52,7 @@ MODULES_TARBALL="$KERNEL_OUT/modules-$KREL.tar.zst"
 baseos_require_aarch64
 mkdir -p "$WORK"
 
-echo "== building RG353PS diagnostic rootfs for kernel $KREL =="
+echo "== building RG353PS BaseOS rootfs for kernel $KREL =="
 docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
   -v "$WORK":/work \
   -v "$HERE/rootfs":/rootfs-src:ro \
@@ -352,8 +352,9 @@ EOF
   "target": "Anbernic RG353PS",
   "kernel_release": "$KREL",
   "userspace": "static BusyBox",
-  "purpose": "first-boot hardware bring-up",
-  "finished_frontend": false,
+  "purpose": "RG353PS BaseOS system image",
+  "frontend_model": "external; discovered from TF2 then TF1",
+  "diagnostic_ui": true,
   "hardware_tested": false
 }
 EOF

@@ -27,6 +27,7 @@ on:
       - main
       - "feature/**"
       - "fix/**"
+      - "release/**"
     paths:
       - ".github/workflows/rg353ps-release.yml"
       - "src/fbsplash.c"
@@ -79,6 +80,7 @@ jobs:
           sh -n platforms/rg353ps/rootfs/etc/init.d/rcS
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-debug
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-mtp
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session
           sh tests/test-rg353ps-usb-mtp.sh
 
       - name: Build RG353PS U-Boot

@@ -242,9 +242,9 @@ operations listed above. Local unit tests and the simulated local backend are
 not MTP hardware evidence.
 
 Authoritative MTP-only acceptance records:
-- [Real-hardware upgrade and acceptance](../docs/mtp-only-release-fixed-20261106/REAL-HARDWARE-ACCEPTANCE-20261106.md)
-- [Normalized MTP-only acceptance](../docs/mtp-only-release-fixed-20261106/hardware-acceptance/mtp-only-acceptance.md)
-- [MTP-only host report](../docs/mtp-only-release-fixed-20261106/hardware-acceptance/mtp-only-host-report.md)
+- [Real-hardware upgrade and acceptance](../../docs/mtp-only-release-fixed-20261106/REAL-HARDWARE-ACCEPTANCE-20261106.md)
+- [Normalized MTP-only acceptance](../../docs/mtp-only-release-fixed-20261106/hardware-acceptance/mtp-only-acceptance.md)
+- [MTP-only host report](../../docs/mtp-only-release-fixed-20261106/hardware-acceptance/mtp-only-host-report.md)
 - [PR #5 integrity-tool evidence and limitations](https://github.com/dengzhan007/BaseOS-RG353PS/pull/5)
 
 #### Mass Storage
@@ -258,11 +258,11 @@ Authoritative MTP-only acceptance records:
 | MTP <-> Mass Storage mutual exclusion under load | **NOT TESTED** | The exit-recovery test proves restoration after leaving Mass Storage, not concurrent/under-load mutual-exclusion stress |
 
 Authoritative Mass Storage records:
-- [Host identification and integrity report](../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-host-report.md)
-- [Exit recovery report](../docs/mtp-only-release-fixed-20261106/mass-storage/exit-recovery-host-report.md)
-- [30-minute stability report](../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-stability-report.md)
-- [Write Prepare report](../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-write-prepare-report.md)
-- [Write Verify report](../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-write-verify-report.md)
+- [Host identification and integrity report](../../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-host-report.md)
+- [Exit recovery report](../../docs/mtp-only-release-fixed-20261106/mass-storage/exit-recovery-host-report.md)
+- [30-minute stability report](../../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-stability-report.md)
+- [Write Prepare report](../../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-write-prepare-report.md)
+- [Write Verify report](../../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-write-verify-report.md)
 
 #### Remaining USB acceptance items
 

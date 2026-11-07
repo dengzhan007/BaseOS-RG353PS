@@ -963,7 +963,11 @@ preflight_start() {
 
     # 2. Our own previous binding is released with confirmation, and no other
     #    gadget may still name this controller.
-    if [ -n "$(usb_mode_udc_binding "$G")" ]; then
+    if ! current_binding="$(usb_mode_udc_binding "$G")"; then
+        say "ERROR: cannot read baseos_debug UDC attribute; refusing to start"
+        return 1
+    fi
+    if [ -n "$current_binding" ]; then
         say "previous baseos_debug binding still present; releasing it with confirmation"
         if ! usb_mode_udc_unbind "$G" "$UDC" 50 30; then
             say "ERROR: could not confirm release of $UDC (write_rc=${USB_MODE_UNBIND_WRITE_RC:-unknown} state=${USB_MODE_UNBIND_STATE:-unknown}); refusing to start"
@@ -1077,7 +1081,11 @@ do_start() {
 do_stop() {
     stop_watch || { persist_log force; return 1; }
     stop_services
-    stop_udc="$(usb_mode_udc_binding "$G")"
+    if ! stop_udc="$(usb_mode_udc_binding "$G")"; then
+        say "ERROR: cannot read baseos_debug UDC attribute; refusing hand-off"
+        persist_log force
+        return 1
+    fi
     if [ -n "$stop_udc" ]; then
         say "unbinding baseos_debug from $stop_udc; release must be confirmed"
         if ! usb_mode_udc_unbind "$G" "$stop_udc" 50 30; then

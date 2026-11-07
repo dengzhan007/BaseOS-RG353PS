@@ -213,8 +213,13 @@ usb_mode_clear_teardown_failed() {
 # ---------------------------------------------------------------------------
 
 usb_mode_udc_binding() {
-    # An unreadable/missing configfs attribute is not evidence of an empty
-    # binding. Preserve the read failure so every caller can fail closed.
+    # A gadget directory that does not exist has no configfs UDC attribute and
+    # cannot hold the controller. This is the normal state before the first
+    # gadget is created, and after a clean teardown removes that gadget.
+    [ -d "$1" ] || { printf ''; return 0; }
+    # Once the gadget directory exists, an unreadable/missing UDC attribute is
+    # NOT evidence of an empty binding. Preserve the read failure so callers
+    # still fail closed for a malformed or partially-created gadget.
     [ -r "$1/UDC" ] || return 1
     cat "$1/UDC" 2>/dev/null
 }

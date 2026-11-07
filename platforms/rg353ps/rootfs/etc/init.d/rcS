@@ -98,15 +98,6 @@ while [ "$bc_try" -lt 3 ]; do
   bc_try=$((bc_try + 1))
 done
 
-# Keep the kernel's own view of this boot, taken at the earliest instant it can
-# be read. It has to happen here: the USB debug gadget later in this script
-# turns every packet on the cable into several dev_info lines, and with a cable
-# attached that traffic pushes the boot messages out of a 1 MB ring buffer
-# within seconds. Without this snapshot the kernel half of the boot - the
-# largest single stage left - is unobservable on a unit you can actually log
-# into. dmesg is a single read of an in-memory buffer, so it costs nothing.
-dmesg > /run/dmesg-boot.txt 2>/dev/null || :
-
 echo /sbin/mdev > /proc/sys/kernel/hotplug 2>/dev/null || :
 # No mdev -s. /dev is a devtmpfs mount made ten lines up, and devtmpfs is
 # populated by the kernel itself as each driver registers: console, ptmx, tty1,

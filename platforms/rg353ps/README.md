@@ -22,7 +22,7 @@ RG353PS hardware:
 
 The current release branch is
 [`release/1.2.6-log-cleanup`](https://github.com/dengzhan007/BaseOS-RG353PS/tree/release/1.2.6-log-cleanup).
-The formal GitHub Release is published separately from this source branch.
+The formal GitHub Release is created from this branch with the tag `v1.2.6`.
 
 ## Installation
 
@@ -41,8 +41,8 @@ The formal GitHub Release is published separately from this source branch.
 ### Upgrade an existing BaseOS RG353PS installation
 
 1. Download `baseos-rg353ps-1.2.6.bosupd`.
-2. Copy the update package to the root of an accessible BaseOS user-data card
-   volume, following the system's update procedure.
+2. Copy the update package to the root of either card's accessible volume,
+   following the system's update procedure.
 3. Restart the device and allow the updater to complete.
 
 The `.bosupd` package updates the A/B system BOOT and ROOTFS regions. It does

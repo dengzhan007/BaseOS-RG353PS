@@ -80,8 +80,12 @@ MOUNT_STUB
 
     cat > "$SB/bin/baseos-usb-debug" <<'DEBUG_STUB'
 #!/bin/sh
-printf '%s\n' "$*" >> "$DEBUG_CALLS"
-exit 0
+active=no
+lock=no
+[ -e "$BASEOS_USB_RUN_DIR/baseos-usb-storage.active" ] && active=yes
+[ -d "$BASEOS_USB_RUN_DIR/baseos-usb-mode.lock" ] && lock=yes
+printf '%s|active=%s|lock=%s|token=%s\n' "$*" "$active" "$lock" "${BASEOS_USB_LOCK_TOKEN:-}" >> "$DEBUG_CALLS"
+exit "${DEBUG_STUB_EXIT:-0}"
 DEBUG_STUB
     chmod 0755 "$SB/bin/baseos-usb-debug"
     : > "$SB/debug.calls"
@@ -398,8 +402,8 @@ echo "== Teardown state machine =="
     ok=1
     [ "$rc" -eq 0 ] && [ "$USB_MODE_FINISH_TEARDOWN_OK" -eq 1 ] &&
         [ "$USB_MODE_FINISH_UDC_RELEASED" -eq 1 ] &&
-        [ "$USB_MODE_FINISH_REMOUNT_OK" -eq 1 ] && ! marker_present && ok=0
-    report "teardown: confirmed unbind and remount clear the marker" "$ok" "rc=$rc"
+        [ "$USB_MODE_FINISH_REMOUNT_OK" -eq 1 ] && marker_present && ok=0
+    report "teardown: confirmed unbind/remount keep ACTIVE until replacement gadget starts" "$ok" "rc=$rc"
 )
 
 # 21. Unbind not confirmed: the partition must NOT be remounted and the marker
@@ -461,26 +465,34 @@ echo "== Teardown state machine =="
 
 echo "== Resume veto (never start a second gadget) =="
 
-# 25. Teardown confirmed and the manager was the one stopped: resume is called.
+# 25. Resume runs synchronously under the inherited lock. The replacement
+#     gadget sees ACTIVE and the lock still held; only after it returns does
+#     the helper clear ACTIVE.
 (
     new_sandbox
+    usb_mode_mark_active bound
+    usb_mode_lock_acquire 5
     usb_mode_resume_normal "$SB/bin/baseos-usb-debug" 1; rc=$?
-    i=0
-    while [ ! -s "$SB/debug.calls" ] && [ "$i" -lt 50 ]; do i=$((i+1)); sleep 0.05; done
-    called=$(grep -c 'start' "$SB/debug.calls" 2>/dev/null | head -1)
-    [ -n "$called" ] || called=0
+    line="$(cat "$SB/debug.calls" 2>/dev/null || :)"
+    marker_after=$([ -e "$BASEOS_USB_RUN_DIR/baseos-usb-storage.active" ] && echo yes || echo no)
+    lock_after=$([ -d "$BASEOS_USB_RUN_DIR/baseos-usb-mode.lock" ] && echo yes || echo no)
+    usb_mode_lock_release
     ok=1
-    [ "$rc" -eq 0 ] && [ "$called" -ge 1 ] && ok=0
-    report "resume: allowed teardown starts the manager once" "$ok" "rc=$rc calls=$called"
+    case "$line" in
+        start\|active=yes\|lock=yes\|token=*) [ "$rc" -eq 0 ] && [ "$marker_after" = no ] && [ "$lock_after" = yes ] && ok=0 ;;
+    esac
+    report "resume: manager starts under lock before ACTIVE clears" "$ok" \
+        "rc=$rc call=$line marker_after=$marker_after lock_after=$lock_after"
 )
 
 # 26. Teardown NOT confirmed: the manager must not be started at all.
 (
     new_sandbox
+    usb_mode_lock_acquire 5
     usb_mode_resume_normal "$SB/bin/baseos-usb-debug" 0; rc=$?
-    sleep 0.1
     called=$(grep -c 'start' "$SB/debug.calls" 2>/dev/null | head -1)
     [ -n "$called" ] || called=0
+    usb_mode_lock_release
     ok=1
     [ "$rc" -eq 1 ] && [ "$called" -eq 0 ] && ok=0
     report "resume: unconfirmed teardown never starts a gadget" "$ok" "rc=$rc calls=$called"
@@ -546,6 +558,32 @@ if [ -n "$marker_line" ] && [ -n "$stop_line" ] && [ "$marker_line" -lt "$stop_l
 fi
 report "wiring: ACTIVE marker precedes the manager stop" "$ok" \
     "marker_line=$marker_line stop_line=$stop_line"
+
+# 32. Failed replacement-gadget start keeps ACTIVE as a fail-closed guard.
+(
+    new_sandbox
+    usb_mode_mark_active bound
+    usb_mode_lock_acquire 5
+    DEBUG_STUB_EXIT=7
+    export DEBUG_STUB_EXIT
+    usb_mode_resume_normal "$SB/bin/baseos-usb-debug" 1; rc=$?
+    marker=$([ -e "$BASEOS_USB_RUN_DIR/baseos-usb-storage.active" ] && echo yes || echo no)
+    usb_mode_lock_release
+    ok=1
+    [ "$rc" -eq 1 ] && [ "$marker" = yes ] && ok=0
+    report "resume: failed manager start retains ACTIVE" "$ok" "rc=$rc marker=$marker"
+)
+
+# 33. Resume is refused unless the caller owns the shared lock.
+(
+    new_sandbox
+    usb_mode_mark_active bound
+    usb_mode_resume_normal "$SB/bin/baseos-usb-debug" 1; rc=$?
+    calls=$(wc -l < "$SB/debug.calls" | tr -d ' ')
+    ok=1
+    [ "$rc" -eq 1 ] && [ "$calls" -eq 0 ] && marker_present && ok=0
+    report "resume: missing lock refuses start and keeps ACTIVE" "$ok" "rc=$rc calls=$calls"
+)
 
 TOTAL=0
 FAILED=0

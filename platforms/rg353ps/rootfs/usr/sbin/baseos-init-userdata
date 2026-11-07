@@ -135,6 +135,10 @@ debug=no
 # only add an active line here to override the image explicitly.
 # usb_mtp=yes
 
+# Persistent USB failure reports. Keep disabled for normal use; set to yes
+# only when collecting USB reconnect/recovery diagnostics.
+usb_diagnostics=no
+
 # Uncomment to change the frontend order. The default is shown.
 # frontends_order=nextui,slot,custom,baseos
 

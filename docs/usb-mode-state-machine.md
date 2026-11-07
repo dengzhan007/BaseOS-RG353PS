@@ -80,13 +80,35 @@ IDLE -----------------------------> CLAIMED (ACTIVE marker written)
 ## Test mapping
 
 `tests/test-rg353ps-usb-mutual-exclusion.sh` executes these functions against a
-sandbox configfs/UDC/mounts and asserts the results (37 cases, no hardware):
+sandbox configfs/UDC/mounts and asserts the results (38 cases, no hardware):
 
 | Area | Cases |
 | --- | --- |
 | Lock | acquire/release, re-entrancy, contention, stale PID, SIGKILL, SIGTERM |
-| UDC release | confirmed, write-ok-but-bound, empty-but-configured, timeout, missing, unreadable attribute/state and foreign binding |
+| UDC release | confirmed, write-ok-but-bound, empty-but-configured, timeout, missing, unreadable attribute/state, absent gadget directory on first start, and foreign binding |
 | Remount | already mounted, wrong source, verified, silent success, mount error |
 | Teardown | confirmed unbind/remount keep ACTIVE until replacement gadget starts under the same lock; failed unbind never remounts |
 | Resume | synchronous start under lock, failed/unlocked start retains marker |
 | Marker | dead owner reaped, live owner kept |
+
+
+## Real-device acceptance (2026-11-07)
+
+RG353PS hardware acceptance after the first-start UDC binding fix:
+
+1. Enter USB Mass Storage from the diagnostic page.
+2. Confirm the host enumerates `VID_2207&PID_0006`.
+3. Safely eject on the host, then disconnect the cable.
+4. Confirm the device restores its local data-partition mount and MTP.
+5. Confirm no stale USB network device remains after leaving Mass Storage.
+
+**Result: PASS** for all five checks.
+
+The same Mass Storage exit/recovery sequence was tested with the card-side
+`usb_debug` setting commented out (inherit the Release profile) and with USB
+debug explicitly enabled. Both configurations worked; with USB debug enabled,
+the host also recognized the USB network adapter. This confirms the normal
+MTP-only and network+MTP profiles can both hand off to Mass Storage and recover.
+
+This acceptance verifies enumeration and mode hand-off/recovery. It does not
+claim a new long-duration or file-write stress test.

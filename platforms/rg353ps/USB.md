@@ -96,8 +96,16 @@ current session. By default it does not copy these reports to the user-data
 card. This is intentional: a recoverable reconnect event should not leave
 diagnostic files behind during normal use.
 
-To collect persistent evidence, add this line to
-`/mnt/SDCARD/baseos.conf` and reproduce the USB issue:
+The image-side default file
+`platforms/rg353ps/rootfs/etc/baseos.conf` explicitly contains
+`usb_diagnostics=no`. However, the card-side `/mnt/SDCARD/baseos.conf` is
+seeded only once and is never rewritten on later boots or system updates.
+Therefore, an existing installation may have a card-side file that predates
+this option and does not show the setting. A missing key is treated as the
+default `no`; it does not enable persistent diagnostics.
+
+For clarity, you can add this line to `/mnt/SDCARD/baseos.conf` to record the
+normal default explicitly:
 
 ```ini
 usb_diagnostics=yes

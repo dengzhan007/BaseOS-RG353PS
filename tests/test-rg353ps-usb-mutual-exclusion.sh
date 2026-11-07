@@ -639,6 +639,18 @@ report "wiring: ACTIVE marker precedes the manager stop" "$ok" \
     report "udc: unreadable controller state fails confirmation" "$ok" "rc=$rc state=${USB_MODE_UNBIND_STATE:-}"
 )
 
+# 38. A gadget directory that has not been created yet cannot hold a UDC.
+#     Treat this normal first-start state as empty, while case 34 above keeps
+#     an unreadable UDC attribute inside an existing gadget fail-closed.
+(
+    new_sandbox
+    rm -rf "$SB/cfg/usb_gadget/baseos_debug"
+    binding="$(usb_mode_udc_binding "$SB/cfg/usb_gadget/baseos_debug")"; rc=$?
+    ok=1
+    [ "$rc" -eq 0 ] && [ -z "$binding" ] && ok=0
+    report "udc: absent gadget directory is an empty first-start state" "$ok" "rc=$rc binding=${binding:-empty}"
+)
+
 TOTAL=0
 FAILED=0
 while IFS='|' read -r verdict name detail; do

@@ -213,11 +213,17 @@ usb_mode_clear_teardown_failed() {
 # ---------------------------------------------------------------------------
 
 usb_mode_udc_binding() {
-    cat "$1/UDC" 2>/dev/null || printf ''
+    # An unreadable/missing configfs attribute is not evidence of an empty
+    # binding. Preserve the read failure so every caller can fail closed.
+    [ -r "$1/UDC" ] || return 1
+    cat "$1/UDC" 2>/dev/null
 }
 
 usb_mode_udc_state() {
-    cat "$BASEOS_USB_UDC_ROOT/$1/state" 2>/dev/null || printf ''
+    # The controller state is part of unbind confirmation; an unavailable
+    # state file must not be interpreted as "not configured".
+    [ -r "$BASEOS_USB_UDC_ROOT/$1/state" ] || return 1
+    cat "$BASEOS_USB_UDC_ROOT/$1/state" 2>/dev/null
 }
 
 # True when any gadget directory under configfs still binds this controller.
@@ -229,7 +235,10 @@ usb_mode_udc_claimed_by_other() {
     for _uc_g in "$BASEOS_USB_CONFIGFS"/usb_gadget/*; do
         [ -d "$_uc_g" ] || continue
         [ "$_uc_g" = "$_uc_skip" ] && continue
-        _uc_bound="$(usb_mode_udc_binding "$_uc_g")"
+        if ! _uc_bound="$(usb_mode_udc_binding "$_uc_g")"; then
+            # We cannot prove this gadget is unbound; block a second claim.
+            return 0
+        fi
         [ "$_uc_bound" = "$_uc_udc" ] && return 0
     done
     return 1
@@ -272,13 +281,17 @@ usb_mode_udc_unbind() {
     # back empty and the controller must not still be configured or suspended.
     _uu_c=0
     while [ "$_uu_c" -le "$_uu_confirm_limit" ]; do
-        _uu_bound="$(cat "$_uu_g/UDC" 2>/dev/null || printf 'unreadable')"
-        _uu_state="$(usb_mode_udc_state "$_uu_udc")"
+        if ! _uu_bound="$(cat "$_uu_g/UDC" 2>/dev/null)"; then
+            _uu_bound=unreadable
+        fi
+        if ! _uu_state="$(usb_mode_udc_state "$_uu_udc")"; then
+            _uu_state=unreadable
+        fi
         USB_MODE_UNBIND_BINDING="$_uu_bound"
         USB_MODE_UNBIND_STATE="$_uu_state"
         if [ -z "$_uu_bound" ]; then
             case "$_uu_state" in
-                configured|suspended) : ;;
+                configured|suspended|unreadable|"") : ;;
                 *) return 0 ;;
             esac
         fi
@@ -415,11 +428,16 @@ usb_mode_finish_session() {
         else
             usb_mode_emit "ERROR: UDC release NOT confirmed (write_rc=${USB_MODE_UNBIND_WRITE_RC:-unknown} binding=${USB_MODE_UNBIND_BINDING:-unknown} state=${USB_MODE_UNBIND_STATE:-unknown})"
         fi
-    elif [ -z "$(usb_mode_udc_binding "$_fs_g")" ]; then
-        USB_MODE_FINISH_UDC_RELEASED=1
-        usb_mode_emit "cleanup step=unbind skipped; gadget UDC attribute is empty"
     else
-        usb_mode_emit "ERROR: helper believed unbound but the gadget still names $(usb_mode_udc_binding "$_fs_g")"
+        if ! _fs_binding="$(usb_mode_udc_binding "$_fs_g")"; then
+            _fs_binding=unreadable
+            usb_mode_emit "ERROR: cannot read gadget UDC attribute; refusing to assume it is unbound"
+        elif [ -z "$_fs_binding" ]; then
+            USB_MODE_FINISH_UDC_RELEASED=1
+            usb_mode_emit "cleanup step=unbind skipped; gadget UDC attribute is empty"
+        else
+            usb_mode_emit "ERROR: helper believed unbound but the gadget still names $_fs_binding"
+        fi
     fi
 
     if [ "$USB_MODE_FINISH_UDC_RELEASED" -eq 1 ]; then

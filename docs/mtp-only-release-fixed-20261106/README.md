@@ -92,7 +92,30 @@ Records: `mass-storage/mass-storage-write-prepare-report.json` / `.md`,
 `mass-storage/mass-storage-write-prepare-manifest.json`. The dataset is
 deliberately left on the card (about 130 MiB); the tool never deletes it.
 
-Still NOT executed: MTP<->MSC mutual exclusion under load, Linux gvfs. A
-read-only or single-writer PASS does not imply those pass. PR #6 stays open,
-PR #5 and `main` are unchanged, no Release was created.
+## Unified acceptance status (2026-11-07)
 
+The earlier statements in the build-time snapshot and initial acceptance
+notes are historical. The later hardware reports supersede them as follows:
+
+- MTP-only Release: **PASS**, 14/14 host checks; 7/7 device-to-host files
+  passed size and SHA-256 verification.
+- MTP integrity tool (PR #5): Windows WPD fast/full each recorded 25 PASS,
+  0 FAIL, 5 SKIP. Host-to-device upload was followed by on-device SHA-256
+  verification over SSH; it was not an MTP read-back. The five SKIPs are
+  overwrite, file rename, directory rename, file delete and directory delete.
+- Mass Storage: **PASS**, 20/20 host checks; 7/7 sizes and hashes verified.
+- Mass Storage exit recovery to MTP: **PASS**.
+- Mass Storage 30-minute stability: **PASS**, 166/166 polls, zero anomalies.
+- Mass Storage write integrity: **PASS**, Prepare 10/10 and Verify 10/10,
+  with 7/7 files matching size and SHA-256 after safe eject/re-entry.
+
+Still not established by these reports: real-hardware Linux GVFS operation,
+the five WPD mutating operations, MTP long-duration/repeated-unplug stability,
+and MTP <-> Mass Storage mutual exclusion under load. The Mass Storage
+30-minute stability result is not an MTP stability result; exit recovery is
+not an under-load mutual-exclusion test.
+
+PR #5 remains open for review; its earlier "not tested" list must be read
+together with the later reports above. This README is a test-evidence index,
+not a statement that PR #5 has been merged. The 2026-11-06 test image remains
+a temporary acceptance image, not the 1.2.6 release artifact.

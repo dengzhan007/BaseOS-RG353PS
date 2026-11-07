@@ -104,8 +104,15 @@ Therefore, an existing installation may have a card-side file that predates
 this option and does not show the setting. A missing key is treated as the
 default `no`; it does not enable persistent diagnostics.
 
-For clarity, you can add this line to `/mnt/SDCARD/baseos.conf` to record the
-normal default explicitly:
+For clarity, you can add this line to `/mnt/SDCARD/baseos.conf` to record
+the normal default explicitly:
+
+```ini
+usb_diagnostics=no
+```
+
+To collect persistent evidence, change the setting to `yes` and reproduce
+the USB issue:
 
 ```ini
 usb_diagnostics=yes

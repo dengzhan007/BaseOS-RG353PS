@@ -352,8 +352,9 @@ EOF
   "target": "Anbernic RG353PS",
   "kernel_release": "$KREL",
   "userspace": "static BusyBox",
-  "purpose": "first-boot hardware bring-up",
-  "finished_frontend": false,
+  "purpose": "RG353PS BaseOS system image",
+  "frontend_model": "external; discovered from TF2 then TF1",
+  "diagnostic_ui": true,
   "hardware_tested": false
 }
 EOF

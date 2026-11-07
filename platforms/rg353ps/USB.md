@@ -219,15 +219,60 @@ captures:
 
 Do not copy the DWC3 diagnostic injector into the clean release build.
 
-### Remaining hardware validation
+### MTP and Mass Storage real-hardware acceptance (2026-11-06/07)
 
-The reconnect matrix confirms enumeration recovery and host detection of
-RNDIS/DHCP/MTP. It does not establish:
-- byte-for-byte integrity of large MTP transfers in both directions;
-- Chinese names, spaces, deep paths, create, rename and delete over MTP;
-- MTP-only release-profile enumeration on hardware;
-- long-duration unexpected-unplug stress;
-- complete Mass Storage enter/exit hardware regression.
+The reconnect enumeration matrix above is a separate test. The following
+results cover the MTP and Mass Storage data paths; they must not be conflated
+with enumeration recovery or with one another.
 
-Keep these as separate release checklist items. The 39-cycle reconnect
-result is not a full USB feature certification.
+#### MTP
+
+| Test | Result | Evidence / boundary |
+|---|---|---|
+| MTP-only Release enumeration | **PASS** | Real RG353PS; VID_2207&PID_0009 only, no PID_0007/0008 or device RNDIS/NCM; 14/14 host checks |
+| Device -> host transfer integrity | **PASS** | 7/7 files: actual sizes and SHA-256 match, including 128 MiB, Chinese/spaced names and nested paths |
+| Host -> device transfer | **PASS, with boundary** | PR #5 Windows WPD test uploaded the dataset; hashes were then computed on-device over SSH and matched. This is not an MTP read-back verification |
+| WPD overwrite / file rename / directory rename / file delete / directory delete | **SKIP** | Five operations were deliberately not attempted because Windows Shell/WPD presents modal confirmation prompts; no PASS is claimed |
+| Linux GVFS backend on real hardware | **NOT TESTED** | No hardware result is recorded |
+| MTP long-duration / repeated-unplug stress | **NOT TESTED** | The 30-minute stability report below is Mass Storage, not MTP |
+
+The PR #5 integrity-tool report records Windows WPD fast and full datasets at
+25 PASS / 0 FAIL / 5 SKIP each. The five SKIPs are the five mutating WPD
+operations listed above. Local unit tests and the simulated local backend are
+not MTP hardware evidence.
+
+Authoritative MTP-only acceptance records:
+- [Real-hardware upgrade and acceptance](../docs/mtp-only-release-fixed-20261106/REAL-HARDWARE-ACCEPTANCE-20261106.md)
+- [Normalized MTP-only acceptance](../docs/mtp-only-release-fixed-20261106/hardware-acceptance/mtp-only-acceptance.md)
+- [MTP-only host report](../docs/mtp-only-release-fixed-20261106/hardware-acceptance/mtp-only-host-report.md)
+- [PR #5 integrity-tool evidence and limitations](https://github.com/dengzhan007/BaseOS-RG353PS/pull/5)
+
+#### Mass Storage
+
+| Test | Result | Evidence / boundary |
+|---|---|---|
+| Mass Storage host identification and read-only data checks | **PASS** | 20/20 checks; unique PID_0006; strict PnP -> disk -> IOCTL volume ownership; 7/7 sizes and SHA-256 |
+| Exit recovery: Mass Storage -> MTP | **PASS** | PID_0009 returned; PID_0006/0007/0008 absent; live WPD RG353PS present; no device network adapter |
+| 30-minute stability | **PASS** | 166/166 polls over 1803 s, zero anomalies; seven 128 MiB SHA-256 checks matched |
+| Write integrity | **PASS** | Prepare 10/10; after safe eject, cable removal and re-entry, Verify 10/10; 7/7 sizes and SHA-256 matched |
+| MTP <-> Mass Storage mutual exclusion under load | **NOT TESTED** | The exit-recovery test proves restoration after leaving Mass Storage, not concurrent/under-load mutual-exclusion stress |
+
+Authoritative Mass Storage records:
+- [Host identification and integrity report](../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-host-report.md)
+- [Exit recovery report](../docs/mtp-only-release-fixed-20261106/mass-storage/exit-recovery-host-report.md)
+- [30-minute stability report](../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-stability-report.md)
+- [Write Prepare report](../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-write-prepare-report.md)
+- [Write Verify report](../docs/mtp-only-release-fixed-20261106/mass-storage/mass-storage-write-verify-report.md)
+
+#### Remaining USB acceptance items
+
+1. Exercise the five WPD mutating operations through a backend that can do so
+   without modal UI, or record an explicit decision that this is unsupported.
+2. Run the MTP integrity suite through Linux GVFS on real hardware.
+3. Stress MTP <-> Mass Storage mutual exclusion under load, including entry,
+   exit, cable removal and return to the configured USB profile.
+4. Run a separate MTP long-duration / repeated-unplug stability test.
+
+The existing Mass Storage stability and write-integrity PASS results do not
+close these four items. Likewise, the 39-cycle reconnect matrix establishes
+enumeration recovery, not full USB feature certification.

@@ -1,0 +1,242 @@
+{
+  "test": "RG353PS MTP-only Release hardware acceptance (read-only)",
+  "captured_utc": "2026-11-06T14:10:14Z",
+  "image": {
+    "path": "F:\\workspace\\2026-10-28-22-11-37\\.tmp-doc\\p0-fix\\win\\work\\rg353ps-mtp-only-fixed\\baseos-rg353ps-smoke.img.gz",
+    "size_bytes": 139709198,
+    "expected_sha256": "fded49aa4e8b1efb66d398c4aed17638f1a6a1ee232e2c1cbf4d42aeb62d81e6",
+    "actual_sha256": "fded49aa4e8b1efb66d398c4aed17638f1a6a1ee232e2c1cbf4d42aeb62d81e6",
+    "matches": true
+  },
+  "run_id": "20261106-131355-4a3405",
+  "device_manifest": {
+    "path": "F:\\workspace\\2026-10-28-22-11-37\\.tmp-doc\\p0-fix\\win\\work\\rg353ps-mtp-only-fixed\\pulled\\baseos-mtp-test-manifest.json",
+    "origin": "device",
+    "created_utc": "2026-11-06T13:57:38Z",
+    "run_id": "20261106-131355-4a3405",
+    "files": 7,
+    "differs_from_repository_sample": true
+  },
+  "pnp": {
+    "path": "F:\\workspace\\2026-10-28-22-11-37\\.tmp-doc\\p0-fix\\win\\docs\\mtp-only-release-fixed-20261106\\hardware-acceptance\\pnp-enumeration.json",
+    "captured_utc": "2026-11-06T14:08:21Z",
+    "checks": {
+      "pid_0009_present": true,
+      "no_pid_0007_0008": true,
+      "no_device_rndis_ncm": true,
+      "wpd_rg353ps_present": true,
+      "sdcard_storage_visible": true
+    },
+    "counts": {
+      "pid_0009": 1,
+      "forbidden_pid": 0,
+      "device_network_adapters": 0,
+      "wpd_devices": 1
+    },
+    "wpd_storages": [
+      "RG353PS"
+    ],
+    "devices": [
+      {
+        "Name": "RG353PS",
+        "PNPDeviceID": "USB\\VID_2207&PID_0009\\BASEOS-RG353PS",
+        "PNPClass": "WPD",
+        "Status": "OK"
+      }
+    ]
+  },
+  "host_script": {
+    "pass": true,
+    "failures": [],
+    "checks": [
+      {
+        "name": "tool_present",
+        "status": "PASS",
+        "detail": "F:\\workspace\\2026-10-28-22-11-37\\.tmp-doc\\p0-fix\\win\\tools\\mtp\\mtp_integrity.py"
+      },
+      {
+        "name": "python_available",
+        "status": "PASS",
+        "detail": "C:\\Users\\zhan\\.workbuddy\\binaries\\python\\versions\\3.13.12\\python3.exe"
+      },
+      {
+        "name": "pnp_pid_0009",
+        "status": "PASS",
+        "detail": "VID_2207&PID_0009 matches=1"
+      },
+      {
+        "name": "no_pid_0007_0008",
+        "status": "PASS",
+        "detail": "forbidden PID matches=0"
+      },
+      {
+        "name": "no_rndis_ncm_adapter",
+        "status": "PASS",
+        "detail": "device-provided network adapters=0"
+      },
+      {
+        "name": "wpd_rg353ps",
+        "status": "PASS",
+        "detail": "WPD/RG353PS entries=1"
+      },
+      {
+        "name": "wpd_sdcard_storage",
+        "status": "PASS",
+        "detail": "WPD storages=RG353PS"
+      },
+      {
+        "name": "device_ready",
+        "status": "PASS",
+        "detail": "PID_0009 device present"
+      },
+      {
+        "name": "mtp_pull_exit",
+        "status": "PASS",
+        "detail": "mtp_integrity.py pull exit=0"
+      },
+      {
+        "name": "mtp_tool_labels",
+        "status": "PASS",
+        "detail": "pass=14 fail=0 skip=0"
+      },
+      {
+        "name": "mtp_manifest_7_files",
+        "status": "PASS",
+        "detail": "manifest entries=7"
+      },
+      {
+        "name": "mtp_sizes_all_match",
+        "status": "PASS",
+        "detail": "7/7 sizes match"
+      },
+      {
+        "name": "mtp_sha256_all_match",
+        "status": "PASS",
+        "detail": "7/7 SHA-256 match"
+      },
+      {
+        "name": "mtp_128mib_verified",
+        "status": "PASS",
+        "detail": "128 MiB file downloaded and hashed"
+      }
+    ],
+    "pull_exit_code": 0,
+    "log": "F:\\workspace\\2026-10-28-22-11-37\\.tmp-doc\\p0-fix\\win\\work\\rg353ps-mtp-only-fixed\\mtp-pull.log"
+  },
+  "independent_file_verification": {
+    "downloaded_dir": "F:\\workspace\\2026-10-28-22-11-37\\.tmp-doc\\p0-fix\\win\\work\\rg353ps-mtp-only-fixed\\pulled\\received",
+    "files": [
+      {
+        "relpath": "small-4k.bin",
+        "expected_size": 4096,
+        "actual_size": 4096,
+        "expected_sha256": "24e7feafea57a3d4ada88e2199f4d0ba3e869e6611b8d410d879043574b73251",
+        "actual_sha256": "24e7feafea57a3d4ada88e2199f4d0ba3e869e6611b8d410d879043574b73251",
+        "size_ok": true,
+        "sha256_ok": true,
+        "downloaded": true
+      },
+      {
+        "relpath": "medium-1m.bin",
+        "expected_size": 1048576,
+        "actual_size": 1048576,
+        "expected_sha256": "c1edb546534f58350112da76a0e822917f070f27838c9e90566ef7299fa016f0",
+        "actual_sha256": "c1edb546534f58350112da76a0e822917f070f27838c9e90566ef7299fa016f0",
+        "size_ok": true,
+        "sha256_ok": true,
+        "downloaded": true
+      },
+      {
+        "relpath": "large-128m.bin",
+        "expected_size": 134217728,
+        "actual_size": 134217728,
+        "expected_sha256": "52b43720572483d215a3ba86436a8a9acda01cda1fa5c4135914ddc19cfc93cd",
+        "actual_sha256": "52b43720572483d215a3ba86436a8a9acda01cda1fa5c4135914ddc19cfc93cd",
+        "size_ok": true,
+        "sha256_ok": true,
+        "downloaded": true
+      },
+      {
+        "relpath": "中文文件名.txt",
+        "expected_size": 1024,
+        "actual_size": 1024,
+        "expected_sha256": "8cf0bc3f7efa4262e5f9c1ca20ce6e604e369b530cfae89e6a33821418f5b069",
+        "actual_sha256": "8cf0bc3f7efa4262e5f9c1ca20ce6e604e369b530cfae89e6a33821418f5b069",
+        "size_ok": true,
+        "sha256_ok": true,
+        "downloaded": true
+      },
+      {
+        "relpath": "name with spaces.txt",
+        "expected_size": 1024,
+        "actual_size": 1024,
+        "expected_sha256": "0756506b5d80d97096c44db742c14bd296364d92ac253a2f648ebd9cfdbf74f7",
+        "actual_sha256": "0756506b5d80d97096c44db742c14bd296364d92ac253a2f648ebd9cfdbf74f7",
+        "size_ok": true,
+        "sha256_ok": true,
+        "downloaded": true
+      },
+      {
+        "relpath": "中文 目录 with spaces/嵌套 子目录/深层 文件.txt",
+        "expected_size": 1024,
+        "actual_size": 1024,
+        "expected_sha256": "19f94e475a2880b4a7e17a994cf292d3934b6d8726168ba5bb4c6ad0cd9dc70a",
+        "actual_sha256": "19f94e475a2880b4a7e17a994cf292d3934b6d8726168ba5bb4c6ad0cd9dc70a",
+        "size_ok": true,
+        "sha256_ok": true,
+        "downloaded": true
+      },
+      {
+        "relpath": "nested/sub/deep.bin",
+        "expected_size": 65536,
+        "actual_size": 65536,
+        "expected_sha256": "50c256e4668448e6d164363e6c2b525324e4b17da1e3f18cbf425ff1b9fcc7ab",
+        "actual_sha256": "50c256e4668448e6d164363e6c2b525324e4b17da1e3f18cbf425ff1b9fcc7ab",
+        "size_ok": true,
+        "sha256_ok": true,
+        "downloaded": true
+      }
+    ],
+    "counts": {
+      "total": 7,
+      "downloaded": 7,
+      "size_ok": 7,
+      "sha256_ok": 7
+    }
+  },
+  "checks": {
+    "image_sha256_matches": true,
+    "pnp_pid_0009_only": true,
+    "rndis_ncm_absent": true,
+    "wpd_device_and_storage": true,
+    "script_pull_only": true,
+    "host_script_pass": true,
+    "device_manifest_is_fresh": true,
+    "seven_files_downloaded": true,
+    "all_sizes_match": true,
+    "all_sha256_match": true,
+    "large_128mib_verified": true,
+    "unicode_name_verified": true,
+    "space_name_verified": true,
+    "three_level_dir_verified": true
+  },
+  "overall": "PASS",
+  "failed_checks": [],
+  "scope_excluded": [
+    "Mass Storage",
+    "SSH/Dropbear",
+    "MTP prepare/push/cleanup",
+    "long-run stability",
+    "Linux gvfs"
+  ],
+  "evidence_files": [
+    "pnp-enumeration.json",
+    "mtp-only-acceptance.json",
+    "mtp-only-acceptance.md",
+    "device-manifest.json",
+    "mtp-only-host-report.json",
+    "mtp-only-host-report.md",
+    "mtp-pull.log",
+    "pull-verification.json"
+  ]
+}

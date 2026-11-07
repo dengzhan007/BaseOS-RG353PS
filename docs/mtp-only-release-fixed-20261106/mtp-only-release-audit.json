@@ -1,0 +1,88 @@
+{
+  "integration_base_commit": "fbb7d8346c19ceec0e140380aa461af6f1ce1542",
+  "p0_fix_commit": "7e29495233809c36c17f7475f064d4e421bffcad",
+  "fix_branch": "fix/rg353ps-release-usb-profile-seed",
+  "fix_pr": "https://github.com/dengzhan007/BaseOS-RG353PS/pull/6",
+  "kernel_release": "7.2.7-baseos-rg353ps",
+  "usb_build_profile": "release",
+  "rootfs_baseos_conf": {
+    "usb_profile": "release",
+    "usb_debug": "no",
+    "usb_mtp": "yes"
+  },
+  "boot_conf_verified": true,
+  "fresh_card_config": "# BaseOS RG353PS settings you can change without rebuilding.\n#\n# This file sits next to Games/ on the card and is read before the copy inside\n# the system image, so editing it here overrides the defaults. Keys that are not\n# present here keep their built-in values - frontend selection, in particular,\n# is automatic and needs nothing here.\n#\n# Delete this file and reboot to get it back with the defaults.\n\n# Verbose tracing for the USB-storage session and the boot-key report.\n# Leaves nothing on the card when no.\ndebug=no\n\n# USB network / SSH:\n# Leave usb_debug unset to inherit the image profile (development: yes,\n# release: no). An active usb_debug= line here always wins over the copy\n# inside the image, so only set it when you want to override the image\n# explicitly. Set usb_debug=yes to enable networking, or usb_debug=no to\n# disable it. Networking gives 192.168.42.1 with dropbear on port 22.\n# usb_debug=yes\n#\n# MTP is selected by the image profile too. Leave usb_mtp unset to inherit it;\n# only add an active line here to override the image explicitly.\n# usb_mtp=yes\n\n# Uncomment to change the frontend order. The default is shown.\n# frontends_order=nextui,slot,custom,baseos\n\n# Uncomment if the PC shows an unknown device instead of a network adapter:\n# newer Windows no longer ships the RNDIS driver, NCM is the one it binds.\n# usb_debug_mode=ncm\n",
+  "fresh_card_active_usb_keys": [],
+  "fresh_card_effective": {
+    "usb_debug": "no",
+    "usb_mtp": "yes"
+  },
+  "explicit_card_override_yes": "yes",
+  "explicit_card_override_no": "no",
+  "gadget_static_checks": {
+    "pid_0009_for_mtp_only": true,
+    "only_ffs_mtp_when_network_off": true,
+    "dhcp_ssh_gated_on_network": true,
+    "no_network_fallback_on_mtp_failure": true,
+    "umtp_responder_started": true
+  },
+  "expected_product_id": "0x0009",
+  "dhcp_and_dropbear": "not started in MTP-only path (NETWORK_ENABLED=0)",
+  "run_id": "20261106-131355-4a3405",
+  "dataset_manifest_sample": {
+    "path": "/root/work/rg353ps-mtp-only-fixed/wt/work/rg353ps-mtp-only-fixed/dataset-manifest-sample/baseos-mtp-test-20261106-131355-4a3405/baseos-mtp-test-manifest.json",
+    "note": "host-side structural sample from the same production mtp-prepare.sh; the device manifest is generated on first boot with fresh random bytes",
+    "entries": [
+      {
+        "relpath": "small-4k.bin",
+        "size": 4096,
+        "sha256": "0cceced3026b40026ab6e0e03da428c09a1250a24b4b3533319747ceb4d48bd5"
+      },
+      {
+        "relpath": "medium-1m.bin",
+        "size": 1048576,
+        "sha256": "863a8753b969068cd7b205622ca0209fcc6ef9eb687973a73d52c0b21e428a1f"
+      },
+      {
+        "relpath": "large-128m.bin",
+        "size": 134217728,
+        "sha256": "4ed2de43cd1323e04300d9bc9f285d0ad47fe5960eb98dbb89dea22f137d684f"
+      },
+      {
+        "relpath": "中文文件名.txt",
+        "size": 1024,
+        "sha256": "90c98d10970a2ad16558455cd68b6e0e9e2aacbcc0015bc87b173ba0144dcee6"
+      },
+      {
+        "relpath": "name with spaces.txt",
+        "size": 1024,
+        "sha256": "bee1b0b9cbe69536bc93dde26d1b010acc06de18fd0cd86a70665811f4944f39"
+      },
+      {
+        "relpath": "中文 目录 with spaces/嵌套 子目录/深层 文件.txt",
+        "size": 1024,
+        "sha256": "f06031a71cc98435a3eb1e5b0d98e6870af77681180df546d47208dae69b1c29"
+      },
+      {
+        "relpath": "nested/sub/deep.bin",
+        "size": 65536,
+        "sha256": "84f9b5a79856c1194ab9709fb40211a3faca2167bd5194ba182c61fa97c1129e"
+      }
+    ]
+  },
+  "image": "/root/work/rg353ps-mtp-only-fixed/wt/work/rg353ps-mtp-only-fixed/baseos-rg353ps-smoke.img.gz",
+  "image_gz_size_bytes": 139709198,
+  "image_gz_sha256": "fded49aa4e8b1efb66d398c4aed17638f1a6a1ee232e2c1cbf4d42aeb62d81e6",
+  "build_logs": [
+    "dataset-sample.log",
+    "image.log",
+    "rootfs.log"
+  ],
+  "reuse_audit": "/root/work/rg353ps-mtp-only-fixed/wt/work/rg353ps-mtp-only-fixed/reuse-audit.json",
+  "not_executed": [
+    "Windows PnP enumeration (needs the spare TF card)",
+    "MTP pull of the 7-file dataset / SHA-256 verification",
+    "Mass Storage hand-off (explicitly out of scope)",
+    "Long-run stability (out of scope)"
+  ]
+}

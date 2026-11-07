@@ -1,0 +1,44 @@
+﻿[
+    {
+        "path":  "small-4k.bin",
+        "expected_size":  4096,
+        "size_ok":  true,
+        "sha256_ok":  true
+    },
+    {
+        "path":  "medium-1m.bin",
+        "expected_size":  1048576,
+        "size_ok":  true,
+        "sha256_ok":  true
+    },
+    {
+        "path":  "large-128m.bin",
+        "expected_size":  134217728,
+        "size_ok":  true,
+        "sha256_ok":  true
+    },
+    {
+        "path":  "中文文件名.txt",
+        "expected_size":  1024,
+        "size_ok":  true,
+        "sha256_ok":  true
+    },
+    {
+        "path":  "name with spaces.txt",
+        "expected_size":  1024,
+        "size_ok":  true,
+        "sha256_ok":  true
+    },
+    {
+        "path":  "中文 目录 with spaces/嵌套 子目录/深层 文件.txt",
+        "expected_size":  1024,
+        "size_ok":  true,
+        "sha256_ok":  true
+    },
+    {
+        "path":  "nested/sub/deep.bin",
+        "expected_size":  65536,
+        "size_ok":  true,
+        "sha256_ok":  true
+    }
+]

@@ -1,0 +1,81 @@
+===== sh -n tests/test-rg353ps-usb-profile-inherit.sh =====
+----- exit=0 -----
+===== sh -n tests/test-rg353ps-usb-mtp.sh =====
+----- exit=0 -----
+===== sh -n tests/test-rg353ps-mtp-integrity.sh =====
+----- exit=0 -----
+===== profile inheritance regression =====
+ok   1 fresh card seed has no active usb_debug
+ok   1 fresh card seed has no active usb_mtp
+ok   1 seed keeps usb_debug=yes as a commented example
+ok   1 seed keeps existing debug=no setting
+ok   2 development image config really says usb_debug=yes
+ok   3 release image config really says usb_debug=no
+ok   2 development + fresh card resolves usb_debug=yes
+ok   3 release + fresh card resolves usb_debug=no
+ok   4 card usb_debug=yes overrides release image no
+ok   5 card usb_debug=no overrides development image yes
+ok   6a usb_mtp inherits image yes
+ok   6b usb_mtp inherits image no
+ok   6c explicit card usb_mtp=no still overrides image yes
+ok   7 existing non-empty card config is byte-identical after seeding
+ok   7 existing card usb_debug=no is preserved
+ok   8 tests run inside a temporary sandbox (/tmp/rg353ps-usb-profile.F1YVRl)
+ok   8 seed harness writes only into the sandbox
+ok   8 resolver uses redirected paths
+
+Ran 18 checks: 18 passed, 0 failed
+RG353PS USB profile inheritance regression checks passed
+----- exit=0 -----
+===== USB MTP static checks =====
+Embedded Alpine rootfs script syntax passed
+ok   1 fresh card seed has no active usb_debug
+ok   1 fresh card seed has no active usb_mtp
+ok   1 seed keeps usb_debug=yes as a commented example
+ok   1 seed keeps existing debug=no setting
+ok   2 development image config really says usb_debug=yes
+ok   3 release image config really says usb_debug=no
+ok   2 development + fresh card resolves usb_debug=yes
+ok   3 release + fresh card resolves usb_debug=no
+ok   4 card usb_debug=yes overrides release image no
+ok   5 card usb_debug=no overrides development image yes
+ok   6a usb_mtp inherits image yes
+ok   6b usb_mtp inherits image no
+ok   6c explicit card usb_mtp=no still overrides image yes
+ok   7 existing non-empty card config is byte-identical after seeding
+ok   7 existing card usb_debug=no is preserved
+ok   8 tests run inside a temporary sandbox (/tmp/rg353ps-usb-profile.F2Njbi)
+ok   8 seed harness writes only into the sandbox
+ok   8 resolver uses redirected paths
+
+Ran 18 checks: 18 passed, 0 failed
+RG353PS USB profile inheritance regression checks passed
+RG353PS USB MTP static checks passed
+----- exit=0 -----
+===== MTP integrity tool checks =====
+grep: warning: --unix-byte-offsets (-u) is obsolete
+grep: warning: --unix-byte-offsets (-u) is obsolete
+grep: warning: --unix-byte-offsets (-u) is obsolete
+grep: warning: --unix-byte-offsets (-u) is obsolete
+grep: warning: --unix-byte-offsets (-u) is obsolete
+grep: warning: --unix-byte-offsets (-u) is obsolete
+Ran 35 tests in 1.835s
+
+OK
+RG353PS MTP integrity tool checks passed (local/simulated only; no hardware acceptance)
+----- exit=0 -----
+===== baseos config checks (docker) =====
+== baseos-config ==
+Unable to find image 'alpine:3.20' locally
+3.20: Pulling from library/alpine
+25f1d6b1951a: Pulling fs layer
+d4050d56ebf2: Download complete
+3a030ca3f633: Download complete
+25f1d6b1951a: Download complete
+25f1d6b1951a: Pull complete
+Digest: sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+Status: Image is up to date for alpine:3.20
+  ok
+----- exit=0 -----
+===== expand storage checks (docker) =====
+== gptgrow ==

@@ -94,4 +94,15 @@ if sed -n '/^reprobe_udc_driver()/,/^}/p' "$USB/rootfs/usr/sbin/baseos-usb-debug
     exit 1
 fi
 
+# First-boot USB profile inheritance (Release images must not be overridden by
+# a freshly seeded card config). Runs the real production functions in a
+# temporary sandbox; the existing USB storage-mode CI workflow invokes this
+# file, so the regression suite is part of every PR check.
+sh "$ROOT/tests/test-rg353ps-usb-profile-inherit.sh"
+
+# USB mode mutual exclusion and failure recovery. These cases EXECUTE the real
+# lock, UDC-release confirmation and remount verification from
+# baseos-usb-mode-lib against a sandbox; they are not a grep over the scripts.
+sh "$ROOT/tests/test-rg353ps-usb-mutual-exclusion.sh"
+
 echo "RG353PS USB MTP static checks passed"

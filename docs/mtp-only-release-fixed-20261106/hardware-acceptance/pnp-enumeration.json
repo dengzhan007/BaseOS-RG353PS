@@ -1,0 +1,50 @@
+{
+    "captured_utc":  "2026-11-06T14:08:21Z",
+    "host":  "DESKTOP-ASI6M21",
+    "tool":  "Get-CimInstance Win32_PnPEntity filtered by VID_2207",
+    "expected":  {
+                     "vendor_id":  "0x2207",
+                     "product_id":  "0x0009",
+                     "forbidden_product_ids":  [
+                                                   "0x0007",
+                                                   "0x0008"
+                                               ],
+                     "forbidden_network":  [
+                                               "RNDIS",
+                                               "NCM",
+                                               "ECM"
+                                           ]
+                 },
+    "vid2207_devices":  [
+                            {
+                                "Name":  "RG353PS",
+                                "PNPDeviceID":  "USB\\VID_2207\u0026PID_0009\\BASEOS-RG353PS",
+                                "PNPClass":  "WPD",
+                                "Status":  "OK"
+                            }
+                        ],
+    "wpd_storages":  [
+                         "RG353PS"
+                     ],
+    "wpd_storage_top_level":  [
+
+                              ],
+    "dataset_dirs_visible":  [
+
+                             ],
+    "counts":  {
+                   "pid_0009":  1,
+                   "forbidden_pid":  0,
+                   "device_network_adapters":  0,
+                   "wpd_devices":  1
+               },
+    "checks":  {
+                   "pid_0009_present":  true,
+                   "no_pid_0007_0008":  true,
+                   "no_device_rndis_ncm":  true,
+                   "wpd_rg353ps_present":  true,
+                   "sdcard_storage_visible":  true
+               },
+    "stop_condition":  false,
+    "continue_mtp_test":  true
+}

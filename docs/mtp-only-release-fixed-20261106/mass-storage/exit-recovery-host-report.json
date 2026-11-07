@@ -1,0 +1,269 @@
+{
+    "tool":  "rg353ps-exit-recovery-readonly-check",
+    "run_id":  "20261106-131355-4a3405",
+    "started_utc":  "2026-11-06T15:09:25Z",
+    "finished_utc":  "2026-11-06T15:09:27Z",
+    "read_only":  true,
+    "wait_seconds":  30,
+    "poll_interval":  3,
+    "attempts":  [
+                     {
+                         "attempt":  1,
+                         "at_utc":  "2026-11-06T15:09:27Z",
+                         "pid_0009":  1,
+                         "pid_0006":  0,
+                         "pid_0007":  0,
+                         "pid_0008":  0,
+                         "wpd_live":  2,
+                         "vid2207_net":  0,
+                         "all_pass":  true
+                     }
+                 ],
+    "evidence":  {
+                     "observed_utc":  "2026-11-06T15:09:27Z",
+                     "vid2207_all":  [
+                                         {
+                                             "Name":  "RG353PS",
+                                             "PNPDeviceID":  "USB\\VID_2207\u0026PID_0009\\BASEOS-RG353PS",
+                                             "PNPClass":  "WPD",
+                                             "Status":  "OK",
+                                             "Service":  "WUDFWpdMtp",
+                                             "Manufacturer":  "BaseOS"
+                                         }
+                                     ],
+                     "pid_0009_roots":  [
+                                            {
+                                                "Name":  "RG353PS",
+                                                "PNPDeviceID":  "USB\\VID_2207\u0026PID_0009\\BASEOS-RG353PS",
+                                                "PNPClass":  "WPD",
+                                                "Status":  "OK",
+                                                "Service":  "WUDFWpdMtp",
+                                                "Manufacturer":  "BaseOS"
+                                            }
+                                        ],
+                     "pid_0006_roots":  [
+
+                                        ],
+                     "pid_0007_roots":  [
+
+                                        ],
+                     "pid_0008_roots":  [
+
+                                        ],
+                     "wpd_live_nodes":  [
+                                            {
+                                                "Name":  "RG353PS",
+                                                "PNPDeviceID":  "USB\\VID_2207\u0026PID_0009\\BASEOS-RG353PS",
+                                                "PNPClass":  "WPD",
+                                                "Status":  "OK",
+                                                "Service":  "WUDFWpdMtp",
+                                                "Manufacturer":  "BaseOS"
+                                            }
+                                        ],
+                     "wpd_live_shell_items":  [
+                                                  {
+                                                      "Name":  "RG353PS",
+                                                      "IsFolder":  true,
+                                                      "Path":  "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\\\\\?\\usb#vid_2207\u0026pid_0009#baseos-rg353ps#{6ac27878-a6fa-4155-ba85-f98f491d4f33}"
+                                                  }
+                                              ],
+                     "wpd_registry":  {
+                                          "current_pid0009_entries":  [
+                                                                          {
+                                                                              "Key":  "USB#VID_2207\u0026PID_0009#BASEOS-RG353PS",
+                                                                              "FriendlyName":  "RG353PS",
+                                                                              "Description":  null,
+                                                                              "matches_pid0009":  true
+                                                                          }
+                                                                      ],
+                                          "legacy_other_entries":  [
+                                                                       {
+                                                                           "Key":  "USB#VID_2207\u0026PID_0008\u0026MI_02#7\u002626A4B16B\u00260\u00260002",
+                                                                           "FriendlyName":  "RG353PS",
+                                                                           "Description":  null,
+                                                                           "matches_pid0009":  false
+                                                                       }
+                                                                   ]
+                                      },
+                     "wpd_shell_all_items":  [
+                                                 {
+                                                     "Name":  "WPS云盘",
+                                                     "IsFolder":  true,
+                                                     "Path":  "C:\\Users\\zhan\\WPS Cloud\\WPSDrive\\475887565\\WPS云盘"
+                                                 },
+                                                 {
+                                                     "Name":  "RG353PS",
+                                                     "IsFolder":  true,
+                                                     "Path":  "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\\\\\?\\usb#vid_2207\u0026pid_0009#baseos-rg353ps#{6ac27878-a6fa-4155-ba85-f98f491d4f33}"
+                                                 },
+                                                 {
+                                                     "Name":  "本地磁盘 (C:)",
+                                                     "IsFolder":  true,
+                                                     "Path":  "C:\\"
+                                                 },
+                                                 {
+                                                     "Name":  "本地磁盘 (D:)",
+                                                     "IsFolder":  true,
+                                                     "Path":  "D:\\"
+                                                 },
+                                                 {
+                                                     "Name":  "本地磁盘 (E:)",
+                                                     "IsFolder":  true,
+                                                     "Path":  "E:\\"
+                                                 },
+                                                 {
+                                                     "Name":  "本地磁盘 (F:)",
+                                                     "IsFolder":  true,
+                                                     "Path":  "F:\\"
+                                                 }
+                                             ],
+                     "wpd_shell_error":  "",
+                     "network":  {
+                                     "vid2207_adapters":  [
+
+                                                          ],
+                                     "rndis_ncm_adapters":  [
+
+                                                            ],
+                                     "all_adapters":  [
+                                                          {
+                                                              "Name":  "vgate0",
+                                                              "InterfaceDescription":  "Rust Wintun Tunnel Tunnel",
+                                                              "Status":  "Up",
+                                                              "MacAddress":  null,
+                                                              "PnpDeviceID":  "SWD\\Wintun\\{EBC15404-C085-4B49-AF7D-F449DAAD88C8}"
+                                                          },
+                                                          {
+                                                              "Name":  "vEthernet (FSE HostVnic)",
+                                                              "InterfaceDescription":  "Hyper-V Virtual Ethernet Container Adapter",
+                                                              "Status":  "Up",
+                                                              "MacAddress":  "00-15-5D-D3-9D-5D",
+                                                              "PnpDeviceID":  null
+                                                          },
+                                                          {
+                                                              "Name":  "以太网",
+                                                              "InterfaceDescription":  "Realtek Gaming 2.5GbE Family Controller",
+                                                              "Status":  "Up",
+                                                              "MacAddress":  "34-5A-60-33-F7-6F",
+                                                              "PnpDeviceID":  "PCI\\VEN_10EC\u0026DEV_8125\u0026SUBSYS_7E241462\u0026REV_05\\01000000684CE00000"
+                                                          },
+                                                          {
+                                                              "Name":  "蓝牙网络连接",
+                                                              "InterfaceDescription":  "Bluetooth Device (Personal Area Network)",
+                                                              "Status":  "Disconnected",
+                                                              "MacAddress":  "C8-A3-E8-5A-E4-6C",
+                                                              "PnpDeviceID":  "BTH\\MS_BTHPAN\\a\u002619565c58\u00260\u00262"
+                                                          },
+                                                          {
+                                                              "Name":  "vEthernet (Default Switch)",
+                                                              "InterfaceDescription":  "Hyper-V Virtual Ethernet Adapter",
+                                                              "Status":  "Up",
+                                                              "MacAddress":  "00-15-5D-DE-7E-59",
+                                                              "PnpDeviceID":  null
+                                                          },
+                                                          {
+                                                              "Name":  "WLAN",
+                                                              "InterfaceDescription":  "RZ616 Wi-Fi 6E 160MHz",
+                                                              "Status":  "Disconnected",
+                                                              "MacAddress":  "C8-A3-E8-5A-E4-6B",
+                                                              "PnpDeviceID":  "PCI\\VEN_14C3\u0026DEV_0616\u0026SUBSYS_061614C3\u0026REV_00\\6\u002629073f2d\u00260\u002600180011"
+                                                          }
+                                                      ],
+                                     "ipv4_addresses":  [
+                                                            {
+                                                                "InterfaceAlias":  "vEthernet (Default Switch)",
+                                                                "IPAddress":  "172.24.32.1",
+                                                                "PrefixLength":  20
+                                                            },
+                                                            {
+                                                                "InterfaceAlias":  "蓝牙网络连接",
+                                                                "IPAddress":  "169.254.225.175",
+                                                                "PrefixLength":  16
+                                                            },
+                                                            {
+                                                                "InterfaceAlias":  "本地连接* 10",
+                                                                "IPAddress":  "169.254.122.25",
+                                                                "PrefixLength":  16
+                                                            },
+                                                            {
+                                                                "InterfaceAlias":  "本地连接* 9",
+                                                                "IPAddress":  "169.254.110.165",
+                                                                "PrefixLength":  16
+                                                            },
+                                                            {
+                                                                "InterfaceAlias":  "以太网",
+                                                                "IPAddress":  "192.168.10.130",
+                                                                "PrefixLength":  24
+                                                            },
+                                                            {
+                                                                "InterfaceAlias":  "WLAN",
+                                                                "IPAddress":  "169.254.225.75",
+                                                                "PrefixLength":  16
+                                                            },
+                                                            {
+                                                                "InterfaceAlias":  "vgate0",
+                                                                "IPAddress":  "172.30.239.72",
+                                                                "PrefixLength":  32
+                                                            },
+                                                            {
+                                                                "InterfaceAlias":  "Loopback Pseudo-Interface 1",
+                                                                "IPAddress":  "127.0.0.1",
+                                                                "PrefixLength":  8
+                                                            }
+                                                        ],
+                                     "net_adapter_error":  ""
+                                 },
+                     "residual_mass_storage_volumes":  [
+
+                                                       ],
+                     "checks":  [
+                                    {
+                                        "name":  "pid_0009_root_exactly_one",
+                                        "status":  "PASS",
+                                        "detail":  "VID_2207\u0026PID_0009 root nodes=1 (expected exactly 1)"
+                                    },
+                                    {
+                                        "name":  "pid_0006_0007_0008_absent",
+                                        "status":  "PASS",
+                                        "detail":  "PID_0006=0; PID_0007=0; PID_0008=0 (all expected 0)"
+                                    },
+                                    {
+                                        "name":  "wpd_recognises_rg353ps",
+                                        "status":  "PASS",
+                                        "detail":  "live WPD nodes (WUDFWpdMtp)=1; live Shell RG353PS items=1; stale registry entries ignored for pass: 1"
+                                    },
+                                    {
+                                        "name":  "no_device_rndis_ncm",
+                                        "status":  "PASS",
+                                        "detail":  "VID_2207 network adapters=0; RNDIS/NCM adapters=0 (both expected 0)"
+                                    }
+                                ],
+                     "all_pass":  true
+                 },
+    "checks":  [
+                   {
+                       "name":  "pid_0009_root_exactly_one",
+                       "status":  "PASS",
+                       "detail":  "VID_2207\u0026PID_0009 root nodes=1 (expected exactly 1)"
+                   },
+                   {
+                       "name":  "pid_0006_0007_0008_absent",
+                       "status":  "PASS",
+                       "detail":  "PID_0006=0; PID_0007=0; PID_0008=0 (all expected 0)"
+                   },
+                   {
+                       "name":  "wpd_recognises_rg353ps",
+                       "status":  "PASS",
+                       "detail":  "live WPD nodes (WUDFWpdMtp)=1; live Shell RG353PS items=1; stale registry entries ignored for pass: 1"
+                   },
+                   {
+                       "name":  "no_device_rndis_ncm",
+                       "status":  "PASS",
+                       "detail":  "VID_2207 network adapters=0; RNDIS/NCM adapters=0 (both expected 0)"
+                   }
+               ],
+    "failures":  [
+
+                 ],
+    "pass":  true
+}

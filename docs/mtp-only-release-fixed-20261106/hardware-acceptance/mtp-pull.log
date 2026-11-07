@@ -1,0 +1,16 @@
+﻿workdir kept at F:\workspace\2026-10-28-22-11-37\.tmp-doc\p0-fix\win\work\rg353ps-mtp-only-fixed\pulled
+PASS pull:manifest: 7 files listed
+PASS pull:listing: every manifest entry is present in the MTP listing
+PASS pull:small-4k.bin: 
+PASS pull:medium-1m.bin: 
+PASS pull:large-128m.bin: 
+PASS pull:涓枃鏂囦欢鍚?txt: 
+PASS pull:name with spaces.txt: 
+PASS pull:涓枃 鐩綍 with spaces/宓屽 瀛愮洰褰?娣卞眰 鏂囦欢.txt: 
+PASS pull:nested/sub/deep.bin: 
+PASS dataset:file-count: 7 entries
+PASS dataset:unicode-name: 2 entries with non-ASCII names
+PASS dataset:space-name: 2 entries containing spaces
+PASS dataset:nested-path: 2 entries nested two levels or deeper
+PASS dataset:size-spread: sizes present: [1024, 4096, 65536, 1048576, 134217728]
+labels: pass=14 fail=0 skip=0

@@ -1,0 +1,17 @@
+{
+  "tool": "baseos-mtp-integrity",
+  "tool_version": "1.0",
+  "dataset_version": 1,
+  "run_id": "20261106-131355-4a3405",
+  "origin": "device",
+  "created_utc": "2026-11-06T13:57:38Z",
+  "files": [
+    {"relpath": "small-4k.bin", "size": 4096, "sha256": "24e7feafea57a3d4ada88e2199f4d0ba3e869e6611b8d410d879043574b73251"},
+    {"relpath": "medium-1m.bin", "size": 1048576, "sha256": "c1edb546534f58350112da76a0e822917f070f27838c9e90566ef7299fa016f0"},
+    {"relpath": "large-128m.bin", "size": 134217728, "sha256": "52b43720572483d215a3ba86436a8a9acda01cda1fa5c4135914ddc19cfc93cd"},
+    {"relpath": "中文文件名.txt", "size": 1024, "sha256": "8cf0bc3f7efa4262e5f9c1ca20ce6e604e369b530cfae89e6a33821418f5b069"},
+    {"relpath": "name with spaces.txt", "size": 1024, "sha256": "0756506b5d80d97096c44db742c14bd296364d92ac253a2f648ebd9cfdbf74f7"},
+    {"relpath": "中文 目录 with spaces/嵌套 子目录/深层 文件.txt", "size": 1024, "sha256": "19f94e475a2880b4a7e17a994cf292d3934b6d8726168ba5bb4c6ad0cd9dc70a"},
+    {"relpath": "nested/sub/deep.bin", "size": 65536, "sha256": "50c256e4668448e6d164363e6c2b525324e4b17da1e3f18cbf425ff1b9fcc7ab"}
+  ]
+}

@@ -1,0 +1,160 @@
+{
+    "tool":  "rg353ps-mass-storage-write-check",
+    "phase":  "Prepare",
+    "run_id":  "20261106-131355-4a3405",
+    "started_utc":  "2026-11-06T16:08:11Z",
+    "finished_utc":  "2026-11-06T16:08:34Z",
+    "mode":  "USB Mass Storage (VID_2207\u0026PID_0006)",
+    "device_writes":  true,
+    "device_selection":  "strict PnP parent/child + WMI disk/partition/volume, or volume GUID -\u003e PHYSICALDRIVE via read-only IOCTL_STORAGE_GET_DEVICE_NUMBER",
+    "evidence":  {
+                     "topology_source":  "live CIM/PnP + read-only IOCTL",
+                     "identity":  {
+                                      "path":  "superfloppy",
+                                      "drive":  "G:",
+                                      "filesystem":  "exFAT",
+                                      "capacity":  "14190346240",
+                                      "free_space":  "12279709696",
+                                      "disk_device_id":  "\\\\.\\PHYSICALDRIVE3",
+                                      "disk_index":  "3",
+                                      "volume_device_id":  "\\\\?\\Volume{4508079a-d83f-11f1-9794-c8a3e85ae46c}\\"
+                                  },
+                     "dataset_dir":  "G:\\baseos-write-test-20261106-131355-4a3405",
+                     "dataset_name":  "baseos-write-test-20261106-131355-4a3405",
+                     "files":  [
+                                   {
+                                       "relpath":  "small-4k.bin",
+                                       "kind":  "4KiB",
+                                       "expected_size":  4096,
+                                       "written":  true,
+                                       "actual_size":  4096,
+                                       "sha256":  "ea6dfd3d7d698a0b9e2b95f7b8ce370ce1864507052b0bf7ef756af17655db1b",
+                                       "status":  "written",
+                                       "error":  ""
+                                   },
+                                   {
+                                       "relpath":  "medium-1m.bin",
+                                       "kind":  "1MiB",
+                                       "expected_size":  1048576,
+                                       "written":  true,
+                                       "actual_size":  1048576,
+                                       "sha256":  "2c3a750b7519520a30f34c56e47e837b1473b32c958d4be30fe8c3923272a4a7",
+                                       "status":  "written",
+                                       "error":  ""
+                                   },
+                                   {
+                                       "relpath":  "中文文件名.txt",
+                                       "kind":  "unicode-name",
+                                       "expected_size":  4096,
+                                       "written":  true,
+                                       "actual_size":  4096,
+                                       "sha256":  "054204e943dc1d48b2a180b12a519120adf97a5fcf2acd0fde828af9215857be",
+                                       "status":  "written",
+                                       "error":  ""
+                                   },
+                                   {
+                                       "relpath":  "name with spaces.txt",
+                                       "kind":  "space-name",
+                                       "expected_size":  65536,
+                                       "written":  true,
+                                       "actual_size":  65536,
+                                       "sha256":  "c25398caf164e24b07b9b98bd7c131bfbbc6b96e7e166a048fdca45781c9fd2a",
+                                       "status":  "written",
+                                       "error":  ""
+                                   },
+                                   {
+                                       "relpath":  "nested/sub/deep.bin",
+                                       "kind":  "three-level-ascii",
+                                       "expected_size":  262144,
+                                       "written":  true,
+                                       "actual_size":  262144,
+                                       "sha256":  "9763bf0a19a90c40fc1bcab6607c32b087c17ff1b698ee79150ed457ffa89cb2",
+                                       "status":  "written",
+                                       "error":  ""
+                                   },
+                                   {
+                                       "relpath":  "中文 目录 with spaces/嵌套 子目录/深层 文件.txt",
+                                       "kind":  "three-level-unicode",
+                                       "expected_size":  65536,
+                                       "written":  true,
+                                       "actual_size":  65536,
+                                       "sha256":  "66020c6b0aa89fc912ee87c415d7a48375111cf658bccc2cbc24eb219d67c169",
+                                       "status":  "written",
+                                       "error":  ""
+                                   },
+                                   {
+                                       "relpath":  "large-128m.bin",
+                                       "kind":  "128MiB",
+                                       "expected_size":  134217728,
+                                       "written":  true,
+                                       "actual_size":  134217728,
+                                       "sha256":  "2aa0780689a59ac0aa1eddf62a5cb83e06a9cfd36465708bbf20de1e105da026",
+                                       "status":  "written",
+                                       "error":  ""
+                                   }
+                               ],
+                     "device_manifest":  "G:\\baseos-write-test-20261106-131355-4a3405\\baseos-write-test-manifest.json",
+                     "local_manifest":  "F:\\workspace\\2026-10-28-22-11-37\\.tmp-doc\\p0-fix\\win\\docs\\mtp-only-release-fixed-20261106\\mass-storage\\mass-storage-write-prepare-manifest.json",
+                     "local_manifest_files":  7,
+                     "local_manifest_sha256":  "5aa330a4bdd81c8e8986eb956702d73a1f94fd78a685aa8c44fd45326ce1ea1f"
+                 },
+    "checks":  [
+                   {
+                       "name":  "no_format_prompt",
+                       "status":  "PASS",
+                       "detail":  "a Windows format prompt would be an immediate hard stop"
+                   },
+                   {
+                       "name":  "strict_device_mapping",
+                       "status":  "PASS",
+                       "detail":  "[superfloppy] unique PnP -\u003e USBSTOR -\u003e PHYSICALDRIVE3 -\u003e IOCTL volume GUID mapping"
+                   },
+                   {
+                       "name":  "dataset_dir_absent",
+                       "status":  "PASS",
+                       "detail":  "checked G:\\baseos-write-test-20261106-131355-4a3405; an existing directory is a hard stop"
+                   },
+                   {
+                       "name":  "volume_space_sufficient",
+                       "status":  "PASS",
+                       "detail":  "need 135667712 bytes plus 64 MiB headroom; free=12279709696"
+                   },
+                   {
+                       "name":  "dataset_created",
+                       "status":  "PASS",
+                       "detail":  "created G:\\baseos-write-test-20261106-131355-4a3405 with 7 files"
+                   },
+                   {
+                       "name":  "create_new_only",
+                       "status":  "PASS",
+                       "detail":  "every file used FileMode.CreateNew; no existing file could be overwritten"
+                   },
+                   {
+                       "name":  "device_manifest_written",
+                       "status":  "PASS",
+                       "detail":  "G:\\baseos-write-test-20261106-131355-4a3405\\baseos-write-test-manifest.json"
+                   },
+                   {
+                       "name":  "local_manifest_written",
+                       "status":  "PASS",
+                       "detail":  "F:\\workspace\\2026-10-28-22-11-37\\.tmp-doc\\p0-fix\\win\\docs\\mtp-only-release-fixed-20261106\\mass-storage\\mass-storage-write-prepare-manifest.json"
+                   },
+                   {
+                       "name":  "local_manifest_valid",
+                       "status":  "PASS",
+                       "detail":  "manifest lists 7 entries"
+                   },
+                   {
+                       "name":  "device_manifest_valid",
+                       "status":  "PASS",
+                       "detail":  "manifest lists 7 entries (device copy: manifest lists 7 entries)"
+                   }
+               ],
+    "failures":  [
+
+                 ],
+    "pass":  true,
+    "dataset_name":  "baseos-write-test-20261106-131355-4a3405",
+    "device_manifest":  "G:\\baseos-write-test-20261106-131355-4a3405\\baseos-write-test-manifest.json",
+    "local_manifest":  "F:\\workspace\\2026-10-28-22-11-37\\.tmp-doc\\p0-fix\\win\\docs\\mtp-only-release-fixed-20261106\\mass-storage\\mass-storage-write-prepare-manifest.json"
+}

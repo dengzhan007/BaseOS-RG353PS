@@ -22,6 +22,16 @@ set -u
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
 export PATH
 
+# Shared ownership rules with baseos-usb-storage and the offline tests. The
+# lock is re-entrant through BASEOS_USB_LOCK_TOKEN, so the storage helper can
+# call "stop" while holding it without deadlocking.
+USB_MODE_LIB=${BASEOS_USB_MODE_LIB:-/usr/sbin/baseos-usb-mode-lib}
+if [ ! -r "$USB_MODE_LIB" ]; then
+    printf 'baseos-usb-debug: missing %s; refusing to touch the UDC\n' "$USB_MODE_LIB" >&2
+    exit 1
+fi
+. "$USB_MODE_LIB"
+
 G=/sys/kernel/config/usb_gadget/baseos_debug
 LOG=/run/baseos-usb-debug.log
 CONF=/run/baseos-udhcpd.conf
@@ -704,6 +714,9 @@ build_gadget() {
     MTP_ENABLED=0
     network_enabled && NETWORK_ENABLED=1
     mtp_enabled && MTP_ENABLED=1
+    # preflight_start sets this when the data partition MTP would serve is not
+    # mounted: a link into configfs must not be recreated behind its back.
+    [ "${FORCE_DISABLE_MTP:-0}" -eq 1 ] && MTP_ENABLED=0
     [ "$NETWORK_ENABLED" -eq 1 ] || [ "$MTP_ENABLED" -eq 1 ] || {
         say "USB disabled by configuration (usb_debug=no, usb_mtp=no)"
         return 1
@@ -930,6 +943,74 @@ stop_services() {
     rm -f "$PIDFILE_DHCP" 2>/dev/null || :
 }
 
+# Fail-closed gate before any configfs object is created or bound. Every check
+# is about a state that would otherwise produce two gadgets on one UDC or an
+# MTP responder pointing at a partition that is not mounted.
+preflight_start() {
+    # A marker left by a Mass Storage session that died without teardown would
+    # otherwise keep usb-gadget-adb off the UDC forever.
+    if usb_mode_reap_stale_marker; then
+        say "reaped stale Mass Storage active marker from a dead session"
+    fi
+
+    # 1. Another USB mode must not be in the middle of a hand-off.
+    if usb_mode_lock_held_by_other; then
+        say "ERROR: another USB mode operation owns the USB mode (holder=$(usb_mode_lock_holder)); refusing to start"
+        return 1
+    fi
+
+    UDC=$(wait_udc) || { say "no UDC after 10s; cannot bring USB functions up"; return 1; }
+
+    # 2. Our own previous binding is released with confirmation, and no other
+    #    gadget may still name this controller.
+    if ! current_binding="$(usb_mode_udc_binding "$G")"; then
+        say "ERROR: cannot read baseos_debug UDC attribute; refusing to start"
+        return 1
+    fi
+    if [ -n "$current_binding" ]; then
+        say "previous baseos_debug binding still present; releasing it with confirmation"
+        if ! usb_mode_udc_unbind "$G" "$UDC" 50 30; then
+            say "ERROR: could not confirm release of $UDC (write_rc=${USB_MODE_UNBIND_WRITE_RC:-unknown} state=${USB_MODE_UNBIND_STATE:-unknown}); refusing to start"
+            return 1
+        fi
+    fi
+    if usb_mode_udc_claimed_by_other "$UDC" "$G"; then
+        say "ERROR: $UDC is still bound by another gadget; refusing to start a second gadget"
+        return 1
+    fi
+
+    # 3. MTP performs file operations on /mnt/SDCARD. Starting it while that
+    #    partition is unmounted (or is being restored) would serve an empty tree
+    #    and could touch the block device mid-hand-off.
+    if [ "$MTP_ENABLED" -eq 1 ] && ! grep -q ' /mnt/SDCARD ' /proc/mounts 2>/dev/null; then
+        say "ERROR: /mnt/SDCARD is not mounted; refusing to start MTP against it"
+        MTP_ENABLED=0
+        FORCE_DISABLE_MTP=1
+        if [ "$NETWORK_ENABLED" -eq 0 ]; then
+            say "MTP was the only enabled function; leaving the UDC unbound"
+            return 1
+        fi
+        say "degrading to the network-only gadget until the partition is back"
+    fi
+
+    # 4. A FunctionFS mount left behind without all three endpoints is a
+    #    half-dead responder; it must be torn down before it is reused.
+    if [ -x /usr/sbin/baseos-usb-mtp ]; then
+        case "$(/usr/sbin/baseos-usb-mtp status 2>/dev/null || :)" in
+            *mounted=yes*)
+                if [ ! -e /dev/ffs-mtp/ep1 ] || [ ! -e /dev/ffs-mtp/ep2 ] || [ ! -e /dev/ffs-mtp/ep3 ]; then
+                    say "residual FunctionFS mount without all endpoints; stopping it before start"
+                    if ! /usr/sbin/baseos-usb-mtp stop >/dev/null 2>&1; then
+                        say "ERROR: residual FunctionFS could not be released; refusing to start"
+                        return 1
+                    fi
+                fi
+                ;;
+        esac
+    fi
+    return 0
+}
+
 do_start() {
     NETWORK_ENABLED=0
     MTP_ENABLED=0
@@ -941,7 +1022,10 @@ do_start() {
         return 0
     fi
 
-    UDC=$(wait_udc) || { say "no UDC after 10s; cannot bring USB functions up"; persist_log force; exit 1; }
+    if ! preflight_start; then
+        persist_log force
+        exit 1
+    fi
     say "starting USB gadget on UDC $UDC (network=$NETWORK_ENABLED mtp=$MTP_ENABLED)"
     disable_usb_runtime_pm
     build_gadget || { persist_log force; exit 1; }
@@ -997,18 +1081,21 @@ do_start() {
 do_stop() {
     stop_watch || { persist_log force; return 1; }
     stop_services
-    if [ -e "$G/UDC" ]; then
-        if ! printf '\n' >"$G/UDC" 2>/dev/null; then
-            say "ERROR: could not unbind USB gadget from UDC; refusing hand-off"
+    if ! stop_udc="$(usb_mode_udc_binding "$G")"; then
+        say "ERROR: cannot read baseos_debug UDC attribute; refusing hand-off"
+        persist_log force
+        return 1
+    fi
+    if [ -n "$stop_udc" ]; then
+        say "unbinding baseos_debug from $stop_udc; release must be confirmed"
+        if ! usb_mode_udc_unbind "$G" "$stop_udc" 50 30; then
+            say "ERROR: UDC release NOT confirmed (write_rc=${USB_MODE_UNBIND_WRITE_RC:-unknown} binding=${USB_MODE_UNBIND_BINDING:-unknown} state=${USB_MODE_UNBIND_STATE:-unknown}); refusing hand-off"
             persist_log force
             return 1
         fi
-        bound="$(cat "$G/UDC" 2>/dev/null || :)"
-        if [ -n "$bound" ]; then
-            say "ERROR: UDC still reports a bound controller ($bound); refusing hand-off"
-            persist_log force
-            return 1
-        fi
+        say "UDC released; gadget attribute is empty, controller state=${USB_MODE_UNBIND_STATE:-unknown}"
+    elif [ -e "$G/UDC" ]; then
+        say "baseos_debug UDC attribute is already empty"
     fi
     # MTP has access to the mounted user-data tree. It must exit and FunctionFS
     # must unmount before the storage helper may unmount/export that partition.
@@ -1018,6 +1105,12 @@ do_stop() {
             persist_log force
             return 1
         fi
+    fi
+    # A clean umtprd exit is not enough on its own: confirm the mount is gone.
+    if ! usb_mode_ffs_released /dev/ffs-mtp; then
+        say "ERROR: FunctionFS is still mounted at /dev/ffs-mtp; refusing Mass Storage hand-off"
+        persist_log force
+        return 1
     fi
     say "USB gadget stopped; UDC and FunctionFS released"
     persist_log
@@ -1049,10 +1142,37 @@ do_status() {
     printf 'card log:  %s\n' "$([ -r /mnt/SDCARD/rg353ps-usb-debug.txt ] && echo /mnt/SDCARD/rg353ps-usb-debug.txt || echo none)"
 }
 
+# Drop the mode lock on every exit path, including the exit 1 calls inside
+# do_start/do_stop. When the lock was inherited from baseos-usb-storage this
+# only forgets the token; the owner keeps it until its own teardown finishes.
+release_usb_mode_lock() { usb_mode_lock_release || :; }
+trap release_usb_mode_lock EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
 case "${1:-status}" in
-    start)   do_start ;;
-    stop)    do_stop ;;
-    restart) do_stop; sleep 1; do_start ;;
+    start)
+        usb_mode_lock_acquire 100 || {
+            say "ERROR: USB mode is owned by pid $(usb_mode_lock_holder); refusing to start"
+            exit 1
+        }
+        do_start
+        ;;
+    stop)
+        usb_mode_lock_acquire 100 || {
+            say "ERROR: USB mode is owned by pid $(usb_mode_lock_holder); refusing to stop"
+            exit 1
+        }
+        do_stop
+        ;;
+    restart)
+        usb_mode_lock_acquire 100 || {
+            say "ERROR: USB mode is owned by pid $(usb_mode_lock_holder); refusing to restart"
+            exit 1
+        }
+        do_stop && { sleep 1; do_start; }
+        ;;
     status)  do_status ;;
     soft-connect-test-arm) arm_soft_connect_test ;;
     soft-connect-test-cancel) cancel_soft_connect_test ;;

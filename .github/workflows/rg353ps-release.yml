@@ -17,6 +17,7 @@ on:
     branches:
       - main
       - "feature/**"
+      - "fix/**"
     paths:
       - ".github/workflows/rg353ps-release.yml"
       - "src/fbsplash.c"

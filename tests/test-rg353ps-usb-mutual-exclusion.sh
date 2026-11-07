@@ -51,7 +51,9 @@ new_sandbox() {
     CASE_SEQ=$((CASE_SEQ+1))
     # Unique per subshell: CASE_SEQ does not survive the ( ... ) boundary, and a
     # shared directory would let one case inherit another case's lock.
-    SB="$TMPBASE/case-$$-$CASE_SEQ-$(date +%s 2>/dev/null || echo 0)"
+    # $ and CASE_SEQ are shared/reset across test subshells; use mktemp so
+    # chmod/configfs state from one case cannot leak into the next.
+    SB="$(mktemp -d "$TMPBASE/case-$-XXXXXX")" || exit 1
     mkdir -p "$SB/run" "$SB/cfg/usb_gadget/rockchip" "$SB/cfg/usb_gadget/baseos_debug" \
              "$SB/udc/dwc3" "$SB/mnt/data" "$SB/bin"
     printf 'dwc3\n' > "$SB/cfg/usb_gadget/rockchip/UDC"
@@ -132,13 +134,15 @@ echo "== USB mode lock =="
     new_sandbox
     usb_mode_lock_acquire 5
     token="${BASEOS_USB_LOCK_TOKEN:-}"
-    BASEOS_USB_LOCK_TOKEN="$token" usb_mode_lock_acquire 5; rc=$?
+    BASEOS_USB_LOCK_TOKEN=$token
+    export BASEOS_USB_LOCK_TOKEN
+    usb_mode_lock_acquire 5; rc=$?
     still=$([ -d "$BASEOS_USB_RUN_DIR/baseos-usb-mode.lock" ] && echo 1 || echo 0)
     inherited="${BASEOS_USB_LOCK_INHERITED:-0}"
     ok=1
     [ "$rc" -eq 0 ] && [ "$still" -eq 1 ] && [ "$inherited" = 1 ] && ok=0
     # The nested release must not remove the owner's lock either.
-    BASEOS_USB_LOCK_TOKEN="$token" usb_mode_lock_release
+    usb_mode_lock_release
     owned_still=$([ -d "$BASEOS_USB_RUN_DIR/baseos-usb-mode.lock" ] && echo 1 || echo 0)
     [ "$owned_still" -eq 1 ] || ok=1
     report "lock: nested acquire is re-entrant and keeps the owner lock" "$ok" \

@@ -657,20 +657,24 @@ cleanup() {
     cp "$DIAG_LOG" "$BOOT_LOG" 2>/dev/null || :
   fi
 
-  # Hand the controller back only when the teardown was CONFIRMED and this
-  # session is the one that stopped the manager. The lock is released first on
-  # purpose: baseos-usb-debug takes it itself, and a token inherited by a
-  # background child while this process exits would leave the lock behind.
-  usb_mode_lock_release || log "WARNING: USB mode lock was not owned at exit"
+  # Restore the normal gadget before dropping the lock or ACTIVE marker. The
+  # nested baseos-usb-debug start inherits this process's token and re-enters
+  # the same lock. ACTIVE remains set until the replacement gadget has started.
   if [ "$TEARDOWN_OK" -eq 1 ] && [ "$DEBUG_STOPPED" -eq 1 ]; then
     if usb_mode_resume_normal /usr/sbin/baseos-usb-debug 1; then
-      log "recovery: normal USB gadget resume requested"
+      log "recovery: normal USB gadget started and ACTIVE marker cleared"
     else
-      log "ERROR: could not request the normal USB gadget resume"
+      usb_mode_mark_teardown_failed normal_gadget_resume_failed
+      log "ERROR: normal USB gadget resume failed; ACTIVE marker retained (fail-closed)"
     fi
+  elif [ "$TEARDOWN_OK" -eq 1 ]; then
+    # No normal manager was stopped, so there is nothing to restart.
+    usb_mode_clear_active
+    usb_mode_clear_teardown_failed
   else
     log "recovery: normal USB gadget NOT resumed (fail-closed); udc_released=$UDC_RELEASED remount_ok=$REMOUNT_OK debug_stopped=$DEBUG_STOPPED"
   fi
+  usb_mode_lock_release || log "WARNING: USB mode lock was not owned at exit"
 }
 CLEANUP_TRIGGER=EXIT
 trap 'CLEANUP_TRIGGER=INT; exit 130' INT

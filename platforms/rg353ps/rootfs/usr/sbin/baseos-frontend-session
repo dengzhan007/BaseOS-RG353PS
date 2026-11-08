@@ -625,18 +625,24 @@ record_handoff() {
 }
 
 log "launching $SELECTED frontend ($LAUNCH_MODE): $LAUNCHER"
+# Older packages may carry capability markers in launch.sh instead of a manifest.
+# Read them with shell builtins only; new packages should use manifest.conf.
+if [ "$LAUNCH_MODE" = script ] && { [ -z "$ADAPTER_DIR" ] || [ ! -f "$ADAPTER_DIR/manifest.conf" ]; }; then
+  while IFS= read -r capability_line || [ -n "$capability_line" ]; do
+    case "$capability_line" in
+      "# baseos: volume-owned") ADAPTER_VOLUME_OWNER=frontend ;;
+      "# baseos: power-owned") ADAPTER_POWER_OWNER=frontend ;;
+    esac
+  done < "$LAUNCHER"
+fi
+
 # Adapter capabilities decide whether the frontend owns its on-screen volume control.
 # A card-side setting can explicitly override the manifest.
 VOLUME_CLAIMED=no
 case "$(setting volume_owner auto)" in
   system) VOLUME_CLAIMED=no ;;
   frontend) VOLUME_CLAIMED=yes ;;
-  *)
-    [ "$ADAPTER_VOLUME_OWNER" = frontend ] && VOLUME_CLAIMED=yes
-    if [ "$VOLUME_CLAIMED" = no ] && { [ -z "$ADAPTER_DIR" ] || [ ! -f "$ADAPTER_DIR/manifest.conf" ]; }; then
-      grep -q 'baseos: volume-owned' "$LAUNCHER" 2>/dev/null && VOLUME_CLAIMED=yes || :
-    fi
-    ;;
+  *) [ "$ADAPTER_VOLUME_OWNER" = frontend ] && VOLUME_CLAIMED=yes ;;
 esac
 if [ "$VOLUME_CLAIMED" = yes ]; then
   # baseos-audio-init runs in the background from rcS and restores the state
@@ -671,12 +677,8 @@ if [ "$LAUNCH_MODE" = "exec" ]; then
   [ -x "$LAUNCHER" ] || chmod 0755 "$LAUNCHER" 2>/dev/null || :
   "$LAUNCHER" &
 else
-  # New adapters declare power-key ownership in manifest.conf. The legacy
-  # marker remains accepted only for adapters that do not provide a manifest.
+  # Power-key ownership comes from the adapter manifest or legacy marker.
   [ "$ADAPTER_POWER_OWNER" = frontend ] && POWER_OWNED=1
-  if [ -z "$ADAPTER_DIR" ] || [ ! -f "$ADAPTER_DIR/manifest.conf" ]; then
-    grep -q 'baseos: power-owned' "$LAUNCHER" 2>/dev/null && POWER_OWNED=1 || :
-  fi
   /bin/sh "$LAUNCHER" &
 fi
 FRONTEND_PID=$!

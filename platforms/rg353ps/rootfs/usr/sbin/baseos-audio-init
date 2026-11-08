@@ -342,6 +342,18 @@ fi
             ''|*[!0-9]*) : ;;
             *) amixer -c "$CARD" cset name="$SOFTVOL_CTL" "$WANT_LEVEL" >/dev/null 2>&1 || : ;;
         esac
+
+        # The ready marker intentionally releases the frontend before this
+        # deferred restore finishes. The frontend may have claimed the volume
+        # after the synchronous check above; in that case WANT_LEVEL is stale
+        # for a frontend-owned session. Re-check *after* the last stale write:
+        # if the marker appears later, claim_volume_for_frontend writes it
+        # before setting the same fixed level, so either ordering ends at 90.
+        if frontend_owns_volume; then
+            if amixer -c "$CARD" cset name="$SOFTVOL_CTL" "$FRONTEND_LEVEL" >/dev/null 2>&1; then
+                say "softvol '$SOFTVOL_CTL' -> $FRONTEND_LEVEL after deferred restore (frontend owns volume)"
+            fi
+        fi
     fi
 
     mkdir -p "${STATE%/*}" 2>/dev/null || :

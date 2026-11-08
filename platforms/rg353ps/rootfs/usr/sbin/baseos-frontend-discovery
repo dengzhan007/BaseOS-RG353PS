@@ -87,3 +87,25 @@ baseos_frontend_scan_root() {
   done
   [ -n "$BASEOS_SCAN_ID" ]
 }
+
+# Return success when adapter files or directory entries changed after a cache.
+# This is only metadata testing: no manifest is opened and no subprocess runs.
+baseos_frontend_tree_changed_since() {
+  bft_root=$1
+  bft_cache=$2
+  [ -f "$bft_cache" ] || return 0
+  for bft_container in "$bft_root" "$bft_root"/*; do
+    [ -d "$bft_container" ] || continue
+    for bft_parent in "$bft_container/.baseos/frontends" "$bft_container/baseos/frontends"; do
+      [ -d "$bft_parent" ] || continue
+      [ "$bft_parent" -nt "$bft_cache" ] && return 0
+      for bft_adapter in "$bft_parent"/*; do
+        [ -d "$bft_adapter" ] || continue
+        [ "$bft_adapter" -nt "$bft_cache" ] && return 0
+        [ -f "$bft_adapter/launch.sh" ] && [ "$bft_adapter/launch.sh" -nt "$bft_cache" ] && return 0
+        [ -f "$bft_adapter/manifest.conf" ] && [ "$bft_adapter/manifest.conf" -nt "$bft_cache" ] && return 0
+      done
+    done
+  done
+  return 1
+}

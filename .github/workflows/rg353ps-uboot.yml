@@ -81,10 +81,17 @@ jobs:
 
       - name: Verify smoke image output
         run: |
+          raw_image=work/rg353ps/baseos-rg353ps.img
           image=work/rg353ps/baseos-rg353ps.img.gz
           checksum=work/rg353ps/baseos-rg353ps.img.sha256
-          test -s "$image" || { echo "SD image is missing: $image" >&2; exit 1; }
+          test -s "$raw_image" || { echo "raw SD image is missing: $raw_image" >&2; exit 1; }
+          test -s "$image" || { echo "compressed SD image is missing: $image" >&2; exit 1; }
           test -s "$checksum" || { echo "SD image checksum file is missing: $checksum" >&2; exit 1; }
+          raw_bytes=$(stat -c %s "$raw_image")
+          test "$raw_bytes" -eq $((2 * 1024 * 1024 * 1024)) || {
+            echo "raw SD image has unexpected size: $raw_bytes bytes" >&2
+            exit 1
+          }
           gzip -t "$image"
           image_bytes=$(stat -c %s "$image")
           # A 2 GiB disk image should never collapse to a tiny metadata-only
@@ -93,7 +100,7 @@ jobs:
             echo "compressed SD image is unexpectedly small: $image_bytes bytes" >&2
             exit 1
           }
-          sha256sum -c "$checksum"
+          (cd work/rg353ps && sha256sum -c baseos-rg353ps.img.sha256)
           ls -lh "$image" "$checksum"
 
       - name: Publish RG353PS smoke image and component metadata

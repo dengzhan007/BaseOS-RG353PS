@@ -128,8 +128,8 @@ A frontend that must process the power key itself should declare
 for short-press suspend and long-press shutdown.
 
 Older adapters without a manifest may still use the transitional
-`# baseos: power-owned` marker. New adapters should declare this capability
-in the manifest instead.
+`# baseos: volume-owned` and `# baseos: power-owned` markers. New adapters
+should declare these capabilities in the manifest instead.
 
 ## Boot-logo contract
 
@@ -173,8 +173,8 @@ If no valid adapter is found, BaseOS starts the built-in diagnostic UI and,
 when debugging is enabled, persists the discovery trace to
 `BASEOS_BOOT/baseos-frontend-detection.txt`.
 
-BaseOS caches the last successful selection. The cache is validated against
-the requested adapter ID, launcher file and mounted card on every boot. It is
-invalidated automatically when the selected launcher disappears, the
-requested ID changes, or a newly mounted TF2 card takes precedence over TF1.
-The cache avoids rescanning adapter directories on ordinary boots.
+In automatic mode, BaseOS performs one shell-only scan of the adapter
+ directories on each boot. This keeps priority and newly installed adapters
+ current without spawning a process per adapter. The previous selection cache
+ is retained for an explicitly pinned `frontend_id`, where the chosen adapter
+ does not need to be rediscovered on every boot.

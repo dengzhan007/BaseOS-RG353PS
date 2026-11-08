@@ -54,7 +54,8 @@ jobs:
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-init-userdata
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-storage
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session
-          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-slot-launcher
+          sh tests/test-frontend-adapters.sh
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-discovery
           sh -n platforms/rg353ps/rootfs/usr/sbin/rg353ps-v4l2-report
           sh -n platforms/rg353ps/rootfs/usr/sbin/rg353ps-jpeg-encode-test
           sh -n platforms/rg353ps/rootfs/usr/sbin/rg353ps-hardware-audit

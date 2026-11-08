@@ -304,9 +304,6 @@ launcher_path_of() {
 }
 
 cached_selection() {
-  # Auto mode must re-evaluate candidates so newly installed adapters and
-  # manifest-priority changes take effect without manual cache deletion.
-  [ "$FRONTEND_PREFERENCE" != auto ] || return 1
   [ -s "$SELECTION_CACHE" ] || return 1
   c_preference= c_id= c_mode= c_root= c_launcher=
   IFS='|' read -r c_preference c_id c_mode c_root c_launcher < "$SELECTION_CACHE" 2>/dev/null || return 1
@@ -316,6 +313,7 @@ cached_selection() {
   [ -f "$c_launcher" ] || return 1
   mount_has "$c_root" || return 1
   if [ "$c_root" = "$TF1" ] && mount_has "$TF2"; then return 1; fi
+  baseos_frontend_tree_changed_since "$c_root" "$SELECTION_CACHE" && return 1
   if [ "$c_mode" = script ]; then
     baseos_frontend_load_manifest "${c_launcher%/*}" || return 1
     [ "$BASEOS_ADAPTER_ID" = "$c_id" ] || return 1
@@ -328,7 +326,6 @@ cached_selection() {
   return 0
 }
 write_selection_cache() {
-  [ "$FRONTEND_PREFERENCE" != auto ] || return 0
   [ -n "$LAUNCHER" ] && [ -n "$FRONTEND_ROOT" ] || return 0
   [ -f "$(launcher_path_of "$LAUNCHER")" ] || return 0
   mkdir -p "${SELECTION_CACHE%/*}" 2>/dev/null || return 0

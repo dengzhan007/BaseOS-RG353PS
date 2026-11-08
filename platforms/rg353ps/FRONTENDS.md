@@ -173,8 +173,8 @@ If no valid adapter is found, BaseOS starts the built-in diagnostic UI and,
 when debugging is enabled, persists the discovery trace to
 `BASEOS_BOOT/baseos-frontend-detection.txt`.
 
-In automatic mode, BaseOS performs one shell-only scan of the adapter
- directories on each boot. This keeps priority and newly installed adapters
- current without spawning a process per adapter. The previous selection cache
- is retained for an explicitly pinned `frontend_id`, where the chosen adapter
- does not need to be rediscovered on every boot.
+In automatic mode, BaseOS performs a shell-only scan of each card it checks
+(TF2 first, then TF1 only if needed). This keeps priority and newly installed
+adapters current without spawning a process per adapter. The previous
+selection cache is retained for an explicitly pinned `frontend_id`, where the
+chosen adapter does not need to be rediscovered on every boot.

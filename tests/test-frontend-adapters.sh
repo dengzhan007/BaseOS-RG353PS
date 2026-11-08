@@ -60,4 +60,17 @@ baseos_frontend_scan_root "$TMP/card" gamma || fail "nested adapter not found"
 [ "$BASEOS_SCAN_ROOT" = "$TMP/card/wrapper" ] || fail "nested frontend root not returned"
 baseos_frontend_scan_root "$TMP/card" -bad && fail "invalid adapter ID accepted"
 baseos_frontend_scan_root "$TMP/card" unsupported && fail "unsupported API accepted"
+
+# Cached selection stays fast until one of the adapter trees changes.
+CACHE=$TMP/selection-cache
+: > "$CACHE"
+baseos_frontend_tree_changed_since "$TMP/card" "$CACHE" && fail "unchanged adapter tree invalidated cache"
+sleep 1
+mkdir "$TMP/card/.baseos/frontends/delta"
+: > "$TMP/card/.baseos/frontends/delta/launch.sh"
+baseos_frontend_tree_changed_since "$TMP/card" "$CACHE" || fail "new adapter directory did not invalidate cache"
+touch "$CACHE"
+sleep 1
+printf '%s\n' 'priority=500' >> "$TMP/card/.baseos/frontends/alpha/manifest.conf"
+baseos_frontend_tree_changed_since "$TMP/card" "$CACHE" || fail "manifest update did not invalidate cache"
 echo "PASS: generic frontend adapter discovery"

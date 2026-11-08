@@ -1,6 +1,8 @@
 #!/bin/sh
 # Generic BaseOS frontend adapter discovery helpers.
 # Sourced by baseos-frontend-session; all parsing uses shell builtins.
+# Resolve the CR byte once per session, not once per adapter manifest.
+BASEOS_FRONTEND_CR=$(printf '\r')
 baseos_frontend_valid_id() {
   case "$1" in ''|.*|-*|_*|*[!A-Za-z0-9._-]*) return 1 ;; esac
   [ "${#1}" -le 48 ]
@@ -21,7 +23,7 @@ baseos_frontend_load_manifest() {
   bfa_manifest=$bfa_dir/manifest.conf
   if [ -e "$bfa_manifest" ]; then
     [ -r "$bfa_manifest" ] || return 1
-    bfa_cr=$(printf '\r')
+    bfa_cr=$BASEOS_FRONTEND_CR
     while IFS= read -r bfa_line || [ -n "$bfa_line" ]; do
       case "$bfa_line" in *"$bfa_cr") bfa_line=${bfa_line%"$bfa_cr"} ;; esac
       case "$bfa_line" in ''|\#*) continue ;; *=*) ;; *) continue ;; esac

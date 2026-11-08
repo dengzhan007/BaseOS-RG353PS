@@ -217,7 +217,6 @@ if [ "$FRONTEND_PREFERENCE" != auto ] && ! baseos_frontend_valid_id "$FRONTEND_P
   FRONTEND_PREFERENCE=auto
 fi
 
-# Legacy updater-style package staging is a compatibility fallback only.
 stage_legacy_updater() {
   stage_root=$1
   if [ -f "$stage_root/.tmp_update/updater" ]; then printf '%s' "$stage_root/.tmp_update/updater"; return 0; fi
@@ -237,7 +236,6 @@ stage_legacy_updater() {
   return 1
 }
 
-# Compatibility paths expected by older system packages.
 ensure_baseos_paths() {
   paths_root=$1
   mkdir -p "$paths_root/userdata" 2>/dev/null || :
@@ -285,7 +283,6 @@ scan_root() {
 
 SELECTED= LAUNCHER= FRONTEND_ROOT= ADAPTER_DIR=
 ADAPTER_VOLUME_OWNER=system ADAPTER_POWER_OWNER=system
-# script = generic adapter launch.sh; exec = legacy package updater.
 LAUNCH_MODE=script
 SELECTION_CACHE=/mnt/SDCARD/.baseos/cache/frontend-selection
 # Same test as is_mounted, without the fork: this runs on the path it is
@@ -358,7 +355,7 @@ if [ -z "$LAUNCHER" ] && is_mounted "$TF1"; then
 fi
 if [ -z "$LAUNCHER" ]; then
   log "no usable frontend found on TF2 or TF1; falling back to diagnostics"
-  log "inspect $DETECTION_LOG; install a valid adapter or a supported legacy package on a user-data card"
+  log "inspect $DETECTION_LOG; a Slot package needs System/slot plus either .baseos/frontends/slot/launch.sh or .tmp_update/updater"
   diagnostic
 fi
 write_selection_cache
@@ -624,8 +621,8 @@ record_handoff() {
 }
 
 log "launching $SELECTED frontend ($LAUNCH_MODE): $LAUNCHER"
-# The adapter declares whether it owns the on-screen volume control.
-# A card-side setting can explicitly override that declaration.
+# Adapter capabilities decide whether the frontend owns its on-screen volume control.
+# A card-side setting can explicitly override the manifest.
 VOLUME_CLAIMED=no
 case "$(setting volume_owner auto)" in
   system) VOLUME_CLAIMED=no ;;
@@ -661,84 +658,15 @@ kill_tree() {
   kill -"$signal" "$pid" 2>/dev/null || :
 }
 if [ "$LAUNCH_MODE" = "exec" ]; then
-  # Supervise the updater rather than exec'ing it, so the Function/Mode
-  # USB-storage hotkey can still stop the frontend and hand its card over.
-  # An upstream package may arrive from a FAT/exFAT card that carries no
-  # executable bit; make it runnable in place, because it references its
-  # siblings under .tmp_update/ and a lone copy would break.
-  [ -f "$LAUNCHER" ] || { log "updater vanished: $LAUNCHER"; diagnostic; }
+  [ -f "$LAUNCHER" ] || { log "legacy updater vanished: $LAUNCHER"; diagnostic; }
   [ -x "$LAUNCHER" ] || chmod 0755 "$LAUNCHER" 2>/dev/null || :
   "$LAUNCHER" &
 else
-  # New adapters declare power ownership in manifest.conf. The old marker is
-  # retained only as a migration fallback for adapters without a manifest.
+  # New adapters declare power-key ownership in manifest.conf. The legacy
+  # marker remains accepted only for adapters that do not provide a manifest.
   [ "$ADAPTER_POWER_OWNER" = frontend ] && POWER_OWNED=1
   if [ -z "$ADAPTER_DIR" ] || [ ! -f "$ADAPTER_DIR/manifest.conf" ]; then
-    if grep -qE '^[[:space:]]*#[[:space:]]*baseos:[[:space:]]*power-owned[[:space:]]*
-  /bin/sh "$LAUNCHER" &
-fi
-FRONTEND_PID=$!
-if [ "$VOLUME_CLAIMED" = yes ]; then
-  # The pid is what rg353ps-hotkeyd checks to decide whether the marker still
-  # means anything; an empty marker would read as "no frontend".
-  printf '%s\n' "$FRONTEND_PID" > "$VOLUME_MARKER" 2>/dev/null || :
-  log "frontend $SELECTED owns the volume keys while it runs"
-fi
-if [ "$POWER_OWNED" -eq 1 ]; then
-  printf '%s\n' "$FRONTEND_PID" > "$POWER_OWNER_FILE" 2>/dev/null || :
-  log "frontend $SELECTED owns the power key while it runs"
-else
-  log "frontend $SELECTED does not claim the power key; rg353ps-hotkeyd keeps it"
-fi
-while kill -0 "$FRONTEND_PID" 2>/dev/null; do
-  # One-shot, opt-in first-stage suspend test. This runs only after a frontend
-  # has launched, so its process tree can be checked after resume. Never run
-  # while the shared card is being exported or the frontend is being unmounted.
-  SUSPEND_TEST_MARKER=/mnt/boot/BASEOS-SUSPEND-TEST-S2IDLE
-  if [ -e "$SUSPEND_TEST_MARKER" ] && [ -x /usr/sbin/rg353ps-suspend-test ]; then
-    if rm -f "$SUSPEND_TEST_MARKER" 2>/dev/null && [ ! -e "$SUSPEND_TEST_MARKER" ]; then
-      sync
-      log "one-shot s2idle suspend/resume test requested"
-      /usr/sbin/rg353ps-suspend-test s2idle
-      suspend_test_rc=$?
-      log "suspend/resume test helper returned exit=$suspend_test_rc"
-    else
-      log "suspend test request could not be consumed; refusing to suspend"
-    fi
-  fi
-  if [ -e /run/baseos-usb-storage.request ]; then
-    log "USB storage requested; stopping frontend before unmount"
-    kill_tree TERM "$FRONTEND_PID"
-    release_power_owner
-    i=0
-    while kill -0 "$FRONTEND_PID" 2>/dev/null && [ "$i" -lt 15 ]; do sleep 0.1; i=$((i+1)); done
-    if kill -0 "$FRONTEND_PID" 2>/dev/null; then kill_tree KILL "$FRONTEND_PID"; fi
-    wait "$FRONTEND_PID" 2>/dev/null || :
-    cd /
-    release_volume_from_frontend
-    : > /run/baseos-frontend-paused
-    while [ -e /run/baseos-usb-storage.request ]; do sleep 0.1; done
-    rm -f /run/baseos-frontend-paused
-    log "USB storage finished; rediscovering frontend"
-    exec /usr/sbin/baseos-frontend-session
-  fi
-  sleep 0.1
-done
-wait "$FRONTEND_PID"
-rc=$?
-release_power_owner
-release_volume_from_frontend
-persist_detection_log
-log "frontend '$SELECTED' exited with status $rc; returning to diagnostics"
-printf '\033[0m\033[?25h\033[2J\033[H' > /dev/tty1 2>/dev/null || :
-# Re-enter diagnostics through the supervisor, not by exec'ing the UI directly.
-# The old exec dropped this supervisor, so nothing was left to answer a
-# Function-key or menu request for USB storage: the helper wrote
-# /run/baseos-usb-storage.request, waited 15 s for /run/baseos-frontend-paused,
-# never got it, and gave up with "USB STORAGE FAILED" — which is exactly what
-# storage mode did whenever it was entered from the diagnostic UI.
-diagnostic
- "$LAUNCHER" 2>/dev/null; then POWER_OWNED=1; fi
+    grep -q 'baseos: power-owned' "$LAUNCHER" 2>/dev/null && POWER_OWNED=1 || :
   fi
   /bin/sh "$LAUNCHER" &
 fi

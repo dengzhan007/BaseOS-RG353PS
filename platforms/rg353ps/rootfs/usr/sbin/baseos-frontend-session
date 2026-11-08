@@ -304,6 +304,9 @@ launcher_path_of() {
 }
 
 cached_selection() {
+  # Auto mode must re-evaluate candidates so newly installed adapters and
+  # manifest-priority changes take effect without manual cache deletion.
+  [ "$FRONTEND_PREFERENCE" != auto ] || return 1
   [ -s "$SELECTION_CACHE" ] || return 1
   c_preference= c_id= c_mode= c_root= c_launcher=
   IFS='|' read -r c_preference c_id c_mode c_root c_launcher < "$SELECTION_CACHE" 2>/dev/null || return 1
@@ -325,6 +328,7 @@ cached_selection() {
   return 0
 }
 write_selection_cache() {
+  [ "$FRONTEND_PREFERENCE" != auto ] || return 0
   [ -n "$LAUNCHER" ] && [ -n "$FRONTEND_ROOT" ] || return 0
   [ -f "$(launcher_path_of "$LAUNCHER")" ] || return 0
   mkdir -p "${SELECTION_CACHE%/*}" 2>/dev/null || return 0
@@ -627,7 +631,12 @@ VOLUME_CLAIMED=no
 case "$(setting volume_owner auto)" in
   system) VOLUME_CLAIMED=no ;;
   frontend) VOLUME_CLAIMED=yes ;;
-  *) [ "$ADAPTER_VOLUME_OWNER" = frontend ] && VOLUME_CLAIMED=yes ;;
+  *)
+    [ "$ADAPTER_VOLUME_OWNER" = frontend ] && VOLUME_CLAIMED=yes
+    if [ "$VOLUME_CLAIMED" = no ] && { [ -z "$ADAPTER_DIR" ] || [ ! -f "$ADAPTER_DIR/manifest.conf" ]; }; then
+      grep -q 'baseos: volume-owned' "$LAUNCHER" 2>/dev/null && VOLUME_CLAIMED=yes || :
+    fi
+    ;;
 esac
 if [ "$VOLUME_CLAIMED" = yes ]; then
   # baseos-audio-init runs in the background from rcS and restores the state

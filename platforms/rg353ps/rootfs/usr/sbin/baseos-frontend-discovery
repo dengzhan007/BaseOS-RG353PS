@@ -21,7 +21,9 @@ baseos_frontend_load_manifest() {
   bfa_manifest=$bfa_dir/manifest.conf
   if [ -e "$bfa_manifest" ]; then
     [ -r "$bfa_manifest" ] || return 1
+    bfa_cr=$(printf '\r')
     while IFS= read -r bfa_line || [ -n "$bfa_line" ]; do
+      case "$bfa_line" in *"$bfa_cr") bfa_line=${bfa_line%"$bfa_cr"} ;; esac
       case "$bfa_line" in ''|\#*) continue ;; *=*) ;; *) continue ;; esac
       bfa_key=${bfa_line%%=*}
       bfa_value=${bfa_line#*=}

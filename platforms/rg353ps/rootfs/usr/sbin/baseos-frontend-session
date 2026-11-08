@@ -355,7 +355,7 @@ if [ -z "$LAUNCHER" ] && is_mounted "$TF1"; then
 fi
 if [ -z "$LAUNCHER" ]; then
   log "no usable frontend found on TF2 or TF1; falling back to diagnostics"
-  log "inspect $DETECTION_LOG; a Slot package needs System/slot plus either .baseos/frontends/slot/launch.sh or .tmp_update/updater"
+  log "inspect $DETECTION_LOG; install a valid adapter or a supported legacy package on a user-data card"
   diagnostic
 fi
 write_selection_cache

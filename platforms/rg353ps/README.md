@@ -225,7 +225,7 @@ first boot also writes a card-side copy to the root of the visible `BASEOS`
 volume, next to `Games/`:
 
 ```
-BASEOS/baseos.conf      # debug=no, usb_debug=yes, frontends_order commented out
+BASEOS/baseos.conf      # debug=no, usb_debug=yes, frontend_id=auto
 ```
 
 That copy is read before the image one and only overrides the keys it contains,

@@ -1,7 +1,10 @@
 #!/bin/sh
 # BaseOS RG353PS launcher for the SDL2/KMSDRM Slot build.
 #
-# Power-key and volume ownership are declared in manifest.conf.
+# Preferred manifest declarations are in manifest.conf. These generic markers
+# preserve ownership behavior for older package builders that copy launch.sh only.
+# baseos: volume-owned
+# baseos: power-owned
 set -eu
 
 SDCARD="${BASEOS_FRONTEND_ROOT:-/mnt/SDCARD}"

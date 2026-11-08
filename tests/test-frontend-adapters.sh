@@ -5,10 +5,10 @@ HERE=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 . "$HERE/platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-discovery"
 TMP=${TMPDIR:-/tmp}/baseos-adapter-test-$$
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
-mkdir -p "$TMP/card/.baseos/frontends/alpha" "$TMP/card/.baseos/frontends/beta" "$TMP/card/.baseos/frontends/invalid-id" "$TMP/card/.baseos/frontends/unsupported" "$TMP/card/wrapper/.baseos/frontends/gamma" "$TMP/card/baseos/frontends/alpha"
+mkdir -p "$TMP/card/.baseos/frontends/alpha" "$TMP/card/.baseos/frontends/beta" "$TMP/card/.baseos/frontends/bad id" "$TMP/card/.baseos/frontends/unsupported" "$TMP/card/wrapper/.baseos/frontends/gamma" "$TMP/card/baseos/frontends/alpha"
 : > "$TMP/card/.baseos/frontends/alpha/launch.sh"
 : > "$TMP/card/.baseos/frontends/beta/launch.sh"
-: > "$TMP/card/.baseos/frontends/invalid-id/launch.sh"
+: > "$TMP/card/.baseos/frontends/bad id/launch.sh"
 : > "$TMP/card/.baseos/frontends/unsupported/launch.sh"
 : > "$TMP/card/wrapper/.baseos/frontends/gamma/launch.sh"
 : > "$TMP/card/baseos/frontends/alpha/launch.sh"
@@ -24,7 +24,7 @@ priority=900
 volume_owner=frontend
 power_owner=frontend
 EOF
-cat > "$TMP/card/.baseos/frontends/invalid-id/manifest.conf" <<'EOF'
+cat > "$TMP/card/.baseos/frontends/bad id/manifest.conf" <<'EOF'
 adapter_api=1
 priority=9999
 EOF
@@ -51,6 +51,6 @@ baseos_frontend_scan_root "$TMP/card" alpha || fail "pinned adapter not found"
 [ "$BASEOS_SCAN_DIR" = "$TMP/card/.baseos/frontends/alpha" ] || fail "canonical path should win over alias"
 baseos_frontend_scan_root "$TMP/card" gamma || fail "nested adapter not found"
 [ "$BASEOS_SCAN_ROOT" = "$TMP/card/wrapper" ] || fail "nested frontend root not returned"
-baseos_frontend_scan_root "$TMP/card" invalid-id && fail "invalid adapter ID accepted"
+baseos_frontend_scan_root "$TMP/card" bad id && fail "invalid adapter ID accepted"
 baseos_frontend_scan_root "$TMP/card" unsupported && fail "unsupported API accepted"
 echo "PASS: generic frontend adapter discovery"

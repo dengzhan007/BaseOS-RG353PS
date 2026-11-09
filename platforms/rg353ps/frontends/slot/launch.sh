@@ -19,6 +19,7 @@ export BASEOS_PANEL_ROTATION_CCW=0
 # Slot runs this when a tap puts the unit to sleep. It blocks until the button
 # wakes the unit, which is exactly the contract doze() expects.
 export BASEOS_SLEEP=/usr/sbin/rg353ps-sleep
+export BASEOS_WIFI=/usr/sbin/rg353ps-wifi-connect
 export SDL_VIDEODRIVER=kmsdrm
 export SDL_AUDIODRIVER=alsa
 export SDL_JOYSTICK_DISABLE_UDEV=1

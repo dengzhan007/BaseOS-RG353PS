@@ -55,6 +55,8 @@ RG353PS 的 USB 文件传输和调试功能使用机身 **DC 接口**。MTP、Ma
 - **USB 虚拟网卡：** 提供设备与电脑之间的点对点调试通道，**不是互联网共享或网络热点**。
 - **Mass Storage：** 独占导出用户数据卷，设备在该模式下不会同时挂载和访问被导出的卷。
 
+**Windows 网络异常处理：** 启用开发配置中的 USB RNDIS/SSH 通道时，Windows 可能把没有互联网出口的 USB 网卡选为默认路由，导致部分网站或网络服务访问异常。将 Windows RNDIS 网卡的 IPv4 接口跃点手动设为 `9999`，并关闭“自动跃点”；这只降低 RNDIS 的默认路由优先级，不影响通过 `192.168.42.1` 使用 USB SSH。具体 PowerShell 和图形界面步骤见 [USB 技术说明](platforms/rg353ps/USB.md#windows-host-routing-with-usb-rndisssh-enabled)。
+
 进入 Mass Storage 时，建议先将数据线连接到 RG353PS 的 DC 接口，再按住 **Function 并按 Power 开机**。先插线通常更容易完成 USB 枚举；开机进入等待状态后再插线，可能需要较长时间才能连接。
 
 更多技术细节和已完成的测试范围见 [USB 架构与验证记录](platforms/rg353ps/USB.md)。
@@ -136,6 +138,8 @@ The RG353PS USB transfer and debugging features use the device's **DC port**. MT
 - **Development configuration:** USB virtual network + SSH + MTP for remote debugging and file transfer. The default SSH username is `root` and the default password is `root`. These default credentials are for the development configuration only. Do not expose this configuration to untrusted networks; change the password before practical use.
 - **USB virtual network:** a point-to-point debugging link between the handheld and the computer; **it does not provide internet sharing or a network hotspot**.
 - **Mass Storage:** exclusively exports the user-data volume. The device does not mount or access that volume locally while it is exported.
+
+**Windows network warning:** When the development USB RNDIS/SSH channel is enabled, Windows may prefer the USB adapter as a default route even though that point-to-point link has no internet gateway. Some websites or network services can then fail. Set the Windows RNDIS adapter IPv4 interface metric to `9999` and disable Automatic metric. This lowers its default-route priority without preventing SSH to `192.168.42.1`. See the [USB host-routing instructions](platforms/rg353ps/USB.md#windows-host-routing-with-usb-rndisssh-enabled).
 
 To enter Mass Storage, connect the data cable to the RG353PS DC port first, then hold **Function and press Power** to boot. Connecting the cable first generally makes USB enumeration more reliable. If the device is already waiting for a connection before the cable is inserted, connection may take considerably longer.
 

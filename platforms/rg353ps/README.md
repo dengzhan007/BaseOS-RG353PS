@@ -178,22 +178,26 @@ ssh -o StrictHostKeyChecking=no -i baseos-debug root@192.168.42.1
 Windows 10/11 binds RNDIS without a driver package. If the adapter comes up
 without an address, set `192.168.42.2/24` by hand and the same command works.
 
-> **Windows: raise the RNDIS metric, or it steals the default route.** The
-> adapter comes up as a third `0.0.0.0/0` at metric 25, alongside Wi-Fi and
-> Ethernet. Windows can then send some traffic out of the USB cable, where it
-> goes nowhere - the link is point-to-point with no upstream - so the symptom
-> is a few sites or services failing while the rest of the network behaves
-> normally, which is easy to blame on DNS or the browser. Give that interface
-> an IPv4 metric of 9000 so it is only ever used for `192.168.42.0/24`:
+> **Windows: raise the RNDIS metric, or it can take over the default route.**
+> When Windows assigns the RNDIS adapter a low metric (observed as 25 alongside
+> Wi-Fi and Ethernet), it may send general internet traffic through the USB
+> cable. This link is point-to-point and has no internet gateway, so some
+> websites or network services fail while other connectivity still works.
+> Set the Windows adapter's IPv4 interface metric to **9999** and disable
+> Automatic metric. This makes the RNDIS default route less preferred while
+> keeping the more-specific `192.168.42.0/24` route available for SSH:
 >
-> ```console
+> ```powershell
 > Get-NetAdapter | Format-Table Name, InterfaceDescription, Status
-> Set-NetIPInterface -InterfaceAlias "RNDIS" -AddressFamily IPv4 -InterfaceMetric 9000
+> Set-NetIPInterface -InterfaceAlias "RNDIS" -AddressFamily IPv4 -AutomaticMetric Disabled -InterfaceMetric 9999
+> Get-NetIPInterface -InterfaceAlias "RNDIS" -AddressFamily IPv4 | Format-Table InterfaceAlias, AutomaticMetric, InterfaceMetric
 > ```
 >
-> Same result in the GUI: adapter properties -> IPv4 -> Advanced -> clear
-> "Automatic metric" and set the interface metric to 9000. Do it for every
-> RNDIS instance if Windows enumerated more than one.
+> Replace `RNDIS` with the adapter **Name** reported by `Get-NetAdapter` if
+> Windows assigned a different alias. In the GUI, open adapter properties ->
+> IPv4 -> Advanced, clear "Automatic metric", and set the interface metric to
+> `9999`. Apply this to every RNDIS instance if Windows enumerated more than
+> one.
 
 ### Plug the cable before powering on
 

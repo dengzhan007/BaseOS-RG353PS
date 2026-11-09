@@ -37,6 +37,38 @@ kernel `f_mtp` function are needed.
 | MTP only | `0x0009` |
 | Existing Mass Storage | `0x0006` |
 
+## Windows host routing when USB RNDIS/SSH is enabled
+
+This is a **Windows host-side route-priority issue**, not a change to the
+RG353PS `usb0` route. When the development profile enables the RNDIS network
+function for SSH, Windows may install a low-metric default route through the
+USB adapter. Because the USB link is point-to-point and has no internet
+gateway, Windows can send some general traffic into that link instead of
+Wi-Fi or Ethernet. The visible symptom can be partial network failure: some
+websites or services stop working while other connections continue normally.
+
+Set the RNDIS adapter's **IPv4 interface metric to 9999** and disable Windows'
+Automatic metric. This lowers the USB adapter's default-route priority; the
+more-specific `192.168.42.0/24` route remains available for SSH to
+`192.168.42.1`.
+
+In an elevated PowerShell window:
+
+```powershell
+Get-NetAdapter | Format-Table Name, InterfaceDescription, Status
+Set-NetIPInterface -InterfaceAlias "RNDIS" -AddressFamily IPv4 -AutomaticMetric Disabled -InterfaceMetric 9999
+Get-NetIPInterface -InterfaceAlias "RNDIS" -AddressFamily IPv4 | Format-Table InterfaceAlias, AutomaticMetric, InterfaceMetric
+```
+
+Replace `RNDIS` with the adapter **Name** shown by `Get-NetAdapter` if
+Windows assigned a different alias. The same setting is available in the
+adapter properties -> IPv4 -> Advanced dialog: clear "Automatic metric" and
+enter `9999`. Apply it to each RNDIS instance if more than one is present.
+
+This setting is made on the **Windows PC**, not on BaseOS. It does not disable
+USB networking, Dropbear or the SSH channel; it prevents the USB debug link
+from outranking the PC's normal internet connection.
+
 ## FunctionFS startup order
 
 FunctionFS descriptors must exist before UDC bind. The USB manager:

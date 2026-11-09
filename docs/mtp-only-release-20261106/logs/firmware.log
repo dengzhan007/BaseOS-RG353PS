@@ -1,0 +1,14 @@
+
+===== RUN 2026-11-06T12:43:18Z =====
+RG353PS firmware bundle ready: /root/work/baseos-rg353ps-mtp-only/wt/work/rg353ps-mtp-only-test/firmware
+target=Anbernic RG353PS
+wifi_chip=Realtek RTL8821CS
+linux_firmware_version=20260309
+linux_firmware_sha256=28fb1b57fa9531edbd001a2462068267f10622e613abd40f952344b3f1fc5a16
+wireless_regdb_version=2026.05.30
+wireless_regdb_sha256=8a27bfc081bafed8c24dd70fab0d96f098e5a0bfcd08d3da672595f225ab8993
+required_wifi_firmware=rtw88/rtw8821c_fw.bin
+required_bluetooth_firmware=rtl_bt/rtl8821cs_fw.bin
+required_bluetooth_config=rtl_bt/rtl8821cs_config.bin
+bluetooth_config_sha256=8be5be3b7a4a670ad547bd6a2c572305fbe0da7845f626df5ed474da9062ed9e
+regulatory_database=regulatory.db,regulatory.db.p7s

@@ -1,0 +1,41 @@
+{
+  "source_commit": "2809e62463e28c1cc32746138d1fe9a11cdd853d",
+  "kernel_release": "7.2.7-baseos-rg353ps",
+  "usb_build_profile": "release",
+  "baseos_conf": {
+    "usb_profile": "release",
+    "usb_debug": "no",
+    "usb_mtp": "yes"
+  },
+  "baseos_boot_conf_verified": true,
+  "expected_product_id": "0x0009",
+  "run_id": "20261106-120429-62aa6d",
+  "image": "/root/work/baseos-rg353ps-mtp-only/wt/work/rg353ps-mtp-only-test/baseos-rg353ps-smoke.img.gz",
+  "image_gz_size_bytes": 139708622,
+  "image_gz_sha256": "26a0726037ae8702c672904355494e5aecacae6161c6cdef2d26c2cf4de7a320",
+  "raw_image_size_bytes": 2147483648,
+  "build_logs": [
+    "firmware.log",
+    "image-final.log",
+    "image.log",
+    "kernel.log",
+    "rootfs.log",
+    "uboot.log"
+  ],
+  "static_acceptance": {
+    "card_conf_auto_generated": "yes - baseos-init-userdata::ensure_card_config seeds /mnt/SDCARD/baseos.conf on first boot",
+    "card_conf_can_override_release": "YES - config_value() order is /mnt/SDCARD > /mnt/boot > /etc; the seeded card file contains usb_debug=yes. This is a blocking risk, see report.",
+    "mtp_only_functionfs": "yes - build_gadget() with NETWORK_ENABLED=0 creates only ffs.mtp, clears stale network links and OS descriptors",
+    "product_id_0009": "yes - case 0:1 in build_gadget() sets 0x0009",
+    "dhcp_dropbear_gated": "yes - do_start() calls configure_iface/start_dhcp/start_sshd only inside NETWORK_ENABLED=1",
+    "umtp_responder": "yes - do_start() calls baseos-usb-mtp start, which mounts functionfs and starts umtprd",
+    "fail_closed": "yes - when MTP start fails in MTP-only mode the UDC is left unbound and start exits 1; no network fallback",
+    "config_policy": "read-only audit in the temporary boot hook; no existing card baseos.conf is modified"
+  },
+  "not_executed": [
+    "Windows PnP enumeration (needs the spare card to be booted)",
+    "MTP pull of the 7-file dataset / SHA-256 verification",
+    "Mass Storage hand-off (explicitly out of scope)",
+    "Long-run stability (out of scope)"
+  ]
+}

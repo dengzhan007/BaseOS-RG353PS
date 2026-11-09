@@ -22,16 +22,14 @@ hardware acceptance baseline. The 1.2.6 checks established that:
   or user settings stored there.
 
 Version 1.2.7 adds the generic frontend adapter contract and release-workflow
-checks described below. The 1.2.7 image and update package still require their
-own post-release device validation; this document does not claim those tests
-have already been performed.
-
-Version 1.2.7 adds a generic frontend adapter contract based on `manifest.conf`
-(`adapter_api=1`, priority, volume and power ownership), with TF2-first discovery,
-legacy launch-script compatibility and cache invalidation. The formal GitHub
-Release uses the tag `1.2.7`; download the complete image and update package from
-the [GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases)
-page.
+checks described below. It uses `manifest.conf` (`adapter_api=1`) to declare
+priority and volume/power ownership, with TF2-first discovery, legacy
+launch-script compatibility and cache invalidation. The formal GitHub Release
+uses the tag `1.2.7`; download the complete image and update package from the
+[GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases)
+page. The 1.2.7 image and update package still require their own post-release
+device validation; this document does not claim those tests have already been
+performed.
 
 ## Installation
 

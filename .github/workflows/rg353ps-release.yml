@@ -49,6 +49,7 @@ on:
       - "tests/**"
       - "tools/common.sh"
       - "VERSION"
+      - "docs/RG353PS-RELEASE-1.2.7.md"
     tags:
       - "v*"
 
@@ -93,6 +94,7 @@ jobs:
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-debug
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-mtp
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session
+          sh tests/test-frontend-adapters.sh
           sh tests/test-rg353ps-usb-mtp.sh
 
       - name: Build RG353PS U-Boot
@@ -239,12 +241,17 @@ jobs:
             elif gh release view "$tag" >/dev/null 2>&1; then
               gh release upload "$tag" work/release/* --clobber
             else
-              gh release create "$tag" work/release/* \
-                --title "BaseOS RG353PS $version" \
-                --notes "Complete image and .bosupd update payload for $version." \
-                --verify-tag 2>/dev/null || \
-              gh release create "$tag" work/release/* \
-                --title "BaseOS RG353PS $version" \
-                --notes "Complete image and .bosupd update payload for $version."
+              notes_file="docs/RG353PS-RELEASE-$version.md"
+              if [ -f "$notes_file" ]; then
+                gh release create "$tag" work/release/* \
+                  --title "BaseOS RG353PS $version" \
+                  --notes-file "$notes_file" \
+                  --target "$GITHUB_SHA"
+              else
+                gh release create "$tag" work/release/* \
+                  --title "BaseOS RG353PS $version" \
+                  --notes "Complete image and .bosupd update payload for $version." \
+                  --target "$GITHUB_SHA"
+              fi
             fi
           fi

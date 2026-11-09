@@ -13,15 +13,18 @@ payload. The release workflow can build the full image and update package
 separately (`full` or `update`) or together (`both`).
 
 The 1.2.6 full image and update package have both been tested on physical
-RG353PS hardware. This remains the last full-image / in-place-update hardware
-acceptance baseline; 1.2.7 adds the generic frontend adapter contract and
-release-process checks described below, and should be validated on-device after
-installation:
+RG353PS hardware. That remains the latest complete-image / in-place-update
+hardware acceptance baseline. The 1.2.6 checks established that:
 - A fresh SD-card flash boots successfully.
 - An in-place system update completes successfully.
 - The persistent user-data partition is kept separate from the A/B system
   frontends, so normal system updates do not replace ROMs, saves, frontend files,
   or user settings stored there.
+
+Version 1.2.7 adds the generic frontend adapter contract and release-workflow
+checks described below. The 1.2.7 image and update package still require their
+own post-release device validation; this document does not claim those tests
+have already been performed.
 
 Version 1.2.7 adds a generic frontend adapter contract based on `manifest.conf`
 (`adapter_api=1`, priority, volume and power ownership), with TF2-first discovery,
@@ -110,6 +113,7 @@ for the independent `package_type` choices and release attachment behavior.
 - [USB architecture and reconnect validation](USB.md)
 - [Boot-logo persistence and frontend contract](BOOTLOGO.md)
 - [Frontend discovery and adapter contract](FRONTENDS.md)
+- [BaseOS 1.2.7 release notes](../../docs/RG353PS-RELEASE-1.2.7.md)
 - [Kernel sources, patches and configuration](kernel/UPSTREAM.md)
 - [Release baseline and historical validation notes](../../docs/RG353PS-RELEASE-BASELINE-1.2.4.md)
 

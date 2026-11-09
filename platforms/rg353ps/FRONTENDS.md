@@ -89,6 +89,7 @@ BaseOS exports:
 | `BASEOS_SYSTEM_ROOT` | System root (`/`) |
 | `BASEOS_LAUNCHER` | Adapter launch-script path |
 | `BASEOS_SLEEP` | RG353PS suspend helper (`/usr/sbin/rg353ps-sleep`) |
+| `BASEOS_WIFI` | RG353PS Wi-Fi control helper (`/usr/sbin/rg353ps-wifi-connect`) |
 
 The two private directories are created under
 `<frontend-root>/.baseos/data` and `<frontend-root>/.baseos/userdata`.
@@ -103,7 +104,7 @@ Do not replace this with an idle poweroff timer. The helper is not hibernation
 and does not provide RTC self-wakeup; see [POWER.md](POWER.md).
 
 BaseOS owns the RG353PS Wi-Fi control plane at
-`/usr/sbin/rg353ps-wifi-connect` (`up`, `down`, `status`, `scan`,
+`BASEOS_WIFI` (normally `/usr/sbin/rg353ps-wifi-connect`) (`up`, `down`, `status`, `scan`,
 `join`, `forget`, `list`, `reconnect`). Frontends should not launch a
 second supplicant or reinitialize the Wi-Fi driver. The Slot package includes
 a `System/slotnet.sh` compatibility adapter that translates its card-side

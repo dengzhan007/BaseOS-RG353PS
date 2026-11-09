@@ -92,7 +92,7 @@ HDMI 相关代码和设备树支持仍在平台中，但 **RG353PS 实机 HDMI �
 
 A lightweight Linux system foundation for the **Anbernic RG353PS (Rockchip RK3566)**. BaseOS provides device boot, hardware and system services, storage management, frontend discovery, and system updates. The user interface and game library are provided by independent frontends.
 
-Current platform version: **1.2.6**
+Current platform version: **1.2.7**
 
 ### Features
 

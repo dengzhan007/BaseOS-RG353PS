@@ -88,11 +88,29 @@ BaseOS exports:
 | `BASEOS_BOOT` | Mounted boot partition |
 | `BASEOS_SYSTEM_ROOT` | System root (`/`) |
 | `BASEOS_LAUNCHER` | Adapter launch-script path |
+| `BASEOS_SLEEP` | RG353PS suspend helper (`/usr/sbin/rg353ps-sleep`) |
 
 The two private directories are created under
 `<frontend-root>/.baseos/data` and `<frontend-root>/.baseos/userdata`.
 The adapter may use its own existing storage layout instead, but should not
 write persistent settings into the read-only system root.
+
+On RG353PS, `BASEOS_SLEEP` is the supported suspend entry point. A frontend
+that declares `power_owner=frontend` should invoke this helper on an explicit
+user suspend action. It selects deep suspend-to-RAM, handles the SDIO Wi-Fi
+power sequence, and returns after the physical Power key wakes the device.
+Do not replace this with an idle poweroff timer. The helper is not hibernation
+and does not provide RTC self-wakeup; see [POWER.md](POWER.md).
+
+BaseOS owns the RG353PS Wi-Fi control plane at
+`/usr/sbin/rg353ps-wifi-connect` (`up`, `down`, `status`, `scan`,
+`join`, `forget`, `list`, `reconnect`). Frontends should not launch a
+second supplicant or reinitialize the Wi-Fi driver. The Slot package includes
+a `System/slotnet.sh` compatibility adapter that translates its card-side
+contract to this BaseOS helper and maps scan results into the frontend's
+SSID / signal / security format. The helper reads a Slot card's
+`System/wifi.conf` when present, so the card remains the editable credential
+source.
 
 A minimal adapter:
 
@@ -126,6 +144,11 @@ restores the prior mixer level when it exits. Otherwise use `system`.
 A frontend that must process the power key itself should declare
 `power_owner=frontend`. Otherwise BaseOS's hotkey daemon remains responsible
 for short-press suspend and long-press shutdown.
+
+When `power_owner=frontend` is declared, the frontend must provide both
+short-press suspend and an explicit shutdown path. On RG353PS, short-press
+suspend should use `BASEOS_SLEEP`; long-press shutdown remains a real
+poweroff/reboot action chosen by the frontend.
 
 Older adapters without a manifest may still use the transitional
 `# baseos: volume-owned` and `# baseos: power-owned` markers. New adapters

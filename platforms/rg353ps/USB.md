@@ -308,3 +308,44 @@ Authoritative Mass Storage records:
 The existing Mass Storage stability and write-integrity PASS results do not
 close these four items. Likewise, the 39-cycle reconnect matrix establishes
 enumeration recovery, not full USB feature certification.
+
+
+### Reconnect-triggered WPD recheck (2026-11-09)
+
+A follow-up test was performed after the Windows host initially enumerated the
+RG353PS WPD device but exposed zero storage items. Reconnecting the USB cable
+restored the storage list. The repeated test distinguishes the unplug event
+from an unsolicited responder failure:
+
+- The second `incoming_packet : Read Error (-1)!` occurred in the same
+  timestamp second as the USB debug log's `cable removed (state=not attached)`.
+  The next `cable inserted` event followed two seconds later. This associates
+  the read error with physical disconnect while a transfer/session was active;
+  it is not evidence of a spontaneous uMTP failure.
+- After re-enumeration, Windows WPD exposed the RG353PS storage again and the
+  storage root listed **27 items** (the earlier failed enumeration had zero).
+- uMTP remained alive, FunctionFS remained mounted, and no new device-side
+  mode-lock, active-request, paused-state or teardown-failure marker appeared.
+  No DWC3, PHY, Gadget, uMTP, DHCP or RNDIS runtime change was made.
+
+A bounded **64 KiB bidirectional transfer check** then passed using a unique
+`.baseos-audit-<UTC>-<random>` directory. The directory was confirmed absent
+before creation; the procedure refused same-name overwrite and used a
+`finally` cleanup path:
+
+| Direction | Procedure | Result |
+|---|---|---|
+| Device -> host | Device-generated 64 KiB random file, downloaded with WPD/MTP `get`; source and destination SHA-256 matched (`3bd883a1…b16e6c`) | **PASS** |
+| Host -> device | Host-generated 64 KiB file uploaded with WPD/MTP `put`; source hash matched the device-side SSH `sha256sum` (`5b01cfc2…0b8f3`) | **PASS, with boundary** |
+
+The host-to-device case is **not** an MTP read-back test: Windows WPD may show a
+modal prompt when opening a just-uploaded object, so the destination hash was
+computed on the device over SSH. Cleanup validated the run marker, removed the
+three temporary test files and the empty unique directory, and reported
+`audit_dirs_left=NONE`. No ROM, save, or other user directory was touched.
+
+This closes the reconnect-related MTP browse/read error and this bounded
+64 KiB bidirectional integrity check. It does **not** replace the separate
+7-file / 128 MiB hardware acceptance, nor does it establish MTP long-duration
+stability, MTP-only session stability, WPD rename/delete support, or MTP and
+Mass Storage mutual-exclusion stress; those remain separate tests.

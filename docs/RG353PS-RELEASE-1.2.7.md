@@ -26,7 +26,7 @@
 - `baseos-rg353ps-1.2.7.bosupd`：A/B 系统升级包，不包含 U-Boot，也不覆盖持久化用户数据分区。
 - `baseos-rg353ps-1.2.7.sha256`：本次发布二进制文件的 SHA-256 校验值。
 
-完整镜像与升级包可以独立下载；升级前请备份重要数据并保持设备供电。
+完整镜像与升级包可以独立下载；升级前请备份重要数据并保持设备供电。发布 tag 将指向本次构建的精确源码提交，随附的 build.txt 记录 commit 与构建时间。
 
 ---
 
@@ -56,4 +56,4 @@ Version 1.2.7 is a maintenance release based on the 1.2.6 hardware-validated bas
 - `baseos-rg353ps-1.2.7.bosupd`: A/B system update; it does not include U-Boot or overwrite the persistent user-data partition.
 - `baseos-rg353ps-1.2.7.sha256`: SHA-256 checksums for the published binaries.
 
-The complete image and update package can be downloaded independently. Back up important data before upgrading and keep the device powered throughout the update.
+The complete image and update package can be downloaded independently. Back up important data before upgrading and keep the device powered throughout the update. The release tag points to the exact source commit used by this build; the attached build.txt records that commit and the build time.

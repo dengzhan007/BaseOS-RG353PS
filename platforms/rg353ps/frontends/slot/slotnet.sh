@@ -11,7 +11,7 @@
 # than teaching the frontend about BaseOS internals.
 set -u
 
-HELPER=/usr/sbin/rg353ps-wifi-connect
+HELPER="${BASEOS_WIFI:-/usr/sbin/rg353ps-wifi-connect}"
 IP_FILE=/tmp/slot-ip
 
 die() {

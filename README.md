@@ -73,6 +73,7 @@ HDMI 相关代码和设备树支持仍在平台中，但 **RG353PS 实机 HDMI �
 - [前端安装、发现与存储规则](platforms/rg353ps/FRONTENDS.md)
 - [USB 架构与硬件验证](platforms/rg353ps/USB.md)
 - [启动画面持久化规范](platforms/rg353ps/BOOTLOGO.md)
+- [1.2.7 发布说明](docs/RG353PS-RELEASE-1.2.7.md)
 - [更新与发布工作流](.github/workflows/rg353ps-release.yml)
 - [贡献指南](CONTRIBUTING.md)
 
@@ -157,6 +158,7 @@ HDMI-related code and device-tree support are present, but **HDMI output has not
 - [Generic frontend adapter contract](platforms/rg353ps/FRONTENDS.md)
 - [USB architecture and hardware validation](platforms/rg353ps/USB.md)
 - [Boot-logo persistence contract](platforms/rg353ps/BOOTLOGO.md)
+- [1.2.7 release notes](docs/RG353PS-RELEASE-1.2.7.md)
 - [Release workflow](.github/workflows/rg353ps-release.yml)
 - [Contributing guide](CONTRIBUTING.md)
 

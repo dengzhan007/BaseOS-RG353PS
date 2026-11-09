@@ -8,7 +8,7 @@
 
 面向 **Anbernic RG353PS（Rockchip RK3566）** 的轻量级 Linux 系统底座。BaseOS 提供设备启动、硬件与系统服务、存储管理、前端发现和系统更新；游戏界面由独立前端提供。
 
-当前平台版本：**1.2.6**
+当前平台版本：**1.2.7**
 
 ### 功能概览
 
@@ -73,6 +73,7 @@ HDMI 相关代码和设备树支持仍在平台中，但 **RG353PS 实机 HDMI �
 - [前端安装、发现与存储规则](platforms/rg353ps/FRONTENDS.md)
 - [USB 架构与硬件验证](platforms/rg353ps/USB.md)
 - [启动画面持久化规范](platforms/rg353ps/BOOTLOGO.md)
+- [1.2.7 发布说明](docs/RG353PS-RELEASE-1.2.7.md)
 - [更新与发布工作流](.github/workflows/rg353ps-release.yml)
 - [贡献指南](CONTRIBUTING.md)
 
@@ -92,7 +93,7 @@ HDMI 相关代码和设备树支持仍在平台中，但 **RG353PS 实机 HDMI �
 
 A lightweight Linux system foundation for the **Anbernic RG353PS (Rockchip RK3566)**. BaseOS provides device boot, hardware and system services, storage management, frontend discovery, and system updates. The user interface and game library are provided by independent frontends.
 
-Current platform version: **1.2.6**
+Current platform version: **1.2.7**
 
 ### Features
 
@@ -157,6 +158,7 @@ HDMI-related code and device-tree support are present, but **HDMI output has not
 - [Generic frontend adapter contract](platforms/rg353ps/FRONTENDS.md)
 - [USB architecture and hardware validation](platforms/rg353ps/USB.md)
 - [Boot-logo persistence contract](platforms/rg353ps/BOOTLOGO.md)
+- [1.2.7 release notes](docs/RG353PS-RELEASE-1.2.7.md)
 - [Release workflow](.github/workflows/rg353ps-release.yml)
 - [Contributing guide](CONTRIBUTING.md)
 

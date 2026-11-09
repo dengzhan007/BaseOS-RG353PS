@@ -1,4 +1,4 @@
-# RG353PS port — BaseOS 1.2.6
+# RG353PS port — BaseOS 1.2.7
 
 This directory contains the independent BaseOS target for the Anbernic RG353PS
 (Rockchip RK3566). It does not replace or alter the existing Miyoo Flip
@@ -6,29 +6,36 @@ This directory contains the independent BaseOS target for the Anbernic RG353PS
 
 ## Release status
 
-**Version: 1.2.6.** The RG353PS target now has a complete release build path:
+**Version: 1.2.7.** The RG353PS target now has a complete release build path:
 U-Boot, Linux kernel and device tree, kernel modules, wireless firmware,
 BusyBox-based root filesystem, GPT SD-card image, and A/B system-update
 payload. The release workflow can build the full image and update package
 separately (`full` or `update`) or together (`both`).
 
 The 1.2.6 full image and update package have both been tested on physical
-RG353PS hardware:
+RG353PS hardware. That remains the latest complete-image / in-place-update
+hardware acceptance baseline. The 1.2.6 checks established that:
 - A fresh SD-card flash boots successfully.
 - An in-place system update completes successfully.
 - The persistent user-data partition is kept separate from the A/B system
   frontends, so normal system updates do not replace ROMs, saves, frontend files,
   or user settings stored there.
 
-The current release branch is
-[`release/1.2.6-log-cleanup`](https://github.com/dengzhan007/BaseOS-RG353PS/tree/release/1.2.6-log-cleanup).
-The formal GitHub Release is created from this branch with the tag `v1.2.6`.
+Version 1.2.7 adds the generic frontend adapter contract and release-workflow
+checks described below. It uses `manifest.conf` (`adapter_api=1`) to declare
+priority and volume/power ownership, with TF2-first discovery, legacy
+launch-script compatibility and cache invalidation. The formal GitHub Release
+uses the tag `1.2.7`; download the complete image and update package from the
+[GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases)
+page. The 1.2.7 image and update package still require their own post-release
+device validation; this document does not claim those tests have already been
+performed.
 
 ## Installation
 
 ### New installation
 
-1. Download the complete `baseos-rg353ps-1.2.6.img.gz` image from the
+1. Download the complete `baseos-rg353ps-1.2.7.img.gz` image from the
    [GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases)
    page.
 2. Write the image to the TF1 card with an SD-card imaging tool.
@@ -40,7 +47,7 @@ The formal GitHub Release is created from this branch with the tag `v1.2.6`.
 
 ### Upgrade an existing BaseOS RG353PS installation
 
-1. Download `baseos-rg353ps-1.2.6.bosupd`.
+1. Download `baseos-rg353ps-1.2.7.bosupd`.
 2. Copy the update package to the root of either card's accessible volume,
    following the system's update procedure.
 3. Restart the device and allow the updater to complete.
@@ -104,6 +111,7 @@ for the independent `package_type` choices and release attachment behavior.
 - [USB architecture and reconnect validation](USB.md)
 - [Boot-logo persistence and frontend contract](BOOTLOGO.md)
 - [Frontend discovery and adapter contract](FRONTENDS.md)
+- [BaseOS 1.2.7 release notes](../../docs/RG353PS-RELEASE-1.2.7.md)
 - [Kernel sources, patches and configuration](kernel/UPSTREAM.md)
 - [Release baseline and historical validation notes](../../docs/RG353PS-RELEASE-BASELINE-1.2.4.md)
 

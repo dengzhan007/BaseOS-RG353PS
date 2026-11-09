@@ -17,7 +17,7 @@ RG353PS hardware:
 - A fresh SD-card flash boots successfully.
 - An in-place system update completes successfully.
 - The persistent user-data partition is kept separate from the A/B system
-  slots, so normal system updates do not replace ROMs, saves, frontend files,
+  frontends, so normal system updates do not replace ROMs, saves, frontend files,
   or user settings stored there.
 
 The current release branch is
@@ -55,7 +55,7 @@ artifacts. Verify downloaded files against it before installation.
 
 ## Platform layout and services
 
-The SD card separates the bootloader, A/B system slots and persistent user
+The SD card separates the bootloader, A/B system frontends and persistent user
 data. The user-data partition is mounted at `/mnt/SDCARD`; the compatibility
 path `/mnt/sdcard` follows the selected frontend root. Frontend discovery
 checks TF2 first and then TF1, and starts the diagnostic UI if no supported
@@ -112,7 +112,7 @@ for the independent `package_type` choices and release attachment behavior.
 ## Boot logo
 
 BaseOS draws /mnt/boot/bootlogo.bmp from the active BASEOS_BOOT
-partition. This is an A/B-updated system slot, not durable user storage:
+partition. This is an A/B-updated system frontend, not durable user storage:
 .bosupd updates replace both BASEOS_BOOT and BASEOS_ROOT, while the
 BASEOS user-data volume at /mnt/SDCARD is left untouched. A custom image
 copied only to /mnt/boot is therefore replaced by a system update.
@@ -122,7 +122,7 @@ startup. The shared frontend contract is
 /mnt/SDCARD/Bootlogos/<filename>.bmp plus the selected basename in
 /mnt/SDCARD/System/bootlogo.txt. After user data is mounted, rcS copies
 the selected source back to /mnt/boot/bootlogo.bmp, verifies the bytes, and
-redraws it with fbsplash before the frontend starts. Slot-6 currently uses
+redraws it with fbsplash before the frontend starts. an external frontend currently uses
 these names; other frontends should implement the same contract rather than
 inventing a private BaseOS integration.
 
@@ -225,7 +225,7 @@ first boot also writes a card-side copy to the root of the visible `BASEOS`
 volume, next to `Games/`:
 
 ```
-BASEOS/baseos.conf      # debug=no, usb_debug=yes, frontends_order commented out
+BASEOS/baseos.conf      # debug=no, usb_debug=yes, frontend_id=auto
 ```
 
 That copy is read before the image one and only overrides the keys it contains,
@@ -283,8 +283,8 @@ The script also runs a small SDL2 test program through `SDL_VIDEODRIVER=kmsdrm`.
 If successful, the internal screen should display red, green, blue and dark
 screens for about eight seconds. It prints the actual SDL video backend,
 display mode, GLES renderer and version, then exits cleanly. This is the
-next milestone for frontend compatibility; it still does not prove NextUI or
-Slot itself can run.
+next milestone for frontend compatibility; it still does not prove frontend or
+frontend itself can run.
 
 For the earlier KMS cube test, BusyBox `timeout` may report exit code 143
 after stopping `kmscube` with SIGTERM (rather than the more common 124).
@@ -388,7 +388,7 @@ and formats it as exFAT, then mounts it at `/mnt/SDCARD`. This allows the same
 card to hold user-installed frontend packages, ROMs and saves.
 
 The image boots the BaseOS userspace with system services, read-only A/B system
-slots, frontend discovery and an evdev-driven diagnostic UI as a fallback when
+frontends, frontend discovery and an evdev-driven diagnostic UI as a fallback when
 no supported frontend is found. The game frontend is installed separately on
 a user-data TF card; it is not bundled into the BaseOS image. CI verifies the
 image layout and update payload, while hardware support status is documented

@@ -1,0 +1,113 @@
+#!/bin/sh
+# Generic BaseOS frontend adapter discovery helpers.
+# Sourced by baseos-frontend-session; all parsing uses shell builtins.
+# Resolve the CR byte once per session, not once per adapter manifest.
+BASEOS_FRONTEND_CR=$(printf '\r')
+baseos_frontend_valid_id() {
+  case "$1" in ''|.*|-*|_*|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  [ "${#1}" -le 48 ]
+}
+
+# Parse key=value data; never source or evaluate package-controlled metadata.
+# Missing manifests are accepted for compatibility with existing adapters.
+baseos_frontend_load_manifest() {
+  bfa_dir=$1
+  bfa_id=${bfa_dir##*/}
+  baseos_frontend_valid_id "$bfa_id" || return 1
+  bfa_launcher=$bfa_dir/launch.sh
+  [ -f "$bfa_launcher" ] || return 1
+  BASEOS_ADAPTER_API=1
+  BASEOS_ADAPTER_PRIORITY=100
+  BASEOS_ADAPTER_VOLUME_OWNER=system
+  BASEOS_ADAPTER_POWER_OWNER=system
+  bfa_manifest=$bfa_dir/manifest.conf
+  if [ -e "$bfa_manifest" ]; then
+    [ -r "$bfa_manifest" ] || return 1
+    bfa_cr=$BASEOS_FRONTEND_CR
+    while IFS= read -r bfa_line || [ -n "$bfa_line" ]; do
+      case "$bfa_line" in *"$bfa_cr") bfa_line=${bfa_line%"$bfa_cr"} ;; esac
+      case "$bfa_line" in ''|\#*) continue ;; *=*) ;; *) continue ;; esac
+      bfa_key=${bfa_line%%=*}
+      bfa_value=${bfa_line#*=}
+      case "$bfa_key" in
+        adapter_api) BASEOS_ADAPTER_API=$bfa_value ;;
+        priority) BASEOS_ADAPTER_PRIORITY=$bfa_value ;;
+        volume_owner) BASEOS_ADAPTER_VOLUME_OWNER=$bfa_value ;;
+        power_owner) BASEOS_ADAPTER_POWER_OWNER=$bfa_value ;;
+      esac
+    done < "$bfa_manifest"
+  fi
+  [ "$BASEOS_ADAPTER_API" = 1 ] || return 1
+  case "$BASEOS_ADAPTER_PRIORITY" in ''|*[!0-9]*) return 1 ;; esac
+  [ "${#BASEOS_ADAPTER_PRIORITY}" -le 4 ] || return 1
+  [ "$BASEOS_ADAPTER_PRIORITY" -le 9999 ] 2>/dev/null || return 1
+  case "$BASEOS_ADAPTER_VOLUME_OWNER" in system|frontend) ;; *) return 1 ;; esac
+  case "$BASEOS_ADAPTER_POWER_OWNER" in system|frontend) ;; *) return 1 ;; esac
+  BASEOS_ADAPTER_ID=$bfa_id
+  BASEOS_ADAPTER_DIR=$bfa_dir
+  BASEOS_ADAPTER_LAUNCHER=$bfa_launcher
+  return 0
+}
+
+# Higher priority wins; equal priorities retain the first candidate.
+baseos_frontend_consider_adapter() {
+  bfc_dir=$1 bfc_root=$2 bfc_preference=$3
+  baseos_frontend_load_manifest "$bfc_dir" || return 0
+  [ "$bfc_preference" = auto ] || [ "$BASEOS_ADAPTER_ID" = "$bfc_preference" ] || return 0
+  if [ -z "${BASEOS_SCAN_ID:-}" ] || [ "$BASEOS_ADAPTER_PRIORITY" -gt "$BASEOS_SCAN_PRIORITY" ] 2>/dev/null; then
+    BASEOS_SCAN_ID=$BASEOS_ADAPTER_ID
+    BASEOS_SCAN_PRIORITY=$BASEOS_ADAPTER_PRIORITY
+    BASEOS_SCAN_ROOT=$bfc_root
+    BASEOS_SCAN_DIR=$BASEOS_ADAPTER_DIR
+    BASEOS_SCAN_LAUNCHER=$BASEOS_ADAPTER_LAUNCHER
+    BASEOS_SCAN_VOLUME_OWNER=$BASEOS_ADAPTER_VOLUME_OWNER
+    BASEOS_SCAN_POWER_OWNER=$BASEOS_ADAPTER_POWER_OWNER
+  fi
+  return 0
+}
+
+baseos_frontend_scan_container() {
+  bsc_root=$1 bsc_preference=$2
+  for bsc_parent in "$bsc_root/.baseos/frontends" "$bsc_root/baseos/frontends"; do
+    [ -d "$bsc_parent" ] || continue
+    for bsc_dir in "$bsc_parent"/*; do
+      [ -d "$bsc_dir" ] || continue
+      baseos_frontend_consider_adapter "$bsc_dir" "$bsc_root" "$bsc_preference"
+    done
+  done
+}
+
+# Scan one card root and one wrapper-directory level without forking per adapter.
+baseos_frontend_scan_root() {
+  bfs_root=$1 bfs_preference=$2
+  BASEOS_SCAN_ID= BASEOS_SCAN_PRIORITY=0 BASEOS_SCAN_ROOT= BASEOS_SCAN_DIR= BASEOS_SCAN_LAUNCHER=
+  BASEOS_SCAN_VOLUME_OWNER=system BASEOS_SCAN_POWER_OWNER=system
+  baseos_frontend_scan_container "$bfs_root" "$bfs_preference"
+  for bfs_nested in "$bfs_root"/*; do
+    [ -d "$bfs_nested" ] || continue
+    baseos_frontend_scan_container "$bfs_nested" "$bfs_preference"
+  done
+  [ -n "$BASEOS_SCAN_ID" ]
+}
+
+# Return success when adapter files or directory entries changed after a cache.
+# This is only metadata testing: no manifest is opened and no subprocess runs.
+baseos_frontend_tree_changed_since() {
+  bft_root=$1
+  bft_cache=$2
+  [ -f "$bft_cache" ] || return 0
+  for bft_container in "$bft_root" "$bft_root"/*; do
+    [ -d "$bft_container" ] || continue
+    for bft_parent in "$bft_container/.baseos/frontends" "$bft_container/baseos/frontends"; do
+      [ -d "$bft_parent" ] || continue
+      [ "$bft_parent" -nt "$bft_cache" ] && return 0
+      for bft_adapter in "$bft_parent"/*; do
+        [ -d "$bft_adapter" ] || continue
+        [ "$bft_adapter" -nt "$bft_cache" ] && return 0
+        [ -f "$bft_adapter/launch.sh" ] && [ "$bft_adapter/launch.sh" -nt "$bft_cache" ] && return 0
+        [ -f "$bft_adapter/manifest.conf" ] && [ "$bft_adapter/manifest.conf" -nt "$bft_cache" ] && return 0
+      done
+    done
+  done
+  return 1
+}

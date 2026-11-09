@@ -33,18 +33,18 @@ BaseOS 与游戏前端分层工作：
 
 **游戏识别属于前端的工作，不是 BaseOS 的 ROM 扫描功能。** BaseOS 负责挂载存储设备并向前端提供路径；不同前端可以有不同的游戏目录规则和跨卡能力。
 
-当前 RG353PS 的 Slot 适配以被选中的前端卡作为存储根目录，并从该根目录下的 `Games` 目录扫描游戏。因此，使用当前 Slot 适配时，建议将 Slot 前端和它的游戏目录放在同一张 TF 卡上。这个限制属于当前前端适配的存储规则，不代表 BaseOS 对所有前端都必须与游戏同卡。若其他前端支持多个游戏根目录，也可以采用不同的存储布局。
+BaseOS 不规定统一的游戏目录或前端与游戏是否必须位于同一张卡。前端适配器负责配置自己的游戏根目录；支持多卡或多个游戏根目录的前端可以采用各自的存储布局。
 
 ### 安装与升级
 
 1. 将完整系统镜像写入 TF1，并首次启动 RG353PS。首次启动时，BaseOS 会自动初始化并扩展 `BASEOS` 用户数据分区。
 2. 系统启动后，再安装所需的游戏前端。可以通过 MTP、USB Mass Storage、读卡器或拔卡方式，将前端文件写入目标 TF 卡。
 3. 前端应按其适配说明解压到对应卡的指定位置。不要将前端或游戏文件放进小容量的 `BASEOS_BOOT` 启动分区。
-4. 对当前 RG353PS Slot 适配，建议前端和 `Games` 游戏目录放在同一张卡上。若使用其他前端，请遵循该前端自己的存储布局要求。
+4. 前端及游戏目录的卡片布局由对应适配器决定，请遵循该前端的存储布局要求。
 
 BaseOS 支持完整镜像全新安装和 `.bosupd` 原地升级。A/B 更新切换系统槽，不需要重新安装前端或清空用户数据；升级前仍建议备份重要文件。
 
-详细步骤见 [RG353PS 平台说明](platforms/rg353ps/README.md) 和 [前端安装与发现规则](platforms/rg353ps/FRONTENDS.md)。
+详细步骤见 [RG353PS 平台说明](platforms/rg353ps/README.md) 和 [通用前端适配器规范](platforms/rg353ps/FRONTENDS.md)。
 
 ### USB 连接说明
 
@@ -115,14 +115,14 @@ BaseOS and game frontends have separate responsibilities:
 
 **Game discovery and ROM identification belong to the frontend, not to a BaseOS ROM-scanning service.** BaseOS mounts storage devices and exposes paths to the frontend. Directory layouts and multi-card support depend on each frontend.
 
-The current RG353PS Slot adapter uses the selected frontend card as its storage root and scans the `Games` directory under that root. With this Slot adapter, keep the Slot frontend and its game library on the same TF card. This is a constraint of the current frontend adapter, not a universal BaseOS requirement. Other frontends may use different layouts, including multiple game roots, if they implement that support.
+BaseOS does not prescribe a universal game directory or require the frontend and game library to share one card. Each adapter configures its own game roots and may support one or multiple cards.
 
 ### Installation and updates
 
 1. Write the complete system image to TF1 and boot the RG353PS. On first boot, BaseOS initializes and automatically expands the `BASEOS` user-data partition.
 2. After the system starts, install the desired game frontend. Frontend files can be copied using MTP, USB Mass Storage, a card reader, or by removing the card.
 3. Extract frontend files to the location specified by that frontend's installation instructions. Do not put frontend or game files on the small `BASEOS_BOOT` partition.
-4. For the current RG353PS Slot adapter, keep the frontend and its `Games` directory on the same card. For other frontends, follow their own storage-layout requirements.
+4. Frontend and game-library card layout is defined by the selected adapter; follow that frontend's storage instructions.
 
 BaseOS supports fresh installation from a complete image and in-place upgrades using `.bosupd`. A/B updates switch the system slot without requiring frontend reinstallation or user-data erasure. Back up important files before upgrading.
 
@@ -150,7 +150,7 @@ HDMI-related code and device-tree support are present, but **HDMI output has not
 ### Documentation
 
 - [RG353PS platform guide](platforms/rg353ps/README.md)
-- [Frontend installation, discovery, and storage rules](platforms/rg353ps/FRONTENDS.md)
+- [Generic frontend adapter contract](platforms/rg353ps/FRONTENDS.md)
 - [USB architecture and hardware validation](platforms/rg353ps/USB.md)
 - [Boot-logo persistence contract](platforms/rg353ps/BOOTLOGO.md)
 - [Release workflow](.github/workflows/rg353ps-release.yml)

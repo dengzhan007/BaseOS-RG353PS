@@ -54,7 +54,8 @@ jobs:
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-init-userdata
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-storage
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session
-          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-slot-launcher
+          sh tests/test-frontend-adapters.sh
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-discovery
           sh -n platforms/rg353ps/rootfs/usr/sbin/rg353ps-v4l2-report
           sh -n platforms/rg353ps/rootfs/usr/sbin/rg353ps-jpeg-encode-test
           sh -n platforms/rg353ps/rootfs/usr/sbin/rg353ps-hardware-audit
@@ -78,14 +79,38 @@ jobs:
       - name: Assemble SD smoke image
         run: ./platforms/rg353ps/build-image.sh
 
+      - name: Verify smoke image output
+        run: |
+          raw_image=work/rg353ps/baseos-rg353ps.img
+          image=work/rg353ps/baseos-rg353ps.img.gz
+          checksum=work/rg353ps/baseos-rg353ps.img.sha256
+          test -s "$raw_image" || { echo "raw SD image is missing: $raw_image" >&2; exit 1; }
+          test -s "$image" || { echo "compressed SD image is missing: $image" >&2; exit 1; }
+          test -s "$checksum" || { echo "SD image checksum file is missing: $checksum" >&2; exit 1; }
+          raw_bytes=$(stat -c %s "$raw_image")
+          test "$raw_bytes" -eq $((2 * 1024 * 1024 * 1024)) || {
+            echo "raw SD image has unexpected size: $raw_bytes bytes" >&2
+            exit 1
+          }
+          gzip -t "$image"
+          image_bytes=$(stat -c %s "$image")
+          # A 2 GiB disk image should never collapse to a tiny metadata-only
+          # artifact. This guards against output/upload path drift.
+          test "$image_bytes" -gt $((64 * 1024 * 1024)) || {
+            echo "compressed SD image is unexpectedly small: $image_bytes bytes" >&2
+            exit 1
+          }
+          (cd work/rg353ps && sha256sum -c baseos-rg353ps.img.sha256)
+          ls -lh "$image" "$checksum"
+
       - name: Publish RG353PS smoke image and component metadata
         uses: actions/upload-artifact@v4
         with:
           name: baseos-rg353ps-smoke-image
           if-no-files-found: error
           path: |
-            work/rg353ps/baseos-rg353ps-smoke.img.gz
-            work/rg353ps/baseos-rg353ps-smoke.img.sha256
+            work/rg353ps/baseos-rg353ps.img.gz
+            work/rg353ps/baseos-rg353ps.img.sha256
             work/rg353ps/rg353ps-uboot.json
             work/rg353ps/rg353ps-uboot.sha256
             work/rg353ps/kernel/output/kernel-build.json

@@ -210,10 +210,9 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     test -x "$R/usr/bin/wipefs" || test -x "$R/usr/sbin/wipefs" || { echo "wipefs is missing" >&2; exit 1; }
     test -x "$R/usr/bin/mkfs.exfat" || test -x "$R/usr/sbin/mkfs.exfat" || test -x "$R/sbin/mkfs.exfat" || { echo "mkfs.exfat is missing" >&2; exit 1; }
     test -e "$R/usr/lib/libzip.so.5" || { echo "libzip runtime is missing for mGBA" >&2; exit 1; }
-    # The NextUI launcher and some menu/front-end paths require both SDL2 image
-    # loading and TrueType text rendering. Keep these runtime libraries in the
-    # target image, not only in the build container, and fail the build if APK
-    # stops providing the SONAMEs expected by the NextUI binaries.
+    # SDL2 frontends and menu components may use image loading and TrueType
+    # rendering. Keep both runtime libraries in the target image and fail the
+    # build if APK stops providing the required SONAMEs.
     for runtime_lib in libSDL2_image-2.0.so.0 libSDL2_ttf-2.0.so.0; do
       test -e "$R/usr/lib/$runtime_lib" || {
         echo "required SDL2 runtime library is missing: $runtime_lib" >&2
@@ -265,7 +264,6 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     chmod 0755 "$R/usr/sbin/baseos-init-userdata"
     chmod 0755 "$R/usr/sbin/baseos-usb-storage"
     chmod 0755 "$R/usr/sbin/baseos-frontend-session"
-    chmod 0755 "$R/usr/sbin/baseos-slot-launcher"
     chmod 0755 "$R/usr/sbin/baseos-boot-mark"
     chmod 0755 "$R/usr/sbin/baseos-boot-report"
     chmod 0755 "$R/usr/sbin/baseos-prefetch-gl"
@@ -353,7 +351,7 @@ EOF
   "kernel_release": "$KREL",
   "userspace": "static BusyBox",
   "purpose": "RG353PS BaseOS system image",
-  "frontend_model": "external; discovered from TF2 then TF1",
+  "frontend_model": "external; generic adapters discovered from TF2 then TF1",
   "diagnostic_ui": true,
   "hardware_tested": false
 }
@@ -361,7 +359,7 @@ EOF
     echo "rootfs prepared at $R"
   '
 
-for file in "$ROOTFS/usr/bin/busybox" "$ROOTFS/usr/bin/baseos-splash" "$ROOTFS/usr/bin/fbsplash" "$ROOTFS/sbin/init" "$ROOTFS/etc/init.d/rcS" "$ROOTFS/usr/sbin/baseos-mount-storage" "$ROOTFS/usr/sbin/baseos-init-userdata" "$ROOTFS/usr/sbin/baseos-usb-storage" "$ROOTFS/usr/sbin/baseos-usb-mtp" "$ROOTFS/usr/sbin/baseos-usb-mode-lib" "$ROOTFS/usr/sbin/umtprd" "$ROOTFS/etc/umtprd/umtprd.conf" "$ROOTFS/usr/sbin/baseos-frontend-session" "$ROOTFS/usr/sbin/baseos-slot-launcher" "$ROOTFS/usr/sbin/rg353ps-hotkeyd" "$ROOTFS/usr/sbin/rg353ps-hardware-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-test" "$ROOTFS/usr/sbin/rg353ps-graphics-stack-test" "$ROOTFS/usr/sbin/rg353ps-sdl2-test" "$ROOTFS/usr/sbin/rg353ps-control-center" "$ROOTFS/etc/baseos.conf" "$ROOTFS/etc/baseos-release" \
+for file in "$ROOTFS/usr/bin/busybox" "$ROOTFS/usr/bin/baseos-splash" "$ROOTFS/usr/bin/fbsplash" "$ROOTFS/sbin/init" "$ROOTFS/etc/init.d/rcS" "$ROOTFS/usr/sbin/baseos-mount-storage" "$ROOTFS/usr/sbin/baseos-init-userdata" "$ROOTFS/usr/sbin/baseos-usb-storage" "$ROOTFS/usr/sbin/baseos-usb-mtp" "$ROOTFS/usr/sbin/baseos-usb-mode-lib" "$ROOTFS/usr/sbin/umtprd" "$ROOTFS/etc/umtprd/umtprd.conf" "$ROOTFS/usr/sbin/baseos-frontend-session" "$ROOTFS/usr/sbin/baseos-frontend-discovery" "$ROOTFS/usr/sbin/rg353ps-hotkeyd" "$ROOTFS/usr/sbin/rg353ps-hardware-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-test" "$ROOTFS/usr/sbin/rg353ps-graphics-stack-test" "$ROOTFS/usr/sbin/rg353ps-sdl2-test" "$ROOTFS/usr/sbin/rg353ps-control-center" "$ROOTFS/etc/baseos.conf" "$ROOTFS/etc/baseos-release" \
   "$ROOTFS/etc/baseos/bootlogo.bmp" \
   "$ROOTFS/etc/dropbear/dropbear_ed25519_host_key" \
   "$ROOTFS/usr/sbin/baseos-update" "$ROOTFS/usr/sbin/gptslot" \
@@ -378,4 +376,4 @@ done
 
 echo "RG353PS rootfs ready: $ROOTFS"
 echo "Kernel release: $KREL"
-echo "This rootfs includes a controller-responsive diagnostic menu, not the final game frontend."
+echo "This rootfs includes system services and a diagnostic UI; game frontends are installed separately."

@@ -20,6 +20,8 @@ on:
       - "tests/test-rg353ps-usb-mtp.sh"
       - "tests/test-rg353ps-usb-mutual-exclusion.sh"
       - "platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session"
+      - "platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-discovery"
+      - "tests/test-frontend-adapters.sh"
       - "platforms/rg353ps/build-rootfs.sh"
       - "platforms/rg353ps/build-kernel.sh"
       - "overlay/usr/sbin/usb-gadget-adb"
@@ -36,6 +38,8 @@ on:
       - "tests/test-rg353ps-usb-mtp.sh"
       - "tests/test-rg353ps-usb-mutual-exclusion.sh"
       - "platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session"
+      - "platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-discovery"
+      - "tests/test-frontend-adapters.sh"
       - "platforms/rg353ps/build-rootfs.sh"
       - "platforms/rg353ps/build-kernel.sh"
       - "overlay/usr/sbin/usb-gadget-adb"
@@ -60,6 +64,8 @@ jobs:
           sh -n platforms/rg353ps/rootfs/etc/init.d/rcS
           sh -n platforms/rg353ps/rootfs/usr/bin/baseos-splash
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-discovery
+          sh tests/test-frontend-adapters.sh
           sh -n platforms/rg353ps/build-rootfs.sh
           sh -n platforms/rg353ps/build-kernel.sh
           sh -n overlay/usr/sbin/usb-gadget-adb

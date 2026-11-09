@@ -1,11 +1,9 @@
 #!/bin/sh
 # BaseOS RG353PS launcher for the SDL2/KMSDRM Slot build.
 #
-# This frontend owns the power key. A hold opens Slot's power menu; its chosen
-# shutdown path flushes saves before powering off. A short tap uses rg353ps-sleep
-# when music is not playing (deep first, s2idle fallback); while music plays it
-# only blanks the panel so the decoder and ALSA output continue. hotkeyd sees
-# the marker below and keeps its hands off the key while this frontend runs.
+# Preferred manifest declarations are in manifest.conf. These generic markers
+# preserve ownership behavior for older package builders that copy launch.sh only.
+# baseos: volume-owned
 # baseos: power-owned
 set -eu
 

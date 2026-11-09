@@ -18,6 +18,7 @@
 - **持久化用户数据**：系统更新采用 A/B 机制，用户数据分区与系统槽分离，更新不会主动清除用户文件。
 - **USB 文件传输与调试**：Release 默认启用 MTP；开发配置可启用 USB 虚拟网卡、SSH 和 MTP；另提供独占 USB Mass Storage 模式。
 - **设备基础功能**：集成显示、按键输入、RK817 音频、Wi-Fi、蓝牙及电源管理相关适配。
+- **深度休眠与唤醒**：支持 RK3566 deep suspend-to-RAM，机身 Power 键唤醒；休眠前处理 SDIO Wi-Fi 电源，唤醒后自动恢复无线服务。前端通过 BaseOS 提供的休眠接口进入，不再用闲置计时器代替休眠。
 - **启动画面持久化**：自定义启动图保存在用户数据分区，系统更新后会在启动阶段恢复。
 
 ### 底座与前端的职责
@@ -72,6 +73,7 @@ HDMI 相关代码和设备树支持仍在平台中，但 **RG353PS 实机 HDMI �
 - [RG353PS 平台说明](platforms/rg353ps/README.md)
 - [前端安装、发现与存储规则](platforms/rg353ps/FRONTENDS.md)
 - [USB 架构与硬件验证](platforms/rg353ps/USB.md)
+- [电源管理与深度休眠](platforms/rg353ps/POWER.md)
 - [启动画面持久化规范](platforms/rg353ps/BOOTLOGO.md)
 - [1.2.7 发布说明](docs/RG353PS-RELEASE-1.2.7.md)
 - [更新与发布工作流](.github/workflows/rg353ps-release.yml)
@@ -103,6 +105,7 @@ Current platform version: **1.2.7**
 - **Persistent user data:** A/B system slots are separate from the user-data partition. System updates do not intentionally erase user files.
 - **USB transfer and debugging:** Release builds default to MTP; development configuration can enable a USB virtual network interface, SSH, and MTP. An exclusive USB Mass Storage mode is also available.
 - **Device integration:** display, button input, RK817 audio, Wi-Fi, Bluetooth, and power-management adaptations are integrated.
+- **Deep suspend and wake:** RK3566 deep suspend-to-RAM is supported and can be resumed with the physical Power button. BaseOS manages the SDIO Wi-Fi power sequence and restores wireless service after wake; frontends use the provided suspend hook rather than an idle poweroff timer.
 - **Persistent boot logo:** custom boot logos are stored in user data and restored during startup after system updates.
 
 ### BaseOS and frontend responsibilities
@@ -157,6 +160,7 @@ HDMI-related code and device-tree support are present, but **HDMI output has not
 - [RG353PS platform guide](platforms/rg353ps/README.md)
 - [Generic frontend adapter contract](platforms/rg353ps/FRONTENDS.md)
 - [USB architecture and hardware validation](platforms/rg353ps/USB.md)
+- [Power management and deep suspend](platforms/rg353ps/POWER.md)
 - [Boot-logo persistence contract](platforms/rg353ps/BOOTLOGO.md)
 - [1.2.7 release notes](docs/RG353PS-RELEASE-1.2.7.md)
 - [Release workflow](.github/workflows/rg353ps-release.yml)

@@ -515,7 +515,7 @@ if [ ! -e "$BOOT_USB_REQUEST" ] && [ -x /usr/sbin/baseos-usb-debug ]; then
   /usr/sbin/baseos-usb-debug start >/dev/null 2>&1 &
 fi
 
-# Wi-Fi SFTP is independent of usb_debug. It follows wlan0's DHCP address,
+# Wi-Fi SFTP is independent of ssh_debug. It follows wlan0's DHCP address,
 # binds only to that address on TCP/22, and chroots sessions to user data.
 if [ ! -e "$BOOT_USB_REQUEST" ] && [ -x /usr/sbin/baseos-wifi-sftp ]; then
   /usr/sbin/baseos-wifi-sftp start >/dev/null 2>&1 &

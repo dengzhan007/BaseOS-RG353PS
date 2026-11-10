@@ -13,8 +13,11 @@
 # Development builds default to a composite network + MTP gadget; release
 # builds default to MTP only. Mass Storage remains on-demand and exclusive:
 # baseos-usb-storage stops this manager before it takes the UDC, then starts it
-# again during cleanup. SSH listens only on the USB network address; MTP exports
-# only /mnt/SDCARD. The network function defaults to RNDIS and can use NCM/ECM.
+# again during cleanup. This manager owns the USB Dropbear listener on
+# 192.168.42.1:22; baseos-wifi-sftp owns the separate Wi-Fi Dropbear listener
+# on wlan0:2222 when usb_debug=yes. OpenSSH SFTP stays separate on wlan0:22.
+# MTP exports only /mnt/SDCARD. The network function defaults to RNDIS and
+# can use NCM/ECM.
 #
 # Usage: baseos-usb-debug start|stop|restart|status|soft-connect-test-arm|soft-connect-test-cancel
 
@@ -954,6 +957,10 @@ stop_services() {
         kill "$(cat "$PIDFILE_DROPBEAR" 2>/dev/null)" 2>/dev/null || :
         rm -f "$PIDFILE_DROPBEAR" 2>/dev/null || :
     fi
+    # Teardown of the debug network intentionally terminates every Dropbear
+    # listener. If Wi-Fi remains connected and usb_debug is still yes, the
+    # independent Wi-Fi supervisor notices the dead PID and restores its own
+    # TCP/2222 listener. USB Mass Storage stops that supervisor before unmount.
     pidof dropbear >/dev/null 2>&1 && killall dropbear 2>/dev/null || :
     pidof udhcpd >/dev/null 2>&1 && killall udhcpd 2>/dev/null || :
     if [ -f /run/baseos-dnsmasq.pid ]; then
@@ -1155,7 +1162,7 @@ do_status() {
     printf 'extcon:    %s\n' "$(extcon_summary)"
     printf 'interface: %s\n' "$iface"
     [ "$iface" != none ] && ip -4 addr show "$iface" 2>/dev/null | sed -n 's/^ *inet /address:   /p'
-    printf 'dropbear:  %s\n' "$(pidof dropbear >/dev/null 2>&1 && echo running || echo stopped)"
+    printf 'USB dropbear: %s\n' "$(usb_dropbear_alive && echo running || echo stopped)"
     printf 'dhcp:      %s\n' "$(pidof dnsmasq >/dev/null 2>&1 && echo "dnsmasq running" || (pidof udhcpd >/dev/null 2>&1 && echo "udhcpd running" || echo stopped))"
     printf 'watcher:   %s\n' "$([ -f "$WATCH_PID" ] && kill -0 "$(cat "$WATCH_PID" 2>/dev/null)" 2>/dev/null && echo running || echo stopped)"
     printf 'soft-connect test: %s\n' "$([ -e "$SOFT_CONNECT_TEST_ARMED" ] && echo armed || echo not-armed)"

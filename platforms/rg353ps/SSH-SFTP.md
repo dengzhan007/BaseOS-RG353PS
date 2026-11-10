@@ -1,36 +1,58 @@
 # RG353PS SSH and SFTP
 
-The RG353PS image keeps Dropbear as its SSH server. SFTP is provided by
-OpenSSH's standalone sftp-server executable, invoked by Dropbear as its SSH
-subsystem. The image does not install or start a second SSH daemon.
+RG353PS provides two independent network-access functions: SFTP for file
+transfer and interactive SSH for debugging. The USB and Wi-Fi transports are
+managed by BaseOS; frontends must not start their own copies.
 
-## Connection
+## Services
 
-When the USB network/SSH channel is enabled:
+| Connection | Service | Address | Port | Configuration |
+|---|---|---|---:|---|
+| USB SSH (DC port) | Dropbear | `192.168.42.1` | 22 | `ssh_debug=yes` |
+| Wi-Fi SSH | Dropbear | Current `wlan0` IPv4 address | 2222 | `ssh_debug=yes` |
+| Wi-Fi SFTP | OpenSSH `sshd`, forced `internal-sftp` | Current `wlan0` IPv4 address | 22 | `wifi_sftp=yes` |
 
-| Setting | Value |
-|---|---|
-| Protocol | SFTP (or SSH) |
-| Host | 192.168.42.1 |
-| Port | 22 |
-| User | root |
-| Password | root |
+`ssh_debug` controls both interactive SSH listeners. Turning it off disables
+USB SSH and Wi-Fi SSH together. `wifi_sftp` controls only Wi-Fi SFTP and is
+independent of `ssh_debug`. Wi-Fi SFTP is chrooted to `/mnt/SDCARD`; it does
+not provide an interactive shell.
 
-SSH and SFTP share the same Dropbear listener, credentials and port. In
-WinSCP or FileZilla choose SFTP, not FTP or FTPS. The channel remains
-conditional on the existing BaseOS USB debug setting.
+## Configuration
 
-## Server implementation
+Edit `/mnt/SDCARD/baseos.conf`:
 
-The root filesystem installs Alpine's openssh-sftp-server subpackage only.
-It supplies /usr/lib/ssh/sftp-server, which matches the path compiled into
-Alpine's Dropbear build. The rootfs build validates that the executable is
-present. OpenSSH sshd, its host keys and service scripts are not installed
-or started.
+```ini
+ssh_debug=no
+wifi_sftp=yes
+```
 
-## Writable locations
+The card-side file overrides the image defaults. Restart the device after
+changing these settings.
 
-The root filesystem is read-only. Use /mnt/SDCARD for frontend files and
-user data. The active boot volume at /mnt/boot contains system boot files
-and should only be changed through the documented BaseOS/frontend update
-paths. SFTP access does not change the volume ownership contract.
+## Credentials and security
+
+Both SSH transports use the existing BaseOS `root` account and credentials.
+The development image's default password is `root`; change it before exposing
+interactive SSH to any network beyond a trusted test LAN. Public-key
+authentication is supported through
+`/mnt/SDCARD/baseos-ssh/authorized_keys`.
+
+For Wi-Fi SFTP, connect with protocol SFTP, port 22, username `root`, and the
+current BaseOS root credentials. The remote starting directory `/` maps to
+`/mnt/SDCARD`.
+
+For Wi-Fi interactive SSH:
+
+```sh
+ssh -p 2222 root@<wlan0-ip>
+```
+
+For USB interactive SSH, connect the cable to the DC port:
+
+```sh
+ssh root@192.168.42.1
+```
+
+See [the complete RG353PS network-access guide](../../docs/rg353ps-network-access.md)
+for service lifecycle, chroot restrictions, DHCP changes and Mass Storage
+interaction.

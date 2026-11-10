@@ -22,6 +22,12 @@ while the user-data volume is unmounted. Before USB mass-storage mode exports
 the data partition, the storage helper stops the SFTP listener and active
 sessions; it restarts the supervisor after attempting to remount the partition.
 
+The OpenSSH server is installed from Alpine 3.22 at or above the fixed
+`10.0_p1-r11` package revision. The image explicitly creates the locked
+`sshd` privilege-separation account because APK install scripts are disabled
+when assembling the minimal rootfs. Its runtime SFTP configuration is checked
+inside the target rootfs during the build.
+ 
 The OpenSSH server is configured to:
 
 - accept only the existing `root` account;

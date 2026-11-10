@@ -365,7 +365,6 @@ EOF
     echo "rootfs prepared at $R"
   '
 
-
 for file in "$ROOTFS/usr/bin/busybox" "$ROOTFS/usr/bin/baseos-splash" "$ROOTFS/usr/bin/fbsplash" "$ROOTFS/sbin/init" "$ROOTFS/etc/init.d/rcS" "$ROOTFS/usr/sbin/baseos-mount-storage" "$ROOTFS/usr/sbin/baseos-init-userdata" "$ROOTFS/usr/sbin/baseos-usb-storage" "$ROOTFS/usr/sbin/baseos-usb-mtp" "$ROOTFS/usr/sbin/baseos-usb-mode-lib" "$ROOTFS/usr/sbin/umtprd" "$ROOTFS/etc/umtprd/umtprd.conf" "$ROOTFS/usr/sbin/baseos-frontend-session" "$ROOTFS/usr/sbin/baseos-frontend-discovery" "$ROOTFS/usr/sbin/rg353ps-hotkeyd" "$ROOTFS/usr/sbin/rg353ps-hardware-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-test" "$ROOTFS/usr/sbin/rg353ps-graphics-stack-test" "$ROOTFS/usr/sbin/rg353ps-sdl2-test" "$ROOTFS/usr/sbin/rg353ps-control-center" "$ROOTFS/etc/baseos.conf" "$ROOTFS/etc/baseos-release" \
   "$ROOTFS/etc/baseos/bootlogo.bmp" \
   "$ROOTFS/etc/dropbear/dropbear_ed25519_host_key" \

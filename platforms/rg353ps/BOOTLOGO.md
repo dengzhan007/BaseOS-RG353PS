@@ -100,6 +100,13 @@ This is build-time rendering only. No conversion tool is run on the handheld.
 U-Boot remains deliberately black; the generated image is the Linux/fbsplash
 startup artwork shown after the kernel hands control to BaseOS.
 
+For the RG353PS runtime splash, `rcS` also draws the default wordmark directly
+because U-Boot intentionally clears the panel. It must use `fbsplash 100` for
+the fully illuminated static wordmark. `fbsplash 0` is only the first frame of
+the left-to-right reveal (the `B` is lit and the remaining letters are dim);
+a single invocation does not play or advance that animation. Status-pill calls
+with a message remain independent and do not change the underlying wordmark.
+
 The persistent custom-logo contract below remains unchanged: selections in
 /mnt/SDCARD/Bootlogos/ with System/bootlogo.txt are restored over the generated
 default during startup. A system update can replace the active boot-partition

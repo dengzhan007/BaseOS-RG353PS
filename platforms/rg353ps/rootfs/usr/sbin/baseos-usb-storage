@@ -587,6 +587,13 @@ cleanup() {
   # stopped.
   if [ "$ENTERED" -eq 0 ]; then
     rm -f "$REQUEST" "$PAUSED" 2>/dev/null || :
+    # rcS deliberately defers Wi-Fi SFTP while a boot-time storage request is
+    # active. If that request exits before claiming the UDC, start the service
+    # now; its supervisor waits for both the data mount and wlan0 address.
+    if [ "$BOOT_MODE" -eq 1 ] && [ -x /usr/sbin/baseos-wifi-sftp ]; then
+      /usr/sbin/baseos-wifi-sftp start >/dev/null 2>&1 &
+      log "Wi-Fi SFTP supervisor started after early boot-storage exit"
+    fi
     usb_mode_lock_release || :
     log "cleanup: no USB mode was claimed; normal gadget left untouched"
     return 0
@@ -632,9 +639,10 @@ cleanup() {
   # The Wi-Fi SFTP chroot shares BASEOS_DATA. Restart it only after the storage
   # helper has attempted the local remount; if remount failed it will remain
   # waiting with its listener closed.
-  if [ "$WIFI_SFTP_STOPPED" -eq 1 ] && [ -x /usr/sbin/baseos-wifi-sftp ]; then
+  if { [ "$WIFI_SFTP_STOPPED" -eq 1 ] || [ "$BOOT_MODE" -eq 1 ]; } &&
+     [ -x /usr/sbin/baseos-wifi-sftp ]; then
     /usr/sbin/baseos-wifi-sftp start >/dev/null 2>&1 &
-    log "Wi-Fi SFTP supervisor restarted after USB storage teardown"
+    log "Wi-Fi SFTP supervisor started after USB storage teardown"
     WIFI_SFTP_STOPPED=0
   fi
 

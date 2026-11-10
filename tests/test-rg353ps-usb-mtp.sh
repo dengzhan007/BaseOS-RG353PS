@@ -15,6 +15,8 @@ grep -Fq 'ForceCommand internal-sftp -d / -u 022' "$USB/rootfs/usr/sbin/baseos-w
 grep -Fq 'ChrootDirectory /mnt/SDCARD' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
 grep -Fq 'DisableForwarding yes' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
 grep -Fq '/usr/sbin/baseos-wifi-sftp start' "$USB/rootfs/etc/init.d/rcS"
+grep -Fq 'Wi-Fi SFTP supervisor started after early boot-storage exit' "$USB/rootfs/usr/sbin/baseos-usb-storage"
+grep -Fq '[ "$BOOT_MODE" -eq 1 ]' "$USB/rootfs/usr/sbin/baseos-usb-storage"
 grep -Fq "openssh-server>=10.0_p1-r11" "$USB/build-rootfs.sh"
 grep -Fq 'sshd:x:22:22:SSH privilege separation:/var/empty:/sbin/nologin' "$USB/build-rootfs.sh"
 grep -Fq 'sshd:!:19000:0:99999:7:::' "$USB/build-rootfs.sh"

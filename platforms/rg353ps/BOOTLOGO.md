@@ -113,6 +113,15 @@ default during startup. A system update can replace the active boot-partition
 copy with the generated default, after which BaseOS restores the user's
 persistent selection before drawing the final startup splash.
 
+During a valid `.bosupd` system update, the updater intentionally switches to
+its own BaseOS wordmark instead of drawing over the selected user BMP. It
+renders the existing 0–60% write stage, 60–95% read-back verification stage,
+and 98% slot-commit stage using the same left-to-right illumination. These
+values advance with completed 32 MiB chunks written and verified, not a timer.
+The selection record and source image on `/mnt/SDCARD` are not modified; after
+the update reboots, normal startup restores and displays the user's selection
+again. Failure and rollback messages remain status overlays on the BaseOS frame.
+
 ## Image format
 
 The RG353PS panel is 640 × 480. A supported boot image is:

@@ -27,7 +27,7 @@ grep -Fq 'chroot "$R" /usr/sbin/sshd -t -f /run/baseos-wifi-sftp-build-test.conf
 wifi_stop_line="$(grep -n 'stopping Wi-Fi SFTP before exporting' "$USB/rootfs/usr/sbin/baseos-usb-storage" | cut -d: -f1)"
 unmount_line="$(grep -n '^umount_msg=' "$USB/rootfs/usr/sbin/baseos-usb-storage" | cut -d: -f1)"
 finish_line="$(grep -n 'if usb_mode_finish_session ' "$USB/rootfs/usr/sbin/baseos-usb-storage" | cut -d: -f1)"
-wifi_restart_line="$(grep -n '/usr/sbin/baseos-wifi-sftp start' "$USB/rootfs/usr/sbin/baseos-usb-storage" | cut -d: -f1)"
+wifi_restart_line="$(grep -n '/usr/sbin/baseos-wifi-sftp start' "$USB/rootfs/usr/sbin/baseos-usb-storage" | tail -n 1 | cut -d: -f1)"
 [ -n "$wifi_stop_line" ] && [ -n "$unmount_line" ] && [ "$wifi_stop_line" -lt "$unmount_line" ] || {
     echo "Wi-Fi SFTP must stop before BASEOS_DATA unmount" >&2
     exit 1

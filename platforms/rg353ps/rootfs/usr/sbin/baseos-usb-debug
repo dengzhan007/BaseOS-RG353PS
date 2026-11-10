@@ -15,7 +15,7 @@
 # baseos-usb-storage stops this manager before it takes the UDC, then starts it
 # again during cleanup. This manager owns the USB Dropbear listener on
 # 192.168.42.1:22; baseos-wifi-sftp owns the separate Wi-Fi Dropbear listener
-# on wlan0:2222 when usb_debug=yes. OpenSSH SFTP stays separate on wlan0:22.
+# on wlan0:2222 when ssh_debug=yes. OpenSSH SFTP stays separate on wlan0:22.
 # MTP exports only /mnt/SDCARD. The network function defaults to RNDIS and
 # can use NCM/ECM.
 #
@@ -61,7 +61,7 @@ config_value() {
 }
 
 enabled() {
-    case "$(config_value usb_debug)" in
+    case "$(config_value ssh_debug)" in
         yes|YES|Yes|1|on|true) return 0 ;;
     esac
     return 1
@@ -740,7 +740,7 @@ build_gadget() {
     # mounted: a link into configfs must not be recreated behind its back.
     [ "${FORCE_DISABLE_MTP:-0}" -eq 1 ] && MTP_ENABLED=0
     [ "$NETWORK_ENABLED" -eq 1 ] || [ "$MTP_ENABLED" -eq 1 ] || {
-        say "USB disabled by configuration (usb_debug=no, usb_mtp=no)"
+        say "USB disabled by configuration (ssh_debug=no, usb_mtp=no)"
         return 1
     }
 
@@ -943,7 +943,7 @@ start_sshd() {
     # deliberately absent) so a unit whose key is lost can still be reached as
     # root with the password baked into /etc/shadow. This instance is bound
     # to RNDIS only; Wi-Fi shell access is managed independently when the same
-    # usb_debug switch is enabled.
+    # ssh_debug switch is enabled.
     if dropbear -R -p "$ADDR:22" -P "$PIDFILE_DROPBEAR" >/dev/null 2>&1; then
         say "sshd listening on $ADDR:22"
     else
@@ -958,7 +958,7 @@ stop_services() {
         rm -f "$PIDFILE_DROPBEAR" 2>/dev/null || :
     fi
     # Teardown of the debug network intentionally terminates every Dropbear
-    # listener. If Wi-Fi remains connected and usb_debug is still yes, the
+    # listener. If Wi-Fi remains connected and ssh_debug is still yes, the
     # independent Wi-Fi supervisor notices the dead PID and restores its own
     # TCP/2222 listener. USB Mass Storage stops that supervisor before unmount.
     pidof dropbear >/dev/null 2>&1 && killall dropbear 2>/dev/null || :
@@ -1102,7 +1102,7 @@ do_start() {
         say "MTP-only gadget bound; no network, DHCP or SSH listener started"
     fi
     # The same DWC3/PHY recovery supervisor is useful in MTP-only mode. Its
-    # network-specific repair steps are guarded by usb_debug.
+    # network-specific repair steps are guarded by ssh_debug.
     start_watch
     persist_log
 }
@@ -1147,7 +1147,7 @@ do_stop() {
 do_status() {
     iface=$(cat /run/baseos-usb-debug.iface 2>/dev/null || find_iface || echo none)
     UDC=$(find_udc)
-    printf 'usb_debug: %s\n' "$(config_value usb_debug || echo unset)"
+    printf 'ssh_debug: %s\n' "$(config_value ssh_debug || echo unset)"
     printf 'usb_mtp:   %s\n' "$(config_value usb_mtp || echo unset)"
     printf 'usb_diagnostics: %s\n' "$(config_value usb_diagnostics || echo no)"
     printf 'gadget:    %s\n' "$([ -d "$G" ] && echo present || echo absent)"

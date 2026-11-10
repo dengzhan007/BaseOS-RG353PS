@@ -6,6 +6,7 @@ export PATH
 IFACE=wlan0
 SUPERVISOR_PIDFILE=/run/baseos-wifi-sftp.pid
 SERVER_PIDFILE=/run/baseos-wifi-sftp-server.pid
+WIFI_SSH_PIDFILE=/run/baseos-wifi-ssh.pid
 CONF=/run/baseos-wifi-sftp-sshd.conf
 HOSTKEY=/run/baseos-wifi-sftp-hostkey
 LOG=/run/baseos-wifi-sftp.log
@@ -20,10 +21,15 @@ config_value() {
   done
   return 1
 }
-wifi_sftp_enabled() {
-  value=$(config_value wifi_sftp || printf 'yes')
-  case "$value" in no|NO|No|0|off|OFF|false|FALSE) return 1 ;; *) return 0 ;; esac
+setting_enabled() {
+  key=$1
+  case "$(config_value "$key")" in
+    yes|YES|Yes|1|on|ON|true|TRUE) return 0 ;;
+    *) return 1 ;;
+  esac
 }
+wifi_sftp_enabled() { setting_enabled wifi_sftp; }
+wifi_ssh_enabled() { setting_enabled usb_debug; }
 data_mount_type() { awk '$2 == "/mnt/SDCARD" { print $3; exit }' /proc/mounts; }
 wlan_ip() {
   ip -4 -o addr show dev "$IFACE" scope global 2>/dev/null |
@@ -85,6 +91,65 @@ stop_listener() {
   fi
   rm -f "$SERVER_PIDFILE" 2>/dev/null || :
   CURRENT_IP=
+}
+stop_wifi_ssh() {
+  if [ -s "$WIFI_SSH_PIDFILE" ]; then
+    wifi_ssh_pid=$(cat "$WIFI_SSH_PIDFILE" 2>/dev/null || :)
+    if pid_alive "$wifi_ssh_pid"; then
+      kill "$wifi_ssh_pid" 2>/dev/null || :
+      wifi_ssh_wait=0
+      while pid_alive "$wifi_ssh_pid" && [ "$wifi_ssh_wait" -lt 30 ]; do
+        sleep 0.1
+        wifi_ssh_wait=$((wifi_ssh_wait + 1))
+      done
+      if pid_alive "$wifi_ssh_pid"; then
+        kill -9 "$wifi_ssh_pid" 2>/dev/null || :
+      fi
+    fi
+    rm -f "$WIFI_SSH_PIDFILE" 2>/dev/null || :
+  fi
+  CURRENT_SSH_IP=
+}
+start_wifi_ssh() {
+  ip_addr=$1
+  case "$ip_addr" in ''|*[!0-9.]*) return 1 ;; esac
+  [ -x /usr/sbin/dropbear ] || {
+    say "Dropbear is missing; Wi-Fi SSH cannot start"; return 1;
+  }
+  wifi_ssh_pid=
+  [ -s "$WIFI_SSH_PIDFILE" ] &&
+    wifi_ssh_pid=$(cat "$WIFI_SSH_PIDFILE" 2>/dev/null || :)
+  if [ "$CURRENT_SSH_IP" = "$ip_addr" ] && pid_alive "$wifi_ssh_pid"; then
+    return 0
+  fi
+  stop_wifi_ssh
+  mkdir -p /etc/dropbear /root/.ssh 2>/dev/null || :
+  chmod 0700 /root/.ssh 2>/dev/null || :
+  if [ -r /mnt/SDCARD/baseos-ssh/authorized_keys ]; then
+    cp /mnt/SDCARD/baseos-ssh/authorized_keys /root/.ssh/authorized_keys 2>/dev/null || :
+  elif [ ! -s /root/.ssh/authorized_keys ] && [ -r /etc/dropbear/authorized_keys ]; then
+    cp /etc/dropbear/authorized_keys /root/.ssh/authorized_keys 2>/dev/null || :
+  fi
+  chmod 0600 /root/.ssh/authorized_keys 2>/dev/null || :
+  if ! /usr/sbin/dropbear -R -p "$ip_addr:2222" -P "$WIFI_SSH_PIDFILE" >>"$LOG" 2>&1; then
+    say "Dropbear failed to start on wlan0 $ip_addr:2222"
+    rm -f "$WIFI_SSH_PIDFILE" 2>/dev/null || :
+    return 1
+  fi
+  wifi_ssh_wait=0
+  while [ ! -s "$WIFI_SSH_PIDFILE" ] && [ "$wifi_ssh_wait" -lt 20 ]; do
+    sleep 0.1
+    wifi_ssh_wait=$((wifi_ssh_wait + 1))
+  done
+  wifi_ssh_pid=$(cat "$WIFI_SSH_PIDFILE" 2>/dev/null || :)
+  if ! pid_alive "$wifi_ssh_pid"; then
+    say "Dropbear did not stay running on wlan0 $ip_addr:2222"
+    rm -f "$WIFI_SSH_PIDFILE" 2>/dev/null || :
+    return 1
+  fi
+  CURRENT_SSH_IP=$ip_addr
+  say "interactive SSH listener active on wlan0 $ip_addr:2222 (usb_debug=yes)"
+  return 0
 }
 prepare_hostkey() {
   [ -s "$HOSTKEY" ] && return 0
@@ -176,32 +241,41 @@ EOF
 }
 supervise() {
   trap 'exit 0' HUP INT TERM
-  trap 'stop_listener; rm -f "$SUPERVISOR_PIDFILE"' EXIT
+  trap 'stop_listener; stop_wifi_ssh; rm -f "$SUPERVISOR_PIDFILE"' EXIT
   while :; do
-    if ! wifi_sftp_enabled; then
-      [ -n "$CURRENT_IP" ] && say "wifi_sftp disabled; stopping listener"
-      stop_listener
-      sleep 2
-      continue
-    fi
-    if [ -z "$(data_mount_type)" ]; then
-      [ -n "$CURRENT_IP" ] && say "userdata unmounted; stopping listener"
-      stop_listener
-      sleep 1
-      continue
-    fi
     address=$(wlan_ip)
     if [ -z "$address" ]; then
-      [ -n "$CURRENT_IP" ] && say "wlan0 has no IPv4 address; stopping listener"
+      [ -n "$CURRENT_IP" ] && say "wlan0 lost IPv4; stopping Wi-Fi SFTP"
+      [ -n "$CURRENT_SSH_IP" ] && say "wlan0 lost IPv4; stopping Wi-Fi SSH"
       stop_listener
+      stop_wifi_ssh
       sleep 2
       continue
     fi
-    server_pid=
-    [ -s "$SERVER_PIDFILE" ] && server_pid=$(cat "$SERVER_PIDFILE" 2>/dev/null || :)
-    if [ "$CURRENT_IP" != "$address" ] || ! pid_alive "$server_pid"; then
+
+    if wifi_sftp_enabled && [ -n "$(data_mount_type)" ]; then
+      server_pid=
+      [ -s "$SERVER_PIDFILE" ] && server_pid=$(cat "$SERVER_PIDFILE" 2>/dev/null || :)
+      if [ "$CURRENT_IP" != "$address" ] || ! pid_alive "$server_pid"; then
+        stop_listener
+        start_listener "$address" || :
+      fi
+    else
+      [ -n "$CURRENT_IP" ] && say "Wi-Fi SFTP disabled or userdata unmounted; stopping SFTP listener"
       stop_listener
-      start_listener "$address" || :
+    fi
+
+    if wifi_ssh_enabled; then
+      wifi_ssh_pid=
+      [ -s "$WIFI_SSH_PIDFILE" ] &&
+        wifi_ssh_pid=$(cat "$WIFI_SSH_PIDFILE" 2>/dev/null || :)
+      if [ "$CURRENT_SSH_IP" != "$address" ] || ! pid_alive "$wifi_ssh_pid"; then
+        stop_wifi_ssh
+        start_wifi_ssh "$address" || :
+      fi
+    else
+      [ -n "$CURRENT_SSH_IP" ] && say "usb_debug disabled; stopping Wi-Fi SSH listener"
+      stop_wifi_ssh
     fi
     sleep 2
   done
@@ -214,6 +288,7 @@ case "$1" in
       rm -f "$SUPERVISOR_PIDFILE"
     fi
     stop_listener || exit 1
+    stop_wifi_ssh
     "$0" __supervise </dev/null >>"$LOG" 2>&1 &
     printf '%s\n' "$!" > "$SUPERVISOR_PIDFILE"
     ;;
@@ -233,15 +308,22 @@ case "$1" in
       fi
     fi
     stop_listener || exit 1
+    stop_wifi_ssh
     rm -f "$SUPERVISOR_PIDFILE" 2>/dev/null || :
     ;;
   status)
     printf 'wifi_sftp: %s\n' "$(config_value wifi_sftp || echo yes)"
+    printf 'usb_debug: %s\n' "$(config_value usb_debug || echo no)"
     printf 'wlan0 IPv4: %s\n' "$(wlan_ip || :)"
     if [ -s "$SERVER_PIDFILE" ] && pid_alive "$(cat "$SERVER_PIDFILE" 2>/dev/null)"; then
-      printf 'SFTP listener: active\n'
+      printf 'SFTP listener: active on TCP/22\n'
     else
       printf 'SFTP listener: waiting for Wi-Fi/data mount\n'
+    fi
+    if [ -s "$WIFI_SSH_PIDFILE" ] && pid_alive "$(cat "$WIFI_SSH_PIDFILE" 2>/dev/null)"; then
+      printf 'Wi-Fi SSH listener: active on TCP/2222\n'
+    else
+      printf 'Wi-Fi SSH listener: disabled or waiting for Wi-Fi\n'
     fi
     printf 'SFTP root: /mnt/SDCARD (client path /)\n'
     ;;

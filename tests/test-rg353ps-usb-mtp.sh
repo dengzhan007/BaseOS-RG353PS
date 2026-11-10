@@ -7,13 +7,18 @@ sh -n "$USB/rootfs/usr/sbin/baseos-usb-debug"
 sh -n "$USB/rootfs/usr/sbin/baseos-usb-mtp"
 sh -n "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
 
-# Wi-Fi SFTP is independent of the USB Dropbear switch, bound to wlan0 only,
-# and confined to the user-data mount with forwarding and shells disabled.
+# Wi-Fi SFTP is independent of usb_debug. A second Wi-Fi Dropbear shell uses
+# TCP/2222 and is enabled by that same switch as USB SSH on 192.168.42.1:22.
+# OpenSSH SFTP stays on wlan0 TCP/22 and remains chrooted.
 grep -Fq 'wifi_sftp=yes' "$USB/rootfs/etc/baseos.conf"
 grep -Fq 'ListenAddress $ip_addr:22' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
 grep -Fq 'ForceCommand internal-sftp -d / -u 022' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
 grep -Fq 'ChrootDirectory /mnt/SDCARD' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
 grep -Fq 'DisableForwarding yes' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
+grep -Fq 'wifi_ssh_enabled() { setting_enabled usb_debug; }' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
+grep -Fq 'dropbear -R -p "$ip_addr:2222"' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
+grep -Fq 'usb_dropbear_alive && return 0' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'usb_dropbear_alive || start_sshd' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 grep -Fq '/usr/sbin/baseos-wifi-sftp start' "$USB/rootfs/etc/init.d/rcS"
 grep -Fq 'Wi-Fi SFTP supervisor started after early boot-storage exit' "$USB/rootfs/usr/sbin/baseos-usb-storage"
 grep -Fq '[ "$BOOT_MODE" -eq 1 ]' "$USB/rootfs/usr/sbin/baseos-usb-storage"

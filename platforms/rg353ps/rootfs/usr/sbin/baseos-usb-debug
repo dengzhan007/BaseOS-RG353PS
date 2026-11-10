@@ -64,6 +64,13 @@ enabled() {
     return 1
 }
 
+usb_dropbear_alive() {
+    [ -s "$PIDFILE_DROPBEAR" ] || return 1
+    usb_dropbear_pid=$(cat "$PIDFILE_DROPBEAR" 2>/dev/null || :)
+    case "$usb_dropbear_pid" in ''|*[!0-9]*) return 1 ;; esac
+    kill -0 "$usb_dropbear_pid" 2>/dev/null
+}
+
 network_enabled() { enabled; }
 
 mtp_enabled() {
@@ -393,7 +400,7 @@ ensure_link_up() {
         say "supervisor: link address restored on $iface ($ADDR)"
     fi
     pidof dnsmasq >/dev/null 2>&1 || start_dhcp "$iface"
-    pidof dropbear >/dev/null 2>&1 || start_sshd
+    usb_dropbear_alive || start_sshd
 }
 
 
@@ -914,7 +921,8 @@ start_dhcp() {
 }
 
 start_sshd() {
-    pidof dropbear >/dev/null 2>&1 && return 0
+    usb_dropbear_alive && return 0
+    rm -f "$PIDFILE_DROPBEAR" 2>/dev/null || :
     command -v dropbear >/dev/null 2>&1 || { say "dropbear missing"; return 1; }
     mkdir -p /etc/dropbear /root/.ssh 2>/dev/null || :
     chmod 700 /root/.ssh 2>/dev/null || :
@@ -930,8 +938,9 @@ start_sshd() {
     [ -s /root/.ssh/authorized_keys ] || say "WARNING: no authorized_keys; ssh logins will be refused"
     # -R generates host keys on first run. Password auth is NOT refused (-s is
     # deliberately absent) so a unit whose key is lost can still be reached as
-    # root with the password baked into /etc/shadow. The listener is bound to
-    # the RNDIS address only, so this never opens on Wi-Fi.
+    # root with the password baked into /etc/shadow. This instance is bound
+    # to RNDIS only; Wi-Fi shell access is managed independently when the same
+    # usb_debug switch is enabled.
     if dropbear -R -p "$ADDR:22" -P "$PIDFILE_DROPBEAR" >/dev/null 2>&1; then
         say "sshd listening on $ADDR:22"
     else

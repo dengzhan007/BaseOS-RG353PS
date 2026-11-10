@@ -109,10 +109,10 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     # override these defaults without rebuilding or updating the system.
     case "$BASEOS_USB_PROFILE" in
       development)
-        sed -i "s/^usb_profile=.*/usb_profile=development/; s/^usb_debug=.*/usb_debug=yes/; s/^usb_mtp=.*/usb_mtp=yes/" "$R/etc/baseos.conf"
+        sed -i "s/^usb_profile=.*/usb_profile=development/; s/^ssh_debug=.*/ssh_debug=yes/; s/^usb_mtp=.*/usb_mtp=yes/" "$R/etc/baseos.conf"
         ;;
       release)
-        sed -i "s/^usb_profile=.*/usb_profile=release/; s/^usb_debug=.*/usb_debug=no/; s/^usb_mtp=.*/usb_mtp=yes/" "$R/etc/baseos.conf"
+        sed -i "s/^usb_profile=.*/usb_profile=release/; s/^ssh_debug=.*/ssh_debug=no/; s/^usb_mtp=.*/usb_mtp=yes/" "$R/etc/baseos.conf"
         ;;
     esac
     echo "USB build profile: $BASEOS_USB_PROFILE"
@@ -140,7 +140,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     cp /etc/apk/repositories "$R/etc/apk/repositories"
     # dropbear + dnsmasq carry the USB debug channel: RNDIS gives the host a
     # network, dnsmasq hands it an address, dropbear answers on 22. It is off
-    # unless baseos.conf says usb_debug=yes, and it costs ~700 KB. busybox here
+    # unless baseos.conf says ssh_debug=yes, and it costs ~700 KB. busybox here
     # has no udhcpd applet, which is why the DHCP side is dnsmasq.
     OPENSSH_SERVER_PACKAGE="openssh-server>=10.0_p1-r11"
     apk --root "$R" --arch aarch64 --initdb --no-scripts --no-cache add \
@@ -335,7 +335,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     # it does not offer an interactive root shell. The hash is baked in rather
     # than computed here because the build container (alpine:3.22) has neither
     # mkpasswd nor openssl, and a random salt would make every build differ.
-    # USB Dropbear stays bound to 192.168.42.1 and controlled by usb_debug.
+    # USB Dropbear stays bound to 192.168.42.1 and controlled by ssh_debug.
     # Wi-Fi OpenSSH is separately bound to wlan0 and restricted to SFTP in
     # /mnt/SDCARD. To change the shared root password, regenerate with the
     # same fixed salt:

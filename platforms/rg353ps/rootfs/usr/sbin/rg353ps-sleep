@@ -99,11 +99,9 @@ if [ -e /sys/class/net/wlan0 ]; then
       WIFI_WAS_CONNECTED=1
     fi
   fi
-  if [ "$WIFI_WAS_CONNECTED" = 0 ]; then
-    case "$(cat /sys/class/net/wlan0/operstate 2>/dev/null)" in
-      up) WIFI_WAS_CONNECTED=1 ;;
-    esac
-  fi
+  # Do not use netdev operstate here: rcS deliberately sets wlan0 UP before
+  # any frontend association, so operstate=up does not mean a saved network
+  # was connected. wpa_state=COMPLETED or a running supplicant is authoritative.
 fi
 log "wifi_was_connected=$WIFI_WAS_CONNECTED"
 

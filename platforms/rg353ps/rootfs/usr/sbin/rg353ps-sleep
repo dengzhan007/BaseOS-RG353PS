@@ -118,7 +118,7 @@ fi
 # packages or a failed frontend helper.
 if [ -x "$FRONTEND_WIFI" ]; then
   log "stopping frontend Wi-Fi through $FRONTEND_WIFI"
-  "$FRONTEND_WIFI" down >> "$LOG" 2>&1 || log "WARNING: frontend Wi-Fi down returned nonzero"
+  AGS_ROOT="$FRONTEND_ROOT" "$FRONTEND_WIFI" down >> "$LOG" 2>&1 || log "WARNING: frontend Wi-Fi down returned nonzero"
 fi
 
 # --- stop the supplicant ----------------------------------------------------
@@ -199,7 +199,7 @@ if [ "$WIFI_UNBOUND" = 1 ]; then
     if [ "$WIFI_WAS_CONNECTED" = 1 ] || [ "$SUPPLICANT_WAS_RUNNING" = 1 ]; then
       if [ -x "$FRONTEND_WIFI" ]; then
         # Let Slot reload its card-side wifi.conf and own association + DHCP.
-        "$FRONTEND_WIFI" up >> "$LOG" 2>&1 &
+        AGS_ROOT="$FRONTEND_ROOT" "$FRONTEND_WIFI" up >> "$LOG" 2>&1 &
         log "frontend Wi-Fi restart requested"
       elif [ -x "$WIFI_CTL" ]; then
         # Backward compatibility for packages predating System/slotnet.sh.

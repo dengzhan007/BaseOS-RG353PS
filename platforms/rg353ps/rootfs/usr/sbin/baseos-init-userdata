@@ -370,7 +370,9 @@ case "$FS_TYPE" in
 esac
 
 /sbin/modprobe exfat 2>/dev/null || :
-if ! mount -t "$FS_TYPE" -o rw,noatime "$DATA_DEV" "$USERDATA" 2>/dev/null; then
+# OpenSSH requires ChrootDirectory to be root-owned and not group/other writable.
+# FAT/exFAT do not store Unix ownership, so set it through mount options.
+if ! mount -t "$FS_TYPE" -o rw,noatime,uid=0,gid=0,umask=022 "$DATA_DEV" "$USERDATA" 2>/dev/null; then
   log "failed to mount $DATA_DEV ($FS_TYPE) at $USERDATA"
   exit 0
 fi

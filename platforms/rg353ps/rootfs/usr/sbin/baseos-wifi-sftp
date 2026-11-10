@@ -54,6 +54,20 @@ stop_listener() {
   # sshd forks a process for each authenticated session. Kill those workers too
   # before a USB mass-storage session exports the underlying block device.
   killall sshd 2>/dev/null || :
+  stop_wait=0
+  while pidof sshd >/dev/null 2>&1 && [ "$stop_wait" -lt 50 ]; do
+    sleep 0.1
+    stop_wait=$((stop_wait + 1))
+  done
+  if pidof sshd >/dev/null 2>&1; then
+    killall -9 sshd 2>/dev/null || :
+    sleep 0.2
+  fi
+  if pidof sshd >/dev/null 2>&1; then
+    say "sshd did not stop; refusing to release the userdata mount"
+    CURRENT_IP=
+    return 1
+  fi
   rm -f "$SERVER_PIDFILE" 2>/dev/null || :
   CURRENT_IP=
 }
@@ -185,7 +199,7 @@ case "$1" in
       if pid_alive "$old_pid"; then exit 0; fi
       rm -f "$SUPERVISOR_PIDFILE"
     fi
-    stop_listener
+    stop_listener || exit 1
     "$0" __supervise </dev/null >>"$LOG" 2>&1 &
     printf '%s\n' "$!" > "$SUPERVISOR_PIDFILE"
     ;;
@@ -201,7 +215,7 @@ case "$1" in
         done
       fi
     fi
-    stop_listener
+    stop_listener || exit 1
     rm -f "$SUPERVISOR_PIDFILE" 2>/dev/null || :
     ;;
   status)

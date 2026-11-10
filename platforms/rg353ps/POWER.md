@@ -16,7 +16,7 @@ RG353PS（RK3566）支持 Linux suspend-to-RAM 深度休眠模式。内核通过
 
 rg353ps-sleep 是产品运行时路径，执行以下步骤：
 
-1. 通过前端卡上的 `System/slotnet.sh down` 停止前端网络会话；再确认 DHCP / wpa_supplicant 已退出。
+1. 通过前端卡上的 `System/slotnet.sh down` 停止前端网络会话，并显式传入当前卡根目录；再确认 DHCP / wpa_supplicant 已退出。
 2. 解绑 Realtek SDIO Wi-Fi 功能驱动。该驱动会申请 MMC_PM_KEEP_POWER；休眠前解绑，MMC 才能在 deep suspend 窗口关闭 Wi-Fi 电源轨。
 3. 选择 deep，同步文件系统、关闭背光，并向 /sys/power/state 写入 mem。
 4. Power 键唤醒后恢复背光并重新绑定 Wi-Fi 驱动；若休眠前 wpa_supplicant 正在运行或已连接，则后台调用前端 `System/slotnet.sh up`，由 Slot 自己读取 `System/wifi.conf`、重新关联并获取 DHCP。
@@ -75,7 +75,7 @@ This is suspend-to-RAM, **not poweroff and not disk hibernation**. RAM remains p
 
 The product helper performs the following steps:
 
-1. Calls the frontend card's `System/slotnet.sh down` to stop its network session, then verifies that DHCP / wpa_supplicant have exited.
+1. Calls the frontend card's `System/slotnet.sh down` with the active card root to stop its network session, then verifies that DHCP / wpa_supplicant have exited.
 2. Unbinds the Realtek SDIO Wi-Fi function driver. The driver requests MMC_PM_KEEP_POWER; unbinding lets the MMC core cut the Wi-Fi rail during deep suspend.
 3. Selects deep, syncs filesystems, turns off the backlight and writes mem to /sys/power/state.
 4. After the Power key wakes the device, restores the backlight and rebinds Wi-Fi. If wpa_supplicant was running or Wi-Fi was connected before sleep, it starts the frontend's `System/slotnet.sh up` in the background; Slot reads its own `System/wifi.conf`, reassociates and obtains DHCP.

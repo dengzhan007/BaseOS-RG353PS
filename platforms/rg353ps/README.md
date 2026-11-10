@@ -231,13 +231,16 @@ This is accepted as a usage convention rather than a pending fix. Closing it
 properly means reworking charger detection or the PHY init order in
 `phy-rockchip-inno-usb2`, which needs repeated bench validation on hardware.
 
-The switch is `usb_debug` in `baseos.conf`. The image ships one at the root of
+The `ssh_debug` setting controls both interactive shell endpoints: USB
+Dropbear at `192.168.42.1:22` and Wi-Fi Dropbear at the current `wlan0`
+address on TCP `2222`. Wi-Fi SFTP is independent and remains on TCP `22`
+when `wifi_sftp=yes`. The image ships `baseos.conf` at the root of
 `BASEOS_BOOT`, but that partition is hidden from file browsers on purpose, so
 first boot also writes a card-side copy to the root of the visible `BASEOS`
 volume, next to `Games/`:
 
 ```
-BASEOS/baseos.conf      # debug=no, usb_debug=yes, frontend_id=auto
+BASEOS/baseos.conf      # debug=no, ssh_debug=yes, frontend_id=auto
 ```
 
 That copy is read before the image one and only overrides the keys it contains,
@@ -248,8 +251,9 @@ Root logs in with either the key or the password `root` (the hash is baked into
 `/etc/shadow` by `build-rootfs.sh`). A key dropped at
 `BASEOS/baseos-ssh/authorized_keys` replaces the one baked into the image and
 keeps working alongside the password. Setting
-`usb_debug=no` leaves the UDC unbound, so the port behaves like a plain USB
-device port again — and still enters mass storage with Function + plug:
+`ssh_debug=no` disables both interactive SSH listeners. When `usb_mtp=yes`,
+the USB gadget remains MTP-only; it can still enter exclusive Mass Storage with
+Function + Power:
 `baseos-usb-storage` releases this gadget first and restarts it from its cleanup
 trap, so the two modes never fight over the controller.
 

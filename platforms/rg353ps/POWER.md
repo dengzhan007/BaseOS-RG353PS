@@ -16,11 +16,11 @@ RG353PS（RK3566）支持 Linux suspend-to-RAM 深度休眠模式。内核通过
 
 rg353ps-sleep 是产品运行时路径，执行以下步骤：
 
-1. 记录 Wi-Fi 当前连接状态，并停止 DHCP / wpa_supplicant。
+1. 通过前端卡上的 `System/slotnet.sh down` 停止前端网络会话；再确认 DHCP / wpa_supplicant 已退出。
 2. 解绑 Realtek SDIO Wi-Fi 功能驱动。该驱动会申请 MMC_PM_KEEP_POWER；休眠前解绑，MMC 才能在 deep suspend 窗口关闭 Wi-Fi 电源轨。
 3. 选择 deep，同步文件系统、关闭背光，并向 /sys/power/state 写入 mem。
-4. Power 键唤醒后恢复背光、重新绑定 Wi-Fi 驱动；若休眠前无线服务已运行或已连接，则重新启动 wpa_supplicant 和 DHCP。
-5. 恢复休眠前的 mem_sleep 选择并写入休眠日志。
+4. Power 键唤醒后恢复背光并重新绑定 Wi-Fi 驱动；若休眠前 wpa_supplicant 正在运行或已连接，则后台调用前端 `System/slotnet.sh up`，由 Slot 自己读取 `System/wifi.conf`、重新关联并获取 DHCP。
+5. 恢复休眠前的 mem_sleep 选择并写入休眠日志。旧版前端缺少 `slotnet.sh` 时，才回退到 BaseOS 旧 Wi-Fi helper。
 
 如果 deep suspend 请求失败且 Wi-Fi 已成功解绑，脚本会再尝试 s2idle，避免设备完全失去休眠能力。若解绑本身失败，脚本会保留错误记录，不会把这次尝试伪装成 deep suspend 成功。
 
@@ -75,11 +75,11 @@ This is suspend-to-RAM, **not poweroff and not disk hibernation**. RAM remains p
 
 The product helper performs the following steps:
 
-1. Records whether Wi-Fi was connected, then stops DHCP and wpa_supplicant.
+1. Calls the frontend card's `System/slotnet.sh down` to stop its network session, then verifies that DHCP / wpa_supplicant have exited.
 2. Unbinds the Realtek SDIO Wi-Fi function driver. The driver requests MMC_PM_KEEP_POWER; unbinding lets the MMC core cut the Wi-Fi rail during deep suspend.
 3. Selects deep, syncs filesystems, turns off the backlight and writes mem to /sys/power/state.
-4. After the Power key wakes the device, restores the backlight, rebinds Wi-Fi, and restarts wpa_supplicant / DHCP when Wi-Fi had been active.
-5. Restores the prior mem_sleep selection and writes a sleep log.
+4. After the Power key wakes the device, restores the backlight and rebinds Wi-Fi. If wpa_supplicant was running or Wi-Fi was connected before sleep, it starts the frontend's `System/slotnet.sh up` in the background; Slot reads its own `System/wifi.conf`, reassociates and obtains DHCP.
+5. Restores the prior mem_sleep selection and writes a sleep log. Older frontend packages without `slotnet.sh` use the legacy BaseOS Wi-Fi-helper fallback.
 
 If deep suspend fails after Wi-Fi was successfully unbound, the helper attempts s2idle as a fallback. An unbind failure is logged and is not reported as a successful deep-suspend transition.
 

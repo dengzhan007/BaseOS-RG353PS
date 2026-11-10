@@ -142,9 +142,10 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     # network, dnsmasq hands it an address, dropbear answers on 22. It is off
     # unless baseos.conf says usb_debug=yes, and it costs ~700 KB. busybox here
     # has no udhcpd applet, which is why the DHCP side is dnsmasq.
+    OPENSSH_SERVER_PACKAGE="openssh-server>=10.0_p1-r11"
     apk --root "$R" --arch aarch64 --initdb --no-scripts --no-cache add \
       v4l-utils evtest alsa-utils iw libzip libgcc \
-      wpa_supplicant dropbear dropbear-convert dnsmasq 'openssh-server>=10.0_p1-r11' \
+      wpa_supplicant dropbear dropbear-convert dnsmasq "$OPENSSH_SERVER_PACKAGE" \
       mesa-egl mesa-gles mesa-gbm mesa-dri-gallium \
       libdrm-tests mesa-utils kmscube sdl2 sdl2_image sdl2_ttf \
       sgdisk partx blkid wipefs exfatprogs
@@ -339,7 +340,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     chroot "$R" /usr/bin/dropbearconvert dropbear openssh \
       /etc/dropbear/dropbear_ed25519_host_key /run/baseos-wifi-sftp-test-key
     chmod 0600 "$R/run/baseos-wifi-sftp-test-key"
-    cat > "$R/run/baseos-wifi-sftp-build-test.conf" <<'EOF'
+    cat > "$R/run/baseos-wifi-sftp-build-test.conf" <<EOF
 Port 2222
 AddressFamily inet
 ListenAddress 127.0.0.1

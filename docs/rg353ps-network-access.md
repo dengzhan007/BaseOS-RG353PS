@@ -18,7 +18,9 @@ because each binds to a different local IP address.
 
 The Wi-Fi listener starts after the user-data volume is mounted and waits for
 `wlan0` to receive an IPv4 address. It follows DHCP address changes and stops
-while the user-data volume is unmounted.
+while the user-data volume is unmounted. Before USB mass-storage mode exports
+the data partition, the storage helper stops the SFTP listener and active
+sessions; it restarts the supervisor after attempting to remount the partition.
 
 The OpenSSH server is configured to:
 

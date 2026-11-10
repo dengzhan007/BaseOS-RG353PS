@@ -51,6 +51,10 @@ stop_listener() {
     fi
     rm -f "$SERVER_PIDFILE" 2>/dev/null || :
   fi
+  # sshd forks a process for each authenticated session. Kill those workers too
+  # before a USB mass-storage session exports the underlying block device.
+  killall sshd 2>/dev/null || :
+  rm -f "$SERVER_PIDFILE" 2>/dev/null || :
   CURRENT_IP=
 }
 prepare_hostkey() {
@@ -188,8 +192,17 @@ case "$1" in
   stop)
     if [ -s "$SUPERVISOR_PIDFILE" ]; then
       old_pid=$(cat "$SUPERVISOR_PIDFILE" 2>/dev/null || :)
-      pid_alive "$old_pid" && kill "$old_pid" 2>/dev/null || :
+      if pid_alive "$old_pid"; then
+        kill "$old_pid" 2>/dev/null || :
+        stop_wait=0
+        while pid_alive "$old_pid" && [ "$stop_wait" -lt 40 ]; do
+          sleep 0.1
+          stop_wait=$((stop_wait + 1))
+        done
+      fi
     fi
+    stop_listener
+    rm -f "$SUPERVISOR_PIDFILE" 2>/dev/null || :
     ;;
   status)
     printf 'wifi_sftp: %s\n' "$(config_value wifi_sftp || echo yes)"

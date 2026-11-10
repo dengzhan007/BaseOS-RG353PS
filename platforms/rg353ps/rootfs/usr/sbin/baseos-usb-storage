@@ -46,6 +46,7 @@ ENTERED=0
 DEBUG_STOPPED=0
 UDC_RELEASED=0
 REMOUNT_OK=0
+WIFI_SFTP_STOPPED=0
 BOOT_MODE=0
 RESET_NOT_CONFIGURED_SECONDS=0
 RESET_RECOVERY_ATTEMPTED=0
@@ -628,6 +629,15 @@ cleanup() {
   REMOUNT_OK=$USB_MODE_FINISH_REMOUNT_OK
   [ "$UDC_RELEASED" -eq 1 ] && BOUND=0
 
+  # The Wi-Fi SFTP chroot shares BASEOS_DATA. Restart it only after the storage
+  # helper has attempted the local remount; if remount failed it will remain
+  # waiting with its listener closed.
+  if [ "$WIFI_SFTP_STOPPED" -eq 1 ] && [ -x /usr/sbin/baseos-wifi-sftp ]; then
+    /usr/sbin/baseos-wifi-sftp start >/dev/null 2>&1 &
+    log "Wi-Fi SFTP supervisor restarted after USB storage teardown"
+    WIFI_SFTP_STOPPED=0
+  fi
+
   # Stop the on-screen prompt immediately so it cannot keep scrolling while
   # storage cleanup proceeds.
   if [ -n "$PROMPT_PID" ]; then
@@ -843,6 +853,17 @@ if [ -x /usr/sbin/baseos-usb-debug ]; then
   fi
   DEBUG_STOPPED=1
   log "normal USB gadget stopped and its UDC/FunctionFS release was confirmed"
+fi
+
+# Stop all Wi-Fi SFTP sessions before unmounting BASEOS_DATA. Exporting the raw
+# partition while an SFTP worker still has it chrooted would be unsafe.
+if [ "$MOUNTPOINT" = "/mnt/SDCARD" ] && [ -x /usr/sbin/baseos-wifi-sftp ]; then
+  log "stopping Wi-Fi SFTP before exporting BASEOS_DATA"
+  /usr/sbin/baseos-wifi-sftp stop >/dev/null 2>&1 || {
+    log "ERROR: could not stop Wi-Fi SFTP cleanly; refusing to export BASEOS_DATA"
+    exit 1
+  }
+  WIFI_SFTP_STOPPED=1
 fi
 
 umount_msg=

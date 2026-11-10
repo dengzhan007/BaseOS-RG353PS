@@ -92,6 +92,7 @@ jobs:
           sh -n platforms/rg353ps/build-update.sh
           sh -n platforms/rg353ps/rootfs/etc/init.d/rcS
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-debug
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-wifi-sftp
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-mtp
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session
           sh tests/test-frontend-adapters.sh

@@ -7,7 +7,7 @@ sh -n "$USB/rootfs/usr/sbin/baseos-usb-debug"
 sh -n "$USB/rootfs/usr/sbin/baseos-usb-mtp"
 sh -n "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
 
-# Wi-Fi SFTP is independent of usb_debug. A second Wi-Fi Dropbear shell uses
+# Wi-Fi SFTP is independent of ssh_debug. A second Wi-Fi Dropbear shell uses
 # TCP/2222 and is enabled by that same switch as USB SSH on 192.168.42.1:22.
 # OpenSSH SFTP stays on wlan0 TCP/22 and remains chrooted.
 grep -Fq 'wifi_sftp=yes' "$USB/rootfs/etc/baseos.conf"
@@ -16,11 +16,11 @@ grep -Fq 'ForceCommand internal-sftp -d / -u 022' "$USB/rootfs/usr/sbin/baseos-w
 grep -Fq 'ChrootDirectory /mnt/SDCARD' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
 grep -Fq 'DisableForwarding yes' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
 grep -Fq 'wifi_sftp_enabled() { setting_enabled wifi_sftp; }' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
-grep -Fq 'wifi_ssh_enabled() { setting_enabled usb_debug; }' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
+grep -Fq 'wifi_ssh_enabled() { setting_enabled ssh_debug; }' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
 grep -Fq 'dropbear -R -p "$ip_addr:2222"' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
 grep -Fq 'usb_dropbear_alive && return 0' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 grep -Fq 'usb_dropbear_alive || start_sshd' "$USB/rootfs/usr/sbin/baseos-usb-debug"
-grep -Fq 'wifi_ssh_enabled() { setting_enabled usb_debug; }' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
+grep -Fq 'wifi_ssh_enabled() { setting_enabled ssh_debug; }' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
 grep -Fq 'dropbear -R -p "$ip_addr:2222"' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
 grep -Fq 'usb_dropbear_alive && return 0' "$USB/rootfs/usr/sbin/baseos-usb-debug"
 grep -Fq 'usb_dropbear_alive || start_sshd' "$USB/rootfs/usr/sbin/baseos-usb-debug"
@@ -80,7 +80,7 @@ PY
 
 grep -q '^CONFIG_USB_F_FS=y$' "$USB/kernel/config/linux.aarch64.conf"
 grep -q '^CONFIG_USB_CONFIGFS_F_FS=y$' "$USB/kernel/config/linux.aarch64.conf"
-grep -q '^usb_debug=yes$' "$USB/rootfs/etc/baseos.conf"
+grep -q '^ssh_debug=yes$' "$USB/rootfs/etc/baseos.conf"
 grep -q '^usb_mtp=yes$' "$USB/rootfs/etc/baseos.conf"
 grep -Fqx 'storage "/mnt/SDCARD" "RG353PS" "rw"' "$USB/rootfs/etc/umtprd/umtprd.conf"
 storage_count="$(grep -c '^storage ' "$USB/rootfs/etc/umtprd/umtprd.conf")"

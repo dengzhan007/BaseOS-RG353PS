@@ -169,9 +169,10 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
     mcopy -i "$BOOTFS" /work/kernel/output/Image ::/Image
     mcopy -i "$BOOTFS" /work/kernel/output/rk3566-anbernic-rg353ps.dtb ::/device_trees/rk3566-anbernic-rg353ps.dtb
     mcopy -o -i "$BOOTFS" /work/rootfs/etc/baseos.conf ::/baseos.conf
-    # The canonical upstream BaseOS artwork is staged separately from the
-    # rootfs fallback so RG353PS builds do not accidentally ship the legacy
-    # platform-specific image as the active boot splash.
+    # Keep the compatibility BMP in the active BOOT slot. It is not the
+    # default startup artwork: rcS draws the generated BaseOS wordmark
+    # unless a persistent Slot selection exists on BASEOS user data.
+    # The selected image is restored from user data before it is drawn.
     mcopy -i "$BOOTFS" /work/baseos-bootlogo.bmp ::/bootlogo.bmp
     # Install the replaceable keyboard-free diagnostic task on the FAT boot partition.
 

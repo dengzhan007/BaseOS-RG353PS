@@ -1,0 +1,333 @@
+#!/bin/sh
+# Wi-Fi SFTP service for RG353PS. Independent from USB Dropbear/usb_debug.
+set -u
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH
+IFACE=wlan0
+SUPERVISOR_PIDFILE=/run/baseos-wifi-sftp.pid
+SERVER_PIDFILE=/run/baseos-wifi-sftp-server.pid
+WIFI_SSH_PIDFILE=/run/baseos-wifi-ssh.pid
+CONF=/run/baseos-wifi-sftp-sshd.conf
+HOSTKEY=/run/baseos-wifi-sftp-hostkey
+LOG=/run/baseos-wifi-sftp.log
+CURRENT_IP=
+CURRENT_SSH_IP=
+say() { printf '%s %s\n' "$(date '+%H:%M:%S' 2>/dev/null)" "$*" >> "$LOG" 2>/dev/null || :; }
+config_value() {
+  key=$1
+  for cfg in /mnt/SDCARD/baseos.conf /mnt/boot/baseos.conf /etc/baseos.conf; do
+    [ -r "$cfg" ] || continue
+    value=$(sed -n "s/^$key=//p" "$cfg" 2>/dev/null | tail -1 | tr -d ' \t\r')
+    [ -n "$value" ] && { printf '%s' "$value"; return 0; }
+  done
+  return 1
+}
+setting_enabled() {
+  key=$1
+  case "$(config_value "$key")" in
+    yes|YES|Yes|1|on|ON|true|TRUE) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+wifi_sftp_enabled() { setting_enabled wifi_sftp; }
+wifi_ssh_enabled() { setting_enabled usb_debug; }
+data_mount_type() { awk '$2 == "/mnt/SDCARD" { print $3; exit }' /proc/mounts; }
+wlan_ip() {
+  ip -4 -o addr show dev "$IFACE" scope global 2>/dev/null |
+    awk 'NR == 1 { sub(/\/.*/, "", $4); print $4; exit }'
+}
+pid_alive() {
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  kill -0 "$1" 2>/dev/null
+}
+root_owned_private_dir() {
+  path=$1
+  [ -d "$path" ] || return 1
+  set -- $(stat -c '%u %g %a' "$path" 2>/dev/null) || return 1
+  [ "$#" -eq 3 ] || return 1
+  [ "$1" = 0 ] && [ "$2" = 0 ] || return 1
+  mode=$((0$3))
+  [ $((mode & 022)) -eq 0 ]
+}
+stop_listener() {
+  if [ -s "$SERVER_PIDFILE" ]; then
+    server_pid=$(cat "$SERVER_PIDFILE" 2>/dev/null || :)
+    if pid_alive "$server_pid"; then
+      kill "$server_pid" 2>/dev/null || :
+      server_wait=0
+      while pid_alive "$server_pid" && [ "$server_wait" -lt 30 ]; do
+        sleep 0.1
+        server_wait=$((server_wait + 1))
+      done
+      if pid_alive "$server_pid"; then
+        kill -9 "$server_pid" 2>/dev/null || :
+      fi
+      wait "$server_pid" 2>/dev/null || :
+    fi
+    rm -f "$SERVER_PIDFILE" 2>/dev/null || :
+  fi
+  # OpenSSH 10 splits authenticated sessions into sshd-session processes.
+  # Stop all pieces before BASEOS_DATA can be exported as a raw block device.
+  killall sshd sshd-session sshd-auth 2>/dev/null || :
+  stop_wait=0
+  while { pidof sshd >/dev/null 2>&1 ||
+          pidof sshd-session >/dev/null 2>&1 ||
+          pidof sshd-auth >/dev/null 2>&1; } &&
+        [ "$stop_wait" -lt 50 ]; do
+    sleep 0.1
+    stop_wait=$((stop_wait + 1))
+  done
+  if pidof sshd >/dev/null 2>&1 ||
+     pidof sshd-session >/dev/null 2>&1 ||
+     pidof sshd-auth >/dev/null 2>&1; then
+    killall -9 sshd sshd-session sshd-auth 2>/dev/null || :
+    sleep 0.2
+  fi
+  if pidof sshd >/dev/null 2>&1 ||
+     pidof sshd-session >/dev/null 2>&1 ||
+     pidof sshd-auth >/dev/null 2>&1; then
+    say "OpenSSH processes did not stop; refusing to release the userdata mount"
+    CURRENT_IP=
+    return 1
+  fi
+  rm -f "$SERVER_PIDFILE" 2>/dev/null || :
+  CURRENT_IP=
+}
+stop_wifi_ssh() {
+  if [ -s "$WIFI_SSH_PIDFILE" ]; then
+    wifi_ssh_pid=$(cat "$WIFI_SSH_PIDFILE" 2>/dev/null || :)
+    if pid_alive "$wifi_ssh_pid"; then
+      kill "$wifi_ssh_pid" 2>/dev/null || :
+      wifi_ssh_wait=0
+      while pid_alive "$wifi_ssh_pid" && [ "$wifi_ssh_wait" -lt 30 ]; do
+        sleep 0.1
+        wifi_ssh_wait=$((wifi_ssh_wait + 1))
+      done
+      if pid_alive "$wifi_ssh_pid"; then
+        kill -9 "$wifi_ssh_pid" 2>/dev/null || :
+      fi
+    fi
+    rm -f "$WIFI_SSH_PIDFILE" 2>/dev/null || :
+  fi
+  CURRENT_SSH_IP=
+}
+start_wifi_ssh() {
+  ip_addr=$1
+  case "$ip_addr" in ''|*[!0-9.]*) return 1 ;; esac
+  [ -x /usr/sbin/dropbear ] || {
+    say "Dropbear is missing; Wi-Fi SSH cannot start"; return 1;
+  }
+  wifi_ssh_pid=
+  [ -s "$WIFI_SSH_PIDFILE" ] &&
+    wifi_ssh_pid=$(cat "$WIFI_SSH_PIDFILE" 2>/dev/null || :)
+  if [ "$CURRENT_SSH_IP" = "$ip_addr" ] && pid_alive "$wifi_ssh_pid"; then
+    return 0
+  fi
+  stop_wifi_ssh
+  mkdir -p /etc/dropbear /root/.ssh 2>/dev/null || :
+  chmod 0700 /root/.ssh 2>/dev/null || :
+  if [ -r /mnt/SDCARD/baseos-ssh/authorized_keys ]; then
+    cp /mnt/SDCARD/baseos-ssh/authorized_keys /root/.ssh/authorized_keys 2>/dev/null || :
+  elif [ ! -s /root/.ssh/authorized_keys ] && [ -r /etc/dropbear/authorized_keys ]; then
+    cp /etc/dropbear/authorized_keys /root/.ssh/authorized_keys 2>/dev/null || :
+  fi
+  chmod 0600 /root/.ssh/authorized_keys 2>/dev/null || :
+  if ! /usr/sbin/dropbear -R -p "$ip_addr:2222" -P "$WIFI_SSH_PIDFILE" >>"$LOG" 2>&1; then
+    say "Dropbear failed to start on wlan0 $ip_addr:2222"
+    rm -f "$WIFI_SSH_PIDFILE" 2>/dev/null || :
+    return 1
+  fi
+  wifi_ssh_wait=0
+  while [ ! -s "$WIFI_SSH_PIDFILE" ] && [ "$wifi_ssh_wait" -lt 20 ]; do
+    sleep 0.1
+    wifi_ssh_wait=$((wifi_ssh_wait + 1))
+  done
+  wifi_ssh_pid=$(cat "$WIFI_SSH_PIDFILE" 2>/dev/null || :)
+  if ! pid_alive "$wifi_ssh_pid"; then
+    say "Dropbear did not stay running on wlan0 $ip_addr:2222"
+    rm -f "$WIFI_SSH_PIDFILE" 2>/dev/null || :
+    return 1
+  fi
+  CURRENT_SSH_IP=$ip_addr
+  say "interactive SSH listener active on wlan0 $ip_addr:2222 (usb_debug=yes)"
+  return 0
+}
+prepare_hostkey() {
+  [ -s "$HOSTKEY" ] && return 0
+  command -v dropbearconvert >/dev/null 2>&1 || {
+    say "dropbearconvert is missing; Wi-Fi SFTP cannot start"; return 1;
+  }
+  [ -s /etc/dropbear/dropbear_ed25519_host_key ] || {
+    say "Dropbear Ed25519 host key is missing"; return 1;
+  }
+  rm -f "$HOSTKEY"
+  if ! dropbearconvert dropbear openssh /etc/dropbear/dropbear_ed25519_host_key "$HOSTKEY" >>"$LOG" 2>&1; then
+    rm -f "$HOSTKEY"
+    say "could not convert the existing Ed25519 host key for OpenSSH"
+    return 1
+  fi
+  chmod 0600 "$HOSTKEY" 2>/dev/null || :
+  [ -s "$HOSTKEY" ]
+}
+start_listener() {
+  ip_addr=$1
+  case "$ip_addr" in ''|*[!0-9.]*) return 1 ;; esac
+  [ -x /usr/sbin/sshd ] || { say "OpenSSH sshd is missing"; return 1; }
+  case "$(data_mount_type)" in exfat|vfat) ;; *)
+    say "userdata is not mounted as exFAT/VFAT; SFTP listener stays off"; return 1 ;;
+  esac
+  root_owned_private_dir /mnt || {
+    say "/mnt is not root-owned and non-writable by group/others"; return 1;
+  }
+  root_owned_private_dir /mnt/SDCARD || {
+    say "/mnt/SDCARD is not root-owned and non-writable by group/others"; return 1;
+  }
+  prepare_hostkey || return 1
+  mkdir -p /root/.ssh 2>/dev/null || :
+  chmod 0700 /root /root/.ssh 2>/dev/null || :
+  if [ -r /mnt/SDCARD/baseos-ssh/authorized_keys ]; then
+    cp /mnt/SDCARD/baseos-ssh/authorized_keys /root/.ssh/authorized_keys 2>/dev/null || :
+  elif [ -r /etc/dropbear/authorized_keys ]; then
+    cp /etc/dropbear/authorized_keys /root/.ssh/authorized_keys 2>/dev/null || :
+  fi
+  [ -s /root/.ssh/authorized_keys ] && chmod 0600 /root/.ssh/authorized_keys 2>/dev/null || :
+  cat > "$CONF" <<EOF
+Port 22
+AddressFamily inet
+ListenAddress $ip_addr:22
+HostKey $HOSTKEY
+PidFile $SERVER_PIDFILE
+PermitRootLogin yes
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+PubkeyAuthentication yes
+AuthorizedKeysFile /root/.ssh/authorized_keys
+AllowUsers root
+StrictModes yes
+ChrootDirectory /mnt/SDCARD
+ForceCommand internal-sftp -d / -u 022
+Subsystem sftp internal-sftp
+DisableForwarding yes
+AllowTcpForwarding no
+AllowAgentForwarding no
+X11Forwarding no
+PermitTunnel no
+PermitTTY no
+PermitUserRC no
+PermitUserEnvironment no
+LoginGraceTime 20
+MaxAuthTries 3
+MaxSessions 2
+MaxStartups 3:30:10
+LogLevel VERBOSE
+EOF
+  chmod 0600 "$CONF" 2>/dev/null || :
+  if ! /usr/sbin/sshd -t -f "$CONF" >>"$LOG" 2>&1; then
+    say "sshd configuration validation failed for wlan0 address $ip_addr"
+    return 1
+  fi
+  /usr/sbin/sshd -D -e -f "$CONF" >>"$LOG" 2>&1 &
+  server_pid=$!
+  printf '%s\n' "$server_pid" > "$SERVER_PIDFILE"
+  sleep 1
+  if ! pid_alive "$server_pid"; then
+    say "sshd exited during startup on $ip_addr:22"
+    rm -f "$SERVER_PIDFILE"
+    return 1
+  fi
+  CURRENT_IP=$ip_addr
+  say "SFTP-only listener active on wlan0 $ip_addr:22; chroot=/mnt/SDCARD"
+  return 0
+}
+supervise() {
+  trap 'exit 0' HUP INT TERM
+  trap 'stop_listener; stop_wifi_ssh; rm -f "$SUPERVISOR_PIDFILE"' EXIT
+  while :; do
+    address=$(wlan_ip)
+    if [ -z "$address" ]; then
+      [ -n "$CURRENT_IP" ] && say "wlan0 lost IPv4; stopping Wi-Fi SFTP"
+      [ -n "$CURRENT_SSH_IP" ] && say "wlan0 lost IPv4; stopping Wi-Fi SSH"
+      stop_listener
+      stop_wifi_ssh
+      sleep 2
+      continue
+    fi
+
+    if wifi_sftp_enabled && [ -n "$(data_mount_type)" ]; then
+      server_pid=
+      [ -s "$SERVER_PIDFILE" ] && server_pid=$(cat "$SERVER_PIDFILE" 2>/dev/null || :)
+      if [ "$CURRENT_IP" != "$address" ] || ! pid_alive "$server_pid"; then
+        stop_listener
+        start_listener "$address" || :
+      fi
+    else
+      [ -n "$CURRENT_IP" ] && say "Wi-Fi SFTP disabled or userdata unmounted; stopping SFTP listener"
+      stop_listener
+    fi
+
+    if wifi_ssh_enabled; then
+      wifi_ssh_pid=
+      [ -s "$WIFI_SSH_PIDFILE" ] &&
+        wifi_ssh_pid=$(cat "$WIFI_SSH_PIDFILE" 2>/dev/null || :)
+      if [ "$CURRENT_SSH_IP" != "$address" ] || ! pid_alive "$wifi_ssh_pid"; then
+        stop_wifi_ssh
+        start_wifi_ssh "$address" || :
+      fi
+    else
+      [ -n "$CURRENT_SSH_IP" ] && say "usb_debug disabled; stopping Wi-Fi SSH listener"
+      stop_wifi_ssh
+    fi
+    sleep 2
+  done
+}
+case "$1" in
+  start)
+    if [ -s "$SUPERVISOR_PIDFILE" ]; then
+      old_pid=$(cat "$SUPERVISOR_PIDFILE" 2>/dev/null || :)
+      if pid_alive "$old_pid"; then exit 0; fi
+      rm -f "$SUPERVISOR_PIDFILE"
+    fi
+    stop_listener || exit 1
+    stop_wifi_ssh
+    "$0" __supervise </dev/null >>"$LOG" 2>&1 &
+    printf '%s\n' "$!" > "$SUPERVISOR_PIDFILE"
+    ;;
+  stop)
+    if [ -s "$SUPERVISOR_PIDFILE" ]; then
+      old_pid=$(cat "$SUPERVISOR_PIDFILE" 2>/dev/null || :)
+      if pid_alive "$old_pid"; then
+        kill "$old_pid" 2>/dev/null || :
+        stop_wait=0
+        while pid_alive "$old_pid" && [ "$stop_wait" -lt 40 ]; do
+          sleep 0.1
+          stop_wait=$((stop_wait + 1))
+        done
+        if pid_alive "$old_pid"; then
+          kill -9 "$old_pid" 2>/dev/null || :
+        fi
+      fi
+    fi
+    stop_listener || exit 1
+    stop_wifi_ssh
+    rm -f "$SUPERVISOR_PIDFILE" 2>/dev/null || :
+    ;;
+  status)
+    printf 'wifi_sftp: %s\n' "$(config_value wifi_sftp || echo yes)"
+    printf 'usb_debug: %s\n' "$(config_value usb_debug || echo no)"
+    printf 'wlan0 IPv4: %s\n' "$(wlan_ip || :)"
+    if [ -s "$SERVER_PIDFILE" ] && pid_alive "$(cat "$SERVER_PIDFILE" 2>/dev/null)"; then
+      printf 'SFTP listener: active on TCP/22\n'
+    else
+      printf 'SFTP listener: waiting for Wi-Fi/data mount\n'
+    fi
+    if [ -s "$WIFI_SSH_PIDFILE" ] && pid_alive "$(cat "$WIFI_SSH_PIDFILE" 2>/dev/null)"; then
+      printf 'Wi-Fi SSH listener: active on TCP/2222\n'
+    else
+      printf 'Wi-Fi SSH listener: disabled or waiting for Wi-Fi\n'
+    fi
+    printf 'SFTP root: /mnt/SDCARD (client path /)\n'
+    ;;
+  __supervise) supervise ;;
+  *) echo "usage: $0 start|stop|status" >&2; exit 2 ;;
+esac

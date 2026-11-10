@@ -142,9 +142,10 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     # network, dnsmasq hands it an address, dropbear answers on 22. It is off
     # unless baseos.conf says usb_debug=yes, and it costs ~700 KB. busybox here
     # has no udhcpd applet, which is why the DHCP side is dnsmasq.
+    OPENSSH_SERVER_PACKAGE="openssh-server>=10.0_p1-r11"
     apk --root "$R" --arch aarch64 --initdb --no-scripts --no-cache add \
       v4l-utils evtest alsa-utils iw libzip libgcc \
-      wpa_supplicant dropbear dnsmasq openssh-sftp-server \
+      wpa_supplicant dropbear dropbear-convert dnsmasq openssh-sftp-server "$OPENSSH_SERVER_PACKAGE" \
       mesa-egl mesa-gles mesa-gbm mesa-dri-gallium \
       libdrm-tests mesa-utils kmscube sdl2 sdl2_image sdl2_ttf \
       sgdisk partx blkid wipefs exfatprogs
@@ -242,6 +243,27 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
         exit 1
       }
     done
+    test -x "$R/usr/sbin/sshd" || {
+      echo "OpenSSH sshd package is missing" >&2
+      exit 1
+    }
+    test -x "$R/usr/lib/ssh/sshd-session" || {
+      echo "OpenSSH sshd-session helper is missing" >&2
+      exit 1
+    }
+    test -x "$R/usr/lib/ssh/sshd-auth" || {
+      echo "OpenSSH sshd-auth helper is missing" >&2
+      exit 1
+    }
+    test -x "$R/usr/bin/dropbearconvert" || test -x "$R/usr/sbin/dropbearconvert" || {
+      echo "dropbearconvert package is missing" >&2
+      exit 1
+    }
+    test -f "$R/usr/sbin/baseos-wifi-sftp" || {
+      echo "Wi-Fi SFTP service script is missing" >&2
+      exit 1
+    }
+    sh -n "$R/usr/sbin/baseos-wifi-sftp"
     for wifi_script in rg353ps-sleep rg353ps-wifi-connect rg353ps-wifi-cycle; do
       test -x "$R/usr/sbin/$wifi_script" || {
         echo "WiFi/sleep helper is missing or not executable: $wifi_script" >&2
@@ -279,6 +301,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     chmod 0755 "$R/usr/sbin/baseos-audio-init"
     chmod 0755 "$R/usr/sbin/baseos-audio-check"
     chmod 0755 "$R/usr/sbin/baseos-usb-debug"
+    chmod 0755 "$R/usr/sbin/baseos-wifi-sftp"
     chmod 0755 "$R/usr/sbin/baseos-usb-mtp"
     chmod 0644 "$R/usr/sbin/baseos-usb-mode-lib"
     chmod 0755 "$R/usr/sbin/rg353ps-sleep"
@@ -301,21 +324,61 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     chmod 0600 "$R/etc/dropbear/dropbear_ed25519_host_key"
     mkdir -p "$R/mnt/SDCARD" "$R/run" "$R/root" "$R/var/empty" "$R/etc/wpa_supplicant"
     ln -sfn /mnt/SDCARD "$R/mnt/sdcard"
-    printf "root:x:0:0:root:/root:/bin/sh\n" > "$R/etc/passwd"
-    printf "root:x:0:\n" > "$R/etc/group"
-    # Root carries a password so the USB debug channel can be entered without
-    # the key: login as root with password root. The hash is baked in rather
+    # Alpine OpenSSH is built with privilege separation enabled. Package
+    # install hooks are disabled for this image, so create its locked service
+    # account explicitly; sshd drops its pre-authentication child to this UID.
+    printf "root:x:0:0:root:/root:/bin/sh\nsshd:x:22:22:SSH privilege separation:/var/empty:/sbin/nologin\n" > "$R/etc/passwd"
+    printf "root:x:0:\nsshd:x:22:\n" > "$R/etc/group"
+    chmod 0755 "$R/var/empty"
+    # Root carries the existing password for USB debugging and the SFTP-only
+    # Wi-Fi account. Wi-Fi sshd forces internal-sftp and chroots to /mnt/SDCARD;
+    # it does not offer an interactive root shell. The hash is baked in rather
     # than computed here because the build container (alpine:3.22) has neither
     # mkpasswd nor openssl, and a random salt would make every build differ.
-    # The channel is still bound to the RNDIS address 192.168.42.1 and only
-    # exists while baseos.conf has usb_debug=yes, so this is not a Wi-Fi
-    # surface. To change the password, regenerate with the same fixed salt:
-    #     openssl passwd -6 -salt baseosrg <new-password>
-    # and replace the hash below. To go back to key-only logins, put * here
-    # (dropbear is not started with -s, so a locked hash is what disables
-    # password auth).
+    # USB Dropbear stays bound to 192.168.42.1 and controlled by usb_debug.
+    # Wi-Fi OpenSSH is separately bound to wlan0 and restricted to SFTP in
+    # /mnt/SDCARD. To change the shared root password, regenerate with the
+    # same fixed salt:
     BASEOS_ROOT_HASH="\$6\$baseosrg\$ZjVux5iPKMrAFlY4uyVHbIxb.NTUSifHTjYkVcmdQc9sCCS0ZsTZaZZzL51lBu6k6D2.J7X9B5IitsGVmat9j/"
-    printf "root:%s:19000:0:99999:7:::\n" "$BASEOS_ROOT_HASH" > "$R/etc/shadow"
+    printf "root:%s:19000:0:99999:7:::\nsshd:!:19000:0:99999:7:::\n" "$BASEOS_ROOT_HASH" > "$R/etc/shadow"
+    # Validate the exact SFTP-only configuration with the same OpenSSH binary
+    # and host key conversion that will run on the handheld.
+    chroot "$R" /usr/bin/dropbearconvert dropbear openssh \
+      /etc/dropbear/dropbear_ed25519_host_key /run/baseos-wifi-sftp-test-key
+    chmod 0600 "$R/run/baseos-wifi-sftp-test-key"
+    cat > "$R/run/baseos-wifi-sftp-build-test.conf" <<EOF
+Port 2222
+AddressFamily inet
+ListenAddress 127.0.0.1
+HostKey /run/baseos-wifi-sftp-test-key
+PidFile /run/baseos-wifi-sftp-test.pid
+PermitRootLogin yes
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+PubkeyAuthentication yes
+AuthorizedKeysFile /root/.ssh/authorized_keys
+AllowUsers root
+StrictModes yes
+ChrootDirectory /mnt/SDCARD
+ForceCommand internal-sftp -d / -u 022
+Subsystem sftp internal-sftp
+DisableForwarding yes
+AllowTcpForwarding no
+AllowAgentForwarding no
+X11Forwarding no
+PermitTunnel no
+PermitTTY no
+PermitUserRC no
+PermitUserEnvironment no
+LoginGraceTime 20
+MaxAuthTries 3
+MaxSessions 2
+MaxStartups 3:30:10
+LogLevel VERBOSE
+EOF
+    chroot "$R" /usr/sbin/sshd -t -f /run/baseos-wifi-sftp-build-test.conf
+    rm -f "$R/run/baseos-wifi-sftp-test-key" "$R/run/baseos-wifi-sftp-build-test.conf"
     ln -sfn /proc/mounts "$R/etc/mtab"
     ln -sfn /run/resolv.conf "$R/etc/resolv.conf"
     # baseos-audio-init writes the softvol definition at boot, and the root

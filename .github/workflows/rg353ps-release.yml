@@ -51,6 +51,7 @@ on:
       - "VERSION"
       - "docs/RG353PS-RELEASE-1.2.7.md"
       - "docs/RG353PS-RELEASE-1.2.8.md"
+      - "docs/RG353PS-RELEASE-1.2.8.md"
     tags:
       - "v*"
 
@@ -198,7 +199,10 @@ jobs:
         id: stage
         run: |
           version="${{ steps.version.outputs.version }}"
-          package_type="${{ inputs.package_type || 'both' }}"
+          case "$GITHUB_REF" in
+            refs/heads/release/1.2.8) package_type=full ;;
+            *) package_type="${{ inputs.package_type || 'both' }}" ;;
+          esac
           # 1.2.8 is a full-image-only clean-flash migration.
           if [ "$version" = "1.2.8" ]; then package_type=full; fi
           work=work/rg353ps

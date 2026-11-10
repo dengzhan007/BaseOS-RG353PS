@@ -365,6 +365,22 @@ EOF
     echo "rootfs prepared at $R"
   '
 
+
+for file in "$ROOTFS/usr/bin/busybox" "$ROOTFS/usr/bin/baseos-splash" "$ROOTFS/usr/bin/fbsplash" "$ROOTFS/sbin/init" "$ROOTFS/etc/init.d/rcS" "$ROOTFS/usr/sbin/baseos-mount-storage" "$ROOTFS/usr/sbin/baseos-init-userdata" "$ROOTFS/usr/sbin/baseos-usb-storage" "$ROOTFS/usr/sbin/baseos-usb-mtp" "$ROOTFS/usr/sbin/baseos-usb-mode-lib" "$ROOTFS/usr/sbin/umtprd" "$ROOTFS/etc/umtprd/umtprd.conf" "$ROOTFS/usr/sbin/baseos-frontend-session" "$ROOTFS/usr/sbin/baseos-frontend-discovery" "$ROOTFS/usr/sbin/rg353ps-hotkeyd" "$ROOTFS/usr/sbin/rg353ps-hardware-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-test" "$ROOTFS/usr/sbin/rg353ps-graphics-stack-test" "$ROOTFS/usr/sbin/rg353ps-sdl2-test" "$ROOTFS/usr/sbin/rg353ps-control-center" "$ROOTFS/etc/baseos.conf" "$ROOTFS/etc/baseos-release" \
+  "$ROOTFS/etc/baseos/bootlogo.bmp" \
+  "$ROOTFS/etc/dropbear/dropbear_ed25519_host_key" \
+  "$ROOTFS/usr/sbin/baseos-update" "$ROOTFS/usr/sbin/gptslot" \
+  "$ROOTFS/usr/sbin/rg353ps-sleep" "$ROOTFS/usr/sbin/rg353ps-wifi-connect" \
+  "$ROOTFS/usr/sbin/wpa_supplicant" "$ROOTFS/lib/modules/$KREL/modules.dep"; do
+  # A symlink is accepted even when it cannot be followed here: the rootfs uses
+  # absolute links (/bin/sh -> /usr/bin/busybox) that only resolve inside the
+  # image, so -e alone reports every one of them as missing on the host.
+  { [ -e "$file" ] || [ -L "$file" ]; } || {
+    echo "rootfs missing required file: $file" >&2
+    exit 1
+  }
+done
+
 # Generate the default boot artwork offline with the H700 BaseOS fbsplash method.
 "$REPO_ROOT/tools/make-bootlogo.sh"
 install -m 0644 "$WORK/bootlogo.bmp" "$ROOTFS/etc/baseos/bootlogo.bmp"
@@ -386,20 +402,6 @@ assert len(data) >= 921654, "bootlogo is truncated: {} bytes".format(len(data))
 print("Offline fbsplash bootlogo verified: 640x480 24bpp ({} bytes)".format(len(data)))
 PY
 
-for file in "$ROOTFS/usr/bin/busybox" "$ROOTFS/usr/bin/baseos-splash" "$ROOTFS/usr/bin/fbsplash" "$ROOTFS/sbin/init" "$ROOTFS/etc/init.d/rcS" "$ROOTFS/usr/sbin/baseos-mount-storage" "$ROOTFS/usr/sbin/baseos-init-userdata" "$ROOTFS/usr/sbin/baseos-usb-storage" "$ROOTFS/usr/sbin/baseos-usb-mtp" "$ROOTFS/usr/sbin/baseos-usb-mode-lib" "$ROOTFS/usr/sbin/umtprd" "$ROOTFS/etc/umtprd/umtprd.conf" "$ROOTFS/usr/sbin/baseos-frontend-session" "$ROOTFS/usr/sbin/baseos-frontend-discovery" "$ROOTFS/usr/sbin/rg353ps-hotkeyd" "$ROOTFS/usr/sbin/rg353ps-hardware-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-test" "$ROOTFS/usr/sbin/rg353ps-graphics-stack-test" "$ROOTFS/usr/sbin/rg353ps-sdl2-test" "$ROOTFS/usr/sbin/rg353ps-control-center" "$ROOTFS/etc/baseos.conf" "$ROOTFS/etc/baseos-release" \
-  "$ROOTFS/etc/baseos/bootlogo.bmp" \
-  "$ROOTFS/etc/dropbear/dropbear_ed25519_host_key" \
-  "$ROOTFS/usr/sbin/baseos-update" "$ROOTFS/usr/sbin/gptslot" \
-  "$ROOTFS/usr/sbin/rg353ps-sleep" "$ROOTFS/usr/sbin/rg353ps-wifi-connect" \
-  "$ROOTFS/usr/sbin/wpa_supplicant" "$ROOTFS/lib/modules/$KREL/modules.dep"; do
-  # A symlink is accepted even when it cannot be followed here: the rootfs uses
-  # absolute links (/bin/sh -> /usr/bin/busybox) that only resolve inside the
-  # image, so -e alone reports every one of them as missing on the host.
-  { [ -e "$file" ] || [ -L "$file" ]; } || {
-    echo "rootfs missing required file: $file" >&2
-    exit 1
-  }
-done
 
 echo "RG353PS rootfs ready: $ROOTFS"
 echo "Kernel release: $KREL"

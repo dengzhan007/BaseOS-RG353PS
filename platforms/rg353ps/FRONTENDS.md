@@ -89,7 +89,6 @@ BaseOS exports:
 | `BASEOS_SYSTEM_ROOT` | System root (`/`) |
 | `BASEOS_LAUNCHER` | Adapter launch-script path |
 | `BASEOS_SLEEP` | RG353PS suspend helper (`/usr/sbin/rg353ps-sleep`) |
-| `BASEOS_WIFI` | RG353PS Wi-Fi control helper (`/usr/sbin/rg353ps-wifi-connect`) |
 
 The two private directories are created under
 `<frontend-root>/.baseos/data` and `<frontend-root>/.baseos/userdata`.
@@ -103,15 +102,18 @@ power sequence, and returns after the physical Power key wakes the device.
 Do not replace this with an idle poweroff timer. The helper is not hibernation
 and does not provide RTC self-wakeup; see [POWER.md](POWER.md).
 
-BaseOS owns the RG353PS Wi-Fi control plane at
-`BASEOS_WIFI` (normally `/usr/sbin/rg353ps-wifi-connect`) (`up`, `down`, `status`, `scan`,
-`join`, `forget`, `list`, `reconnect`). Frontends should not launch a
-second supplicant or reinitialize the Wi-Fi driver. The Slot package includes
-a `System/slotnet.sh` compatibility adapter that translates its card-side
-contract to this BaseOS helper and maps scan results into the frontend's
-SSID / signal / security format. The helper reads a Slot card's
-`System/wifi.conf` when present, so the card remains the editable credential
-source.
+BaseOS follows the upstream ownership boundary for RG353PS Wi-Fi:
+it loads the `rtw88_8821cs` driver asynchronously during boot, waits for
+`wlan0`, unblocks Wi-Fi through `rfkill` and raises the interface. It does
+not associate with an access point or run the frontend's DHCP session.
+
+The frontend owns scanning, saved credentials, association, `wpa_supplicant`
+and DHCP through its card-side `System/slotnet.sh` and `System/wifi.conf`.
+The RG353PS Slot package uses the upstream Slot script without translating
+its connection lifecycle into a BaseOS-specific API. During deep suspend,
+BaseOS asks that script to take the network down and starts it again after the
+SDIO driver has rebound; older packages without the script retain a legacy
+BaseOS-helper fallback.
 
 A minimal adapter:
 

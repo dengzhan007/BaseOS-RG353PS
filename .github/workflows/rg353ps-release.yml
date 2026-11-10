@@ -77,6 +77,17 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Building BaseOS RG353PS $version"
 
+      - name: Verify embedded OS version
+        run: |
+          version="$(tr -d ' \\n' < VERSION)"
+          os_version="$(sed -n 's/^VERSION_ID="\\([^"]*\\)"$/\\1/p' platforms/rg353ps/rootfs/etc/os-release)"
+          [ -n "$os_version" ] || { echo "VERSION_ID missing from os-release" >&2; exit 1; }
+          [ "$version" = "$os_version" ] || {
+            echo "Version mismatch: VERSION=$version, os-release VERSION_ID=$os_version" >&2
+            exit 1
+          }
+          echo "Version metadata verified: $version"
+
       - name: Enable ARM64 container emulation
         uses: docker/setup-qemu-action@v3
         with:

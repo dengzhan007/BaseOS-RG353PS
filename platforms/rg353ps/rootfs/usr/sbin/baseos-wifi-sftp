@@ -47,6 +47,14 @@ stop_listener() {
     server_pid=$(cat "$SERVER_PIDFILE" 2>/dev/null || :)
     if pid_alive "$server_pid"; then
       kill "$server_pid" 2>/dev/null || :
+      server_wait=0
+      while pid_alive "$server_pid" && [ "$server_wait" -lt 30 ]; do
+        sleep 0.1
+        server_wait=$((server_wait + 1))
+      done
+      if pid_alive "$server_pid"; then
+        kill -9 "$server_pid" 2>/dev/null || :
+      fi
       wait "$server_pid" 2>/dev/null || :
     fi
     rm -f "$SERVER_PIDFILE" 2>/dev/null || :
@@ -213,6 +221,9 @@ case "$1" in
           sleep 0.1
           stop_wait=$((stop_wait + 1))
         done
+        if pid_alive "$old_pid"; then
+          kill -9 "$old_pid" 2>/dev/null || :
+        fi
       fi
     fi
     stop_listener || exit 1

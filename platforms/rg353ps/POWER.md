@@ -32,7 +32,7 @@ BaseOS 启动前端时导出：
 BASEOS_SLEEP=/usr/sbin/rg353ps-sleep
 ~~~
 
-前端应在用户明确触发休眠时启动该程序，而不是用“息屏 N 分钟后 poweroff”来模拟休眠。休眠前应先保存游戏状态；脚本会负责系统层的 Wi-Fi 关闭与恢复。由于 BASEOS_SLEEP 由适配器提供，其他平台或桌面开发环境没有该变量时，前端可以保留自身的备用电源策略。
+前端应在用户明确触发休眠时启动该程序，而不是用“息屏 N 分钟后 poweroff”来模拟休眠。休眠前应先保存游戏状态；脚本会负责系统层的 Wi-Fi 关闭与恢复。**使用 BASEOS_SLEEP 时，物理背光由 BaseOS 独占管理**：前端不要在启动脚本前调用 Power::on_close() 或提前把 sysfs brightness 写成 0，否则 BaseOS 只能捕获到 0，唤醒后仍会黑屏；脚本返回并完成背光恢复后，前端也不要用缓存的亮度值再次覆盖硬件值。只有 BASEOS_SLEEP 缺失或无法启动、改走前端自己的休眠回退流程时，才使用前端的 on_close/on_open 背光处理。由于 BASEOS_SLEEP 由适配器提供，其他平台或桌面开发环境没有该变量时，前端可以保留自身的备用电源策略。
 
 Slot 的 RG353PS 适配已通过此接口进入 BaseOS 深度休眠；设置页显示“系统深度休眠”，并忽略旧卡上遗留的自动关机分钟数。长按关机仍是独立的真正关机路径。
 
@@ -91,7 +91,7 @@ BaseOS exports this variable before launching a frontend:
 BASEOS_SLEEP=/usr/sbin/rg353ps-sleep
 ~~~
 
-A frontend should launch this helper when the user requests suspend, rather than approximating sleep with an idle timer that later calls poweroff. Save game state before entering suspend; the helper owns system-level Wi-Fi shutdown and recovery. Other platforms and desktop development environments may omit this variable, so a frontend may retain its platform-independent fallback policy.
+A frontend should launch this helper when the user requests suspend, rather than approximating sleep with an idle timer that later calls poweroff. Save game state before entering suspend; the helper owns system-level Wi-Fi shutdown and recovery. **BaseOS also exclusively owns physical backlight I/O while this helper is used**: the frontend must not call Power::on_close() or write zero to sysfs brightness before starting it, because the helper would capture zero and restore zero after wake. Once the helper returns, the frontend must not overwrite the restored hardware brightness with a stale cached level. Keep frontend on_close/on_open backlight handling only for platforms without BASEOS_SLEEP or when falling back because the helper could not be started. Other platforms and desktop development environments may omit this variable, so a frontend may retain its platform-independent fallback policy.
 
 The RG353PS Slot adapter now uses this hook, shows “Deep Suspend” in its settings page, and ignores legacy auto-poweroff minutes stored on older cards. Long-press poweroff remains a separate, explicit shutdown path.
 

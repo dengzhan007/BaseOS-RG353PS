@@ -1,9 +1,10 @@
 #!/bin/sh
-# RG353PS WiFi control plane for the frontend and for wake-up recovery.
+# Legacy RG353PS Wi-Fi helper for generic / older frontends and recovery.
 #
-# The device ships wpa_supplicant but no NetworkManager, so this script is the
-# single supported entry point: the frontend calls it, rg353ps-sleep calls it
-# after resume, and a human can call it over the debug shell.
+# The current Slot port follows upstream ownership: rcS initializes wlan0 and
+# System/slotnet.sh owns scan, credentials, supplicant and DHCP. rg353ps-sleep
+# prefers that card-side helper and calls this script only when it is absent.
+# Keep this interface for older frontends and manual diagnostics.
 #
 # Configuration lives in /etc/wpa_supplicant/wpa_supplicant.conf with
 # update_config=1, so `join` persists networks across reboots. A copy is kept on

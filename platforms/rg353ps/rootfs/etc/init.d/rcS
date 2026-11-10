@@ -246,7 +246,14 @@ if [ -x /sbin/modprobe ]; then
       wifi_wait=$((wifi_wait + 1))
     done
     if [ -d /sys/class/net/wlan0 ]; then
-      rfkill unblock wifi 2>/dev/null || :
+      # This minimal rootfs does not install the standalone rfkill utility.
+      # Clear the WLAN soft-block through the kernel's rfkill class instead.
+      for rfkill_dev in /sys/class/rfkill/rfkill*; do
+        [ -r "$rfkill_dev/type" ] || continue
+        IFS= read -r rfkill_type < "$rfkill_dev/type" || :
+        [ "$rfkill_type" = wlan ] || continue
+        [ ! -w "$rfkill_dev/state" ] || printf '1\n' > "$rfkill_dev/state" 2>/dev/null || :
+      done
       ip link set wlan0 up 2>/dev/null || :
       log "Wi-Fi wlan0 ready for frontend association"
     else

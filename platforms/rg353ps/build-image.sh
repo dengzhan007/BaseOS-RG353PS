@@ -41,6 +41,22 @@ done
 [ -s "$KERNEL_META" ] || { echo "missing kernel metadata" >&2; exit 1; }
 [ -x "$ROOTFS/usr/bin/busybox" ] || { echo "missing rootfs (run ./platforms/rg353ps/build-rootfs.sh)" >&2; exit 1; }
 
+# Keep the boot partition's default splash identical to upstream BaseOS.
+# rootfs/etc/baseos/bootlogo.bmp is only a legacy fallback and may carry a
+# platform-specific/custom image; the canonical upstream artwork lives in
+# the repository-level assets/bootlogo.bmp.
+BASEOS_BOOTLOGO="$WORK/baseos-bootlogo.bmp"
+[ -s "$REPO_ROOT/assets/bootlogo.bmp" ] || {
+  echo "missing canonical BaseOS artwork: $REPO_ROOT/assets/bootlogo.bmp" >&2
+  exit 1
+}
+mkdir -p "$WORK"
+cp "$REPO_ROOT/assets/bootlogo.bmp" "$BASEOS_BOOTLOGO"
+cmp -s "$REPO_ROOT/assets/bootlogo.bmp" "$BASEOS_BOOTLOGO" || {
+  echo "failed to stage the canonical BaseOS boot logo" >&2
+  exit 1
+}
+
 KREL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["kernel_release"])' "$KERNEL_META")"
 [ -d "$ROOTFS/lib/modules/$KREL" ] || { echo "rootfs has no matching modules for $KREL" >&2; exit 1; }
 
@@ -153,10 +169,10 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
     mcopy -i "$BOOTFS" /work/kernel/output/Image ::/Image
     mcopy -i "$BOOTFS" /work/kernel/output/rk3566-anbernic-rg353ps.dtb ::/device_trees/rk3566-anbernic-rg353ps.dtb
     mcopy -o -i "$BOOTFS" /work/rootfs/etc/baseos.conf ::/baseos.conf
-    # The boot logo is a plain file on this partition, the way it is upstream:
-    # rcS draws it once, and the frontend replaces it by writing the partition
-    # (no rootfs rebuild, and an update never touches this partition).
-    mcopy -i "$BOOTFS" /work/rootfs/etc/baseos/bootlogo.bmp ::/bootlogo.bmp
+    # The canonical upstream BaseOS artwork is staged separately from the
+    # rootfs fallback so RG353PS builds do not accidentally ship the legacy
+    # platform-specific image as the active boot splash.
+    mcopy -i "$BOOTFS" /work/baseos-bootlogo.bmp ::/bootlogo.bmp
     # Install the replaceable keyboard-free diagnostic task on the FAT boot partition.
 
     # `ro`, not `rw`. Nothing on this image writes to the root filesystem: the

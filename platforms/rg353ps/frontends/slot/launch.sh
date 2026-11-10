@@ -13,6 +13,10 @@ LOGDIR="$SDCARD/Logs"
 
 mkdir -p "$LOGDIR" "$SDCARD/Games" "$SDCARD/Saves" 2>/dev/null || :
 export SLOT_ROOT="$SDCARD"
+# Upstream slotnet.sh defaults to the H700 vendor module name. RG353PS uses
+# the mainline rtw88 SDIO driver; pass the selected card root explicitly too.
+export AGS_ROOT="$SDCARD"
+export AGS_NET_MODULE=rtw88_8821cs
 export BASEOS_TARGET=rg353ps
 export BASEOS_MODEL=rg353ps
 export BASEOS_PANEL_ROTATION_CCW=0

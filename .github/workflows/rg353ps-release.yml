@@ -1,8 +1,7 @@
 name: RG353PS release build
 
-# Produces the two artifacts a user actually needs:
-#   baseos-rg353ps-<version>.img.gz   complete card image, for a new SD card
-#   baseos-rg353ps-<version>.bosupd   update payload, for a card already running
+# Produces the complete card image and, where supported, an A/B update payload.
+# Version 1.2.8 is a deliberate clean-flash migration and produces only the image.
 # The release workflow builds the complete BaseOS image and derives the A/B
 # update payload from that exact image. The game frontend remains user-installed.
 

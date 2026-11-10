@@ -1,5 +1,5 @@
 #!/bin/sh
-# Wi-Fi SFTP service for RG353PS. Independent from USB Dropbear/usb_debug.
+# Wi-Fi SFTP service for RG353PS. Independent from USB Dropbear/ssh_debug.
 set -u
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
 export PATH
@@ -30,7 +30,7 @@ setting_enabled() {
   esac
 }
 wifi_sftp_enabled() { setting_enabled wifi_sftp; }
-wifi_ssh_enabled() { setting_enabled usb_debug; }
+wifi_ssh_enabled() { setting_enabled ssh_debug; }
 data_mount_type() { awk '$2 == "/mnt/SDCARD" { print $3; exit }' /proc/mounts; }
 wlan_ip() {
   ip -4 -o addr show dev "$IFACE" scope global 2>/dev/null |
@@ -149,7 +149,7 @@ start_wifi_ssh() {
     return 1
   fi
   CURRENT_SSH_IP=$ip_addr
-  say "interactive SSH listener active on wlan0 $ip_addr:2222 (usb_debug=yes)"
+  say "interactive SSH listener active on wlan0 $ip_addr:2222 (ssh_debug=yes)"
   return 0
 }
 prepare_hostkey() {
@@ -275,7 +275,7 @@ supervise() {
         start_wifi_ssh "$address" || :
       fi
     else
-      [ -n "$CURRENT_SSH_IP" ] && say "usb_debug disabled; stopping Wi-Fi SSH listener"
+      [ -n "$CURRENT_SSH_IP" ] && say "ssh_debug disabled; stopping Wi-Fi SSH listener"
       stop_wifi_ssh
     fi
     sleep 2
@@ -314,7 +314,7 @@ case "$1" in
     ;;
   status)
     printf 'wifi_sftp: %s\n' "$(config_value wifi_sftp || echo yes)"
-    printf 'usb_debug: %s\n' "$(config_value usb_debug || echo no)"
+    printf 'ssh_debug: %s\n' "$(config_value ssh_debug || echo no)"
     printf 'wlan0 IPv4: %s\n' "$(wlan_ip || :)"
     if [ -s "$SERVER_PIDFILE" ] && pid_alive "$(cat "$SERVER_PIDFILE" 2>/dev/null)"; then
       printf 'SFTP listener: active on TCP/22\n'

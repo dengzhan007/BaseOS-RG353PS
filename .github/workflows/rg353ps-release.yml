@@ -51,6 +51,7 @@ on:
       - "tools/common.sh"
       - "VERSION"
       - "docs/RG353PS-RELEASE-1.2.7.md"
+      - "docs/RG353PS-RELEASE-1.2.8.md"
     tags:
       - "v*"
 
@@ -156,12 +157,15 @@ jobs:
 
       # The update payload is derived from the composed image, so the image
       # remains an intermediate input even when only the update is published.
+      # Version 1.2.8 changes the persisted SSH setting name without a
+      # compatibility alias. It is a clean-flash migration and must not ship
+      # an update package for earlier cards.
       - name: Build .bosupd update payload
-        if: ${{ inputs.package_type != 'full' }}
+        if: ${{ inputs.package_type != 'full' && steps.version.outputs.version != '1.2.8' }}
         run: ./platforms/rg353ps/build-update.sh
 
       - name: Verify .bosupd manifest
-        if: ${{ inputs.package_type != 'full' }}
+        if: ${{ inputs.package_type != 'full' && steps.version.outputs.version != '1.2.8' }}
         run: |
           python3 - work/rg353ps/baseos-rg353ps-${{ steps.version.outputs.version }}.bosupd "${{ steps.version.outputs.version }}" <<'PY'
           import sys, tarfile
@@ -183,6 +187,8 @@ jobs:
         run: |
           version="${{ steps.version.outputs.version }}"
           package_type="${{ inputs.package_type || 'both' }}"
+          # 1.2.8 is a full-image-only clean-flash migration.
+          if [ "$version" = "1.2.8" ]; then package_type=full; fi
           work=work/rg353ps
           out=work/release
           mkdir -p "$out"

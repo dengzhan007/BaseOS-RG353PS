@@ -258,6 +258,36 @@ jobs:
             esac
           fi
           if [ -n "$tag" ]; then
+            if [ "$GITHUB_REF" = "refs/heads/release/1.2.8" ]; then
+              # 1.2.8 is a clean-flash-only release. Remove any stale update
+              # payload left by an earlier queued workflow attempt before upload.
+              if gh release view "$tag" >/dev/null 2>&1; then
+                for asset in $(gh release view "$tag" --json assets --jq '.assets[].name' | grep '\\.bosupd              # A release rebuild must update the existing release, never create
+              # a second tag or release by accident.
+              gh release view "$tag" >/dev/null
+              gh release upload "$tag" work/release/* --clobber
+            elif gh release view "$tag" >/dev/null 2>&1; then
+              gh release upload "$tag" work/release/* --clobber
+            else
+              notes_file="docs/RG353PS-RELEASE-$version.md"
+              if [ -f "$notes_file" ]; then
+                gh release create "$tag" work/release/* \
+                  --title "BaseOS RG353PS $version" \
+                  --notes-file "$notes_file" \
+                  --target "$GITHUB_SHA"
+              else
+                gh release create "$tag" work/release/* \
+                  --title "BaseOS RG353PS $version" \
+                  --notes "Complete image and .bosupd update payload for $version." \
+                  --target "$GITHUB_SHA"
+              fi
+            fi
+          fi
+ || true); do
+                  gh release delete-asset "$tag" "$asset" --yes
+                done
+              fi
+            fi
             if [ "$GITHUB_REF" = "refs/heads/release/1.2.6-rebuild" ] || { [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$GITHUB_HEAD_REF" = "release/1.2.6-rebuild" ]; }; then
               # A release rebuild must update the existing release, never create
               # a second tag or release by accident.

@@ -44,9 +44,9 @@ ln -sfn /run /var/run 2>/dev/null || :
 # home directory holds nothing that has to outlive a boot.
 mount -t tmpfs -o mode=0700,nosuid,nodev tmpfs /root 2>/dev/null || :
 mkdir -p /root/.ssh 2>/dev/null || :
-# wpa_supplicant writes its networks back with update_config=1 and rewrites the
-# file by rename, so a file symlink would not survive it. The directory is RAM,
-# and rg353ps-wifi-connect keeps the durable copy on the user volume.
+# Keep a writable runtime config directory for the legacy BaseOS Wi-Fi
+# helper. The Slot frontend uses its own card-side System/wifi.conf and
+# System/slotnet.sh, matching upstream BaseOS ownership (frontend owns association).
 mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /etc/wpa_supplicant 2>/dev/null || :
 
 # Boot-stage marks, defined here because /run only becomes writable at the line
@@ -237,6 +237,21 @@ if [ -x /sbin/modprobe ]; then
   mark "modules: gpu ready"
   (
     /sbin/modprobe rtw88_8821cs 2>/dev/null || :
+    # Match the upstream BaseOS contract: initialize the radio only. Slot owns
+    # association, saved credentials, wpa_supplicant and DHCP. Never delay the
+    # frontend handoff for an absent or slow radio.
+    wifi_wait=0
+    while [ ! -d /sys/class/net/wlan0 ] && [ "$wifi_wait" -lt 8 ]; do
+      sleep 0.25 2>/dev/null || sleep 1
+      wifi_wait=$((wifi_wait + 1))
+    done
+    if [ -d /sys/class/net/wlan0 ]; then
+      rfkill unblock wifi 2>/dev/null || :
+      ip link set wlan0 up 2>/dev/null || :
+      log "Wi-Fi wlan0 ready for frontend association"
+    else
+      log "WARNING: wlan0 absent after rtw88_8821cs load; frontend may retry"
+    fi
     /sbin/modprobe hci_uart 2>/dev/null || :
     /sbin/modprobe btrtl 2>/dev/null || :
     /sbin/modprobe hantro-vpu 2>/dev/null || log "WARNING: Hantro VPU driver failed to load"

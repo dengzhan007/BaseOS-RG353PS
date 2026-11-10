@@ -189,8 +189,10 @@ rm -f /run/rg353ps-hotkeyd.ready "$BOOT_USB_REQUEST"
 /usr/sbin/rg353ps-hotkeyd >/dev/null 2>&1 &
 echo $! > /run/rg353ps-hotkeyd.pid
 # U-Boot deliberately leaves the panel black. Draw the generated BaseOS
-# wordmark immediately; no user-data state is available yet, and a bundled
-# bootlogo.bmp must never silently become the default artwork.
+# wordmark immediately at progress 100: this is the fully illuminated static
+# wordmark. Progress 0 is only the first left-to-right reveal frame (B lit); no
+# animation loop advances it during an ordinary boot. No user-data state is
+# available yet, and a bundled bootlogo.bmp must never silently become default.
 BOOT_LOGO_DRAWN=0
 
 # Everything from here to the wait below runs while the key sample is still
@@ -210,7 +212,7 @@ BOOT_LOGO_DRAWN=0
 mark "storage mounted"
 
 if [ -x /usr/bin/fbsplash ] &&
-   /usr/bin/fbsplash 0 >/dev/null 2>&1; then
+   /usr/bin/fbsplash 100 >/dev/null 2>&1; then
   BOOT_LOGO_DRAWN=1
   mark "generated BaseOS boot logo drawn"
 fi
@@ -412,7 +414,7 @@ if [ ! -e "$BOOT_USB_REQUEST" ] && [ -x /usr/bin/fbsplash ]; then
       log "WARNING: selected custom boot logo could not be drawn; keeping generated BaseOS logo"
     fi
   elif [ "$BOOT_LOGO_DRAWN" -eq 0 ]; then
-    /usr/bin/fbsplash 0 >/dev/null 2>&1 && BOOT_LOGO_DRAWN=1
+    /usr/bin/fbsplash 100 >/dev/null 2>&1 && BOOT_LOGO_DRAWN=1
   fi
 fi
 

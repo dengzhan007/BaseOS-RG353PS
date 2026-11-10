@@ -107,8 +107,8 @@ eq "3 release + fresh card resolves ssh_debug=no" \
 
 # --- 4/5. Explicit card values still win in BOTH directions ----------------
 mkdir -p "$TMP/card_yes" "$TMP/card_no"
-printf 'debug=no\nusb_debug=yes\n' > "$TMP/card_yes/baseos.conf"
-printf 'debug=no\nusb_debug=no\n' > "$TMP/card_no/baseos.conf"
+printf 'debug=no\nssh_debug=yes\n' > "$TMP/card_yes/baseos.conf"
+printf 'debug=no\nssh_debug=no\n' > "$TMP/card_no/baseos.conf"
 eq "4 card ssh_debug=yes overrides release image no" \
    "$(resolve ssh_debug "$TMP/card_yes/baseos.conf" "$TMP/boot_absent" "$TMP/etc_release")" "yes"
 eq "5 card ssh_debug=no overrides development image yes" \
@@ -127,7 +127,7 @@ eq "6c explicit card usb_mtp=no still overrides image yes" \
 
 # --- 7. An existing non-empty card config is never rewritten ---------------
 mkdir -p "$TMP/card_existing"
-printf '# owner-owned config\ndebug=yes\nusb_debug=no\nusb_mtp=no\n' > "$TMP/card_existing/baseos.conf"
+printf '# owner-owned config\ndebug=yes\nssh_debug=no\nusb_mtp=no\n' > "$TMP/card_existing/baseos.conf"
 BEFORE="$(sha256sum "$TMP/card_existing/baseos.conf" | cut -d' ' -f1)"
 seed "$TMP/card_existing"
 AFTER="$(sha256sum "$TMP/card_existing/baseos.conf" | cut -d' ' -f1)"

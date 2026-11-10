@@ -109,11 +109,16 @@ not associate with an access point or run the frontend's DHCP session.
 
 The frontend owns scanning, saved credentials, association, `wpa_supplicant`
 and DHCP through its card-side `System/slotnet.sh` and `System/wifi.conf`.
-The RG353PS Slot package uses the upstream Slot script without translating
-its connection lifecycle into a BaseOS-specific API. During deep suspend,
-BaseOS asks that script to take the network down and starts it again after the
-SDIO driver has rebound; older packages without the script retain a legacy
-BaseOS-helper fallback.
+The RG353PS Slot launcher passes `AGS_ROOT` as the selected card root and
+overrides `AGS_NET_MODULE=rtw88_8821cs`: the upstream helper defaults to the
+H700 vendor module name `8821cs`, while this target uses the mainline rtw88
+SDIO driver. Normally BaseOS has already loaded it asynchronously before the
+Wi-Fi UI is opened; the module override is a recovery fallback if `wlan0`
+has not appeared yet. The RG353PS Slot package otherwise uses the upstream
+script without translating its connection lifecycle into a BaseOS-specific
+API. During deep suspend, BaseOS passes the active card root to the script,
+takes the network down, and starts it again after the SDIO driver has rebound;
+older packages without the script retain a legacy BaseOS-helper fallback.
 
 A minimal adapter:
 

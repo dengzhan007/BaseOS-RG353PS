@@ -154,7 +154,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_HOST" \
     mcopy -i "$BOOTFS" /work/kernel/output/rk3566-anbernic-rg353ps.dtb ::/device_trees/rk3566-anbernic-rg353ps.dtb
     mcopy -o -i "$BOOTFS" /work/rootfs/etc/baseos.conf ::/baseos.conf
     # Keep the compatibility BMP in the active BOOT slot. It is not the
-    # default startup artwork: rcS draws fbsplash's generated BaseOS wordmark
+    # default startup artwork: rcS draws the generated BaseOS wordmark through fbsplash
     # unless a persistent Slot selection exists on BASEOS user data. The BMP
     # becomes active only after rcS restores that selected image.
     mcopy -i "$BOOTFS" /work/rootfs/etc/baseos/bootlogo.bmp ::/bootlogo.bmp

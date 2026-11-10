@@ -142,8 +142,9 @@ BOOT_USB_REQUEST=/run/baseos-usb-storage.boot-request
 #   System/bootlogo.txt
 #   Bootlogos/<selected filename>
 # BASEOS_BOOT is an A/B-updated slot, so its bootlogo.bmp is only the active
-# copy, not the durable setting. Restore the selected image after userdata is
-# mounted and before drawing the final startup splash.
+# cache, not the durable setting. With no selected image, fbsplash draws the
+# generated BaseOS wordmark. A selected image is restored after userdata mounts
+# and is drawn only after its source and active copy have been verified.
 restore_selected_bootlogo() {
   STATE_FILE=/mnt/SDCARD/System/bootlogo.txt
   [ -r "$STATE_FILE" ] || return 0
@@ -161,8 +162,9 @@ restore_selected_bootlogo() {
     log "selected bootlogo source is missing: $SOURCE_LOGO"
     return 0
   }
-  [ -f "$TARGET_LOGO" ] || return 0
-  cmp -s "$SOURCE_LOGO" "$TARGET_LOGO" && return 0
+  # The active cache may be missing or invalid after an interrupted update.
+  # A valid persistent source is sufficient to recreate it.
+  [ -f "$TARGET_LOGO" ] && cmp -s "$SOURCE_LOGO" "$TARGET_LOGO" && return 0
 
   TEMP_LOGO=/mnt/boot/.bootlogo-restore.tmp
   if ! cp "$SOURCE_LOGO" "$TEMP_LOGO" 2>/dev/null ||
@@ -186,9 +188,9 @@ restore_selected_bootlogo() {
 rm -f /run/rg353ps-hotkeyd.ready "$BOOT_USB_REQUEST"
 /usr/sbin/rg353ps-hotkeyd >/dev/null 2>&1 &
 echo $! > /run/rg353ps-hotkeyd.pid
-# The active boot slot is drawn as early as possible. Once the user-data
-# volume is mounted, restore the selected image recorded by Slot (Bootlogos/ +
-# System/bootlogo.txt) before the final startup splash is painted.
+# U-Boot deliberately leaves the panel black. Draw the generated BaseOS
+# wordmark immediately; no user-data state is available yet, and a bundled
+# bootlogo.bmp must never silently become the default artwork.
 BOOT_LOGO_DRAWN=0
 
 # Everything from here to the wait below runs while the key sample is still
@@ -208,9 +210,9 @@ BOOT_LOGO_DRAWN=0
 mark "storage mounted"
 
 if [ -x /usr/bin/fbsplash ] &&
-   BASEOS_CUSTOM_SPLASH_ONLY=1 /usr/bin/fbsplash 0 >/dev/null 2>&1; then
+   /usr/bin/fbsplash 0 >/dev/null 2>&1; then
   BOOT_LOGO_DRAWN=1
-  mark "boot logo drawn"
+  mark "generated BaseOS boot logo drawn"
 fi
 
 # Keep boot diagnostics in the kernel ring buffer, not on the handheld screen.
@@ -360,16 +362,35 @@ if [ ! -e "$BOOT_USB_REQUEST" ]; then
   restore_selected_bootlogo
 fi
 
-# The current slot's bootlogo.bmp is the framebuffer splash source. Slot's
-# selected artwork is stored on the persistent user-data volume and restored
-# above because an A/B update replaces BASEOS_BOOT together with BASEOS_ROOT.
-# fbsplash accepts only the full-screen 640x480, 24-bit uncompressed BMP.
-if [ "$BOOT_LOGO_DRAWN" -eq 0 ] && [ ! -e "$BOOT_USB_REQUEST" ] &&
-   [ -x /usr/bin/fbsplash ]; then
-  if BASEOS_CUSTOM_SPLASH_ONLY=1 /usr/bin/fbsplash 0 >/dev/null 2>&1; then
-    BOOT_LOGO_DRAWN=1
-  else
-    log "NOTICE: no usable bootlogo.bmp on BASEOS_BOOT; leaving the panel black"
+# A BOOT-slot image is a custom logo only when the persistent selection record
+# still names a real source file and the restored active copy matches it. This
+# also redraws a selection that already matched before this boot: the early
+# splash was intentionally the generated default because userdata was not
+# mounted yet.
+selected_bootlogo_ready() {
+  STATE_FILE=/mnt/SDCARD/System/bootlogo.txt
+  [ -r "$STATE_FILE" ] || return 1
+  SELECTED_LOGO=
+  IFS= read -r SELECTED_LOGO < "$STATE_FILE" || :
+  case "$SELECTED_LOGO" in
+    ""|.|..|*/*) return 1 ;;
+  esac
+  SOURCE_LOGO="/mnt/SDCARD/Bootlogos/$SELECTED_LOGO"
+  [ -s "$SOURCE_LOGO" ] && [ -s /mnt/boot/bootlogo.bmp ] &&
+    cmp -s "$SOURCE_LOGO" /mnt/boot/bootlogo.bmp
+}
+
+if [ ! -e "$BOOT_USB_REQUEST" ] && [ -x /usr/bin/fbsplash ]; then
+  if selected_bootlogo_ready; then
+    if BASEOS_CUSTOM_SPLASH=1 BASEOS_CUSTOM_SPLASH_ONLY=1 \
+       /usr/bin/fbsplash 0 >/dev/null 2>&1; then
+      BOOT_LOGO_DRAWN=1
+      mark "selected custom boot logo drawn"
+    else
+      log "WARNING: selected custom boot logo could not be drawn; keeping generated BaseOS logo"
+    fi
+  elif [ "$BOOT_LOGO_DRAWN" -eq 0 ]; then
+    /usr/bin/fbsplash 0 >/dev/null 2>&1 && BOOT_LOGO_DRAWN=1
   fi
 fi
 
@@ -450,11 +471,8 @@ if [ ! -e "$BOOT_USB_REQUEST" ] && [ ! -s /mnt/boot/bootlogo.bmp ]; then
     fi
     log "could not copy $logo_source to BASEOS_BOOT"
   done
-  if [ "$BOOT_LOGO_DRAWN" -eq 0 ] && [ -s /mnt/boot/bootlogo.bmp ] &&
-     [ -x /usr/bin/fbsplash ] &&
-     BASEOS_CUSTOM_SPLASH_ONLY=1 /usr/bin/fbsplash 0 >/dev/null 2>&1; then
-    BOOT_LOGO_DRAWN=1
-  fi
+  # Keep the compatibility file seeded for older tools, but do not draw it
+  # unless Slot has committed a valid persistent selection record.
 fi
 
 if [ "$FIRST_BOOT" -eq 1 ] && [ "$SHOW_STARTUP_STATUS" -eq 1 ]; then

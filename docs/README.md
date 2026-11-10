@@ -18,7 +18,7 @@ not deleted, in [history](history.md).
 | [boot chain](boot-chain.md) | The preloader patch, the card installer, and how SD boot works at all. |
 | [the card](card.md) | Partition layout, image build, boot image surgery, first-boot expansion, A/B updates. |
 | [rootfs](rootfs.md) | The rootfs assembly, init, and runtime dependencies. |
-| [RG353PS network access](rg353ps-network-access.md) | Wi-Fi SFTP and independent USB SSH access. |
+| [RG353PS network access](rg353ps-network-access.md) | Wi-Fi SFTP plus USB and Wi-Fi interactive SSH. |
 | [boot time](boot-time.md) | Where the time goes, what each change was worth, what is left. |
 
 **When something is wrong**

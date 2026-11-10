@@ -8,19 +8,19 @@ listeners can coexist because they use separate TCP ports or local addresses:
 | Path | Service | Address | Purpose | Switch |
 |---|---|---|---|---|
 | Wi-Fi SFTP | OpenSSH `sshd` | Current `wlan0` IPv4, TCP 22 | File transfer, chrooted to user data | `wifi_sftp=yes/no` |
-| Wi-Fi SSH | Dropbear | Current `wlan0` IPv4, TCP 2222 | Interactive root shell for debugging | `usb_debug=yes/no` |
-| USB DC port SSH | Dropbear | `192.168.42.1:22` | Interactive root shell for debugging | `usb_debug=yes/no` |
+| Wi-Fi SSH | Dropbear | Current `wlan0` IPv4, TCP 2222 | Interactive root shell for debugging | `ssh_debug=yes/no` |
+| USB DC port SSH | Dropbear | `192.168.42.1:22` | Interactive root shell for debugging | `ssh_debug=yes/no` |
 
-The `usb_debug` switch controls both interactive SSH listeners. When it is
+The `ssh_debug` switch controls both interactive SSH listeners. When it is
 `yes`, the device offers USB SSH and Wi-Fi SSH (provided Wi-Fi has an IPv4
 address). When it is `no`, both shell-access paths stop.
 
-Wi-Fi SFTP is not tied to `usb_debug`: it remains on TCP/22 when USB debugging
+Wi-Fi SFTP is not tied to `ssh_debug`: it remains on TCP/22 when USB debugging
 is disabled. The two Wi-Fi services use different ports so enabling the shell
 does not change the SFTP port or its chrooted view of `/mnt/SDCARD`.
 
 If Wi-Fi is disconnected or turned off, the Wi-Fi SFTP and Wi-Fi SSH listeners
-are unavailable, but USB SSH continues to work as long as `usb_debug=yes`
+are unavailable, but USB SSH continues to work as long as `ssh_debug=yes`
 and the USB RNDIS gadget is connected.
 
 ## Wi-Fi SFTP restrictions
@@ -63,13 +63,13 @@ Edit `/mnt/SDCARD/baseos.conf`:
 
 ```ini
 wifi_sftp=yes
-usb_debug=no
+ssh_debug=no
 ```
 
 - `wifi_sftp=yes` enables Wi-Fi SFTP independently.
 - `wifi_sftp=no` disables only Wi-Fi SFTP; it does not change SSH.
-- `usb_debug=yes` enables both USB SSH and Wi-Fi SSH.
-- `usb_debug=no` disables both interactive SSH listeners but leaves Wi-Fi
+- `ssh_debug=yes` enables both USB SSH and Wi-Fi SSH.
+- `ssh_debug=no` disables both interactive SSH listeners but leaves Wi-Fi
   SFTP unchanged.
 
 The card-side configuration takes priority over the image defaults. Restart
@@ -87,7 +87,7 @@ your router's DHCP client list. Connect with an SFTP client using:
 - Password: the current BaseOS root password
 - Remote starting directory: `/`
 
-For interactive SSH over Wi-Fi, set `usb_debug=yes` and connect to the
+For interactive SSH over Wi-Fi, set `ssh_debug=yes` and connect to the
 `wlan0` IPv4 address on port `2222`:
 
 ```sh
@@ -101,5 +101,5 @@ ssh root@192.168.42.1
 ```
 
 Both interactive SSH paths use the existing root credentials. Enabling
-`usb_debug` exposes a root shell to the local Wi-Fi network as well as USB;
+`ssh_debug` exposes a root shell to the local Wi-Fi network as well as USB;
 use it only on a trusted LAN and disable it when debugging is complete.

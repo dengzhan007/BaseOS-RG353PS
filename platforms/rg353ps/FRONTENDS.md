@@ -99,8 +99,13 @@ On RG353PS, `BASEOS_SLEEP` is the supported suspend entry point. A frontend
 that declares `power_owner=frontend` should invoke this helper on an explicit
 user suspend action. It selects deep suspend-to-RAM, handles the SDIO Wi-Fi
 power sequence, and returns after the physical Power key wakes the device.
-Do not replace this with an idle poweroff timer. The helper is not hibernation
-and does not provide RTC self-wakeup; see [POWER.md](POWER.md).
+**Do not blank the backlight or write brightness=0 before calling it, and do
+not overwrite the restored brightness with a cached frontend level after it
+returns**: BaseOS owns backlight capture, blanking and restoration for this
+native suspend path. Frontend on_close/on_open backlight handling is reserved
+for platforms without this helper or a fallback when it cannot start. Do not
+replace this with an idle poweroff timer. The helper is not hibernation and
+does not provide RTC self-wakeup; see [POWER.md](POWER.md).
 
 BaseOS follows the upstream ownership boundary for RG353PS Wi-Fi:
 it loads the `rtw88_8821cs` driver asynchronously during boot, waits for

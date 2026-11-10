@@ -102,8 +102,8 @@ mkdir -p "$USERDATA"
 # absent falls through to the image copy, so future defaults still reach a card
 # that was seeded by an older build. Seeded once; never overwritten, and deleted
 # by the owner if they want it back.
-# usb_debug and usb_mtp are deliberately left as commented examples. Writing an
-# active value here would override a Release image (usb_debug=no) on a fresh
+# ssh_debug and usb_mtp are deliberately left as commented examples. Writing an
+# active value here would override a Release image (ssh_debug=no) on a fresh
 # card and silently bring RNDIS/SSH back. The active lines below are limited to
 # keys that must have a card-side value regardless of the image profile.
 ensure_card_config() {
@@ -124,12 +124,12 @@ ensure_card_config() {
 debug=no
 
 # USB network / SSH:
-# Leave usb_debug unset to inherit the image profile (development: yes,
-# release: no). An active usb_debug= line here always wins over the copy
+# Leave ssh_debug unset to inherit the image profile (development: yes,
+# release: no). An active ssh_debug= line here always wins over the copy
 # inside the image, so only set it when you want to override the image
-# explicitly. Set usb_debug=yes to enable networking, or usb_debug=no to
+# explicitly. Set ssh_debug=yes to enable networking, or ssh_debug=no to
 # disable it. Networking gives 192.168.42.1 with dropbear on port 22.
-# usb_debug=yes
+# ssh_debug=yes
 #
 # MTP is selected by the image profile too. Leave usb_mtp unset to inherit it;
 # only add an active line here to override the image explicitly.

@@ -105,6 +105,13 @@ if [ -e /sys/class/net/wlan0 ]; then
 fi
 log "wifi_was_connected=$WIFI_WAS_CONNECTED"
 
+# Record this before calling slotnet.sh down: that command normally stops
+# the supplicant, but a previously active scan session should also be restored.
+SUPPLICANT_WAS_RUNNING=0
+if pidof wpa_supplicant >/dev/null 2>&1; then
+  SUPPLICANT_WAS_RUNNING=1
+fi
+
 # --- stop the frontend network session -------------------------------------
 # Slot's card-side script owns association and DHCP. Ask it to take the network
 # down first; the explicit process cleanup below remains a safety net for older
@@ -117,10 +124,6 @@ fi
 # --- stop the supplicant ----------------------------------------------------
 # A live supplicant holds the netdev open and keeps re-arming the SDIO function,
 # which makes the unbind flaky. Stop it first, restart after the rebind.
-SUPPLICANT_WAS_RUNNING=0
-if pidof wpa_supplicant >/dev/null 2>&1; then
-  SUPPLICANT_WAS_RUNNING=1
-fi
 if [ "$SUPPLICANT_WAS_RUNNING" = 1 ]; then
   log "stopping wpa_supplicant (was running)"
   if command -v wpa_cli >/dev/null 2>&1; then

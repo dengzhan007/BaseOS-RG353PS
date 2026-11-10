@@ -76,6 +76,31 @@ frontend running from TF2 must therefore write the shared boot-logo state to
 /mnt/SDCARD explicitly if it wants the BaseOS update-restore behavior.
 Do not assume that /mnt/sdcard and /mnt/SDCARD are interchangeable.
 
+## Build-time default logo (H700 fbsplash method)
+
+The default boot image is generated offline from the same src/fbsplash.c
+renderer used for the Linux startup splash. This follows the H700 BaseOS
+method rather than copying an unrelated static image into the boot volume:
+
+1. tools/make-bootlogo.sh compiles src/fbsplash.c on the build host with
+   FBSPLASH_TEST and the bundled assets/boot.ttf.
+2. The test renderer draws progress 100 with no message at the RG353PS panel
+   size (640 x 480, rotation 0) into a PPM file.
+3. ImageMagick converts that render into a 24-bit, uncompressed BMP3.
+4. build-rootfs.sh validates the BMP and installs it as
+   /etc/baseos/bootlogo.bmp; build-image.sh copies it to
+   BASEOS_BOOT:/bootlogo.bmp.
+
+This is build-time rendering only. No conversion tool is run on the handheld.
+U-Boot remains deliberately black; the generated image is the Linux/fbsplash
+startup artwork shown after the kernel hands control to BaseOS.
+
+The persistent custom-logo contract below remains unchanged: selections in
+/mnt/SDCARD/Bootlogos/ with System/bootlogo.txt are restored over the generated
+default during startup. A system update can replace the active boot-partition
+copy with the generated default, after which BaseOS restores the user's
+persistent selection before drawing the final startup splash.
+
 ## Image format
 
 The RG353PS panel is 640 × 480. A supported boot image is:

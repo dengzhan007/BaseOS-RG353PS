@@ -144,10 +144,16 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     # has no udhcpd applet, which is why the DHCP side is dnsmasq.
     apk --root "$R" --arch aarch64 --initdb --no-scripts --no-cache add \
       v4l-utils evtest alsa-utils iw libzip libgcc \
-      wpa_supplicant dropbear dnsmasq \
+      wpa_supplicant dropbear dnsmasq openssh-sftp-server \
       mesa-egl mesa-gles mesa-gbm mesa-dri-gallium \
       libdrm-tests mesa-utils kmscube sdl2 sdl2_image sdl2_ttf \
       sgdisk partx blkid wipefs exfatprogs
+    # Alpine Dropbear enables SFTP and points at this standalone OpenSSH subsystem.
+    # Install only sftp-server; do not add or start a second SSH daemon.
+    test -x "$R/usr/lib/ssh/sftp-server" || {
+      echo "SFTP subsystem is missing from target rootfs" >&2
+      exit 1
+    }
     gcc -std=c11 -O2 -Wall -Wextra -Werror -static \
       -o "$R/usr/sbin/rg353ps-control-center" /src/rg353ps-control-center.c
     gcc -std=c11 -O2 -Wall -Wextra -Werror -static \
@@ -358,6 +364,27 @@ EOF
 EOF
     echo "rootfs prepared at $R"
   '
+
+# Generate the default boot artwork offline with the H700 BaseOS fbsplash method.
+"$REPO_ROOT/tools/make-bootlogo.sh"
+install -m 0644 "$WORK/bootlogo.bmp" "$ROOTFS/etc/baseos/bootlogo.bmp"
+python3 - "$ROOTFS/etc/baseos/bootlogo.bmp" <<'PY'
+import struct, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+data = p.read_bytes()
+assert data[:2] == b"BM", "bootlogo is not a BMP"
+width, height = struct.unpack_from("<ii", data, 18)
+planes, bpp = struct.unpack_from("<HH", data, 26)
+compression = struct.unpack_from("<I", data, 30)[0]
+assert (width, abs(height), planes, bpp, compression) == (640, 480, 1, 24, 0), (
+    "unexpected bootlogo format: {}x{}, {} planes, {}bpp, compression={}".format(
+        width, height, planes, bpp, compression
+    )
+)
+assert len(data) >= 921654, "bootlogo is truncated: {} bytes".format(len(data))
+print("Offline fbsplash bootlogo verified: 640x480 24bpp ({} bytes)".format(len(data)))
+PY
 
 for file in "$ROOTFS/usr/bin/busybox" "$ROOTFS/usr/bin/baseos-splash" "$ROOTFS/usr/bin/fbsplash" "$ROOTFS/sbin/init" "$ROOTFS/etc/init.d/rcS" "$ROOTFS/usr/sbin/baseos-mount-storage" "$ROOTFS/usr/sbin/baseos-init-userdata" "$ROOTFS/usr/sbin/baseos-usb-storage" "$ROOTFS/usr/sbin/baseos-usb-mtp" "$ROOTFS/usr/sbin/baseos-usb-mode-lib" "$ROOTFS/usr/sbin/umtprd" "$ROOTFS/etc/umtprd/umtprd.conf" "$ROOTFS/usr/sbin/baseos-frontend-session" "$ROOTFS/usr/sbin/baseos-frontend-discovery" "$ROOTFS/usr/sbin/rg353ps-hotkeyd" "$ROOTFS/usr/sbin/rg353ps-hardware-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-audit" "$ROOTFS/usr/sbin/rg353ps-suspend-test" "$ROOTFS/usr/sbin/rg353ps-graphics-stack-test" "$ROOTFS/usr/sbin/rg353ps-sdl2-test" "$ROOTFS/usr/sbin/rg353ps-control-center" "$ROOTFS/etc/baseos.conf" "$ROOTFS/etc/baseos-release" \
   "$ROOTFS/etc/baseos/bootlogo.bmp" \

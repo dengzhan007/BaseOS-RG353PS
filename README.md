@@ -8,7 +8,7 @@
 
 面向 **Anbernic RG353PS（Rockchip RK3566）** 的轻量级 Linux 系统底座。BaseOS 提供设备启动、硬件与系统服务、存储管理、前端发现和系统更新；游戏界面由独立前端提供。
 
-当前平台版本：**1.2.7**
+当前平台版本：**1.2.8**
 
 ### 功能概览
 
@@ -45,6 +45,8 @@ BaseOS 不规定统一的游戏目录或前端与游戏是否必须位于同一�
 
 BaseOS 支持完整镜像全新安装和 `.bosupd` 原地升级。A/B 更新切换系统槽，不需要重新安装前端或清空用户数据；升级前仍建议备份重要文件。
 
+**1.2.8 安装要求：必须使用完整镜像对 TF 卡全新刷写，不支持从 1.2.7 或更早版本通过 `.bosupd` 原地升级。** 刷写前请备份卡上的游戏、存档和其他文件；本版本只提供完整镜像，不生成升级包。
+
 详细步骤见 [RG353PS 平台说明](platforms/rg353ps/README.md) 和 [通用前端适配器规范](platforms/rg353ps/FRONTENDS.md)。
 
 ### USB 连接说明
@@ -52,7 +54,7 @@ BaseOS 支持完整镜像全新安装和 `.bosupd` 原地升级。A/B 更新切�
 RG353PS 的 USB 文件传输和调试功能使用机身 **DC 接口**。MTP、Mass Storage 和 USB 虚拟网卡 SSH 均应连接 DC 接口；连接 OTG 接口不能使用这里描述的这些功能。
 
 - **Release 默认配置：** MTP-only，可通过电脑访问用户数据分区中的文件。
-- **开发配置：** USB 虚拟网卡 + SSH + MTP，用于连接电脑进行远程调试和文件传输。SSH 默认用户名为 `root`，默认密码为 `root`。此默认凭据仅用于开发调试配置；请勿将该配置暴露到不可信网络，并建议在实际使用前修改密码。
+- **开发配置：** `ssh_debug=yes` 同时启用 USB SSH（`192.168.42.1:22`）和 Wi-Fi SSH（设备 Wi-Fi 地址的 TCP `2222`）；`wifi_sftp=yes` 独立启用 Wi-Fi SFTP（TCP `22`）。SSH 默认用户名为 `root`，默认密码为 `root`。这会在可信局域网内开放 root shell，请勿暴露到不可信网络。
 - **USB 虚拟网卡：** 提供设备与电脑之间的点对点调试通道，**不是互联网共享或网络热点**。
 - **Mass Storage：** 独占导出用户数据卷，设备在该模式下不会同时挂载和访问被导出的卷。
 
@@ -95,7 +97,7 @@ HDMI 相关代码和设备树支持仍在平台中，但 **RG353PS 实机 HDMI �
 
 A lightweight Linux system foundation for the **Anbernic RG353PS (Rockchip RK3566)**. BaseOS provides device boot, hardware and system services, storage management, frontend discovery, and system updates. The user interface and game library are provided by independent frontends.
 
-Current platform version: **1.2.7**
+Current platform version: **1.2.8**
 
 ### Features
 
@@ -132,6 +134,8 @@ BaseOS does not prescribe a universal game directory or require the frontend and
 
 BaseOS supports fresh installation from a complete image and in-place upgrades using `.bosupd`. A/B updates switch the system slot without requiring frontend reinstallation or user-data erasure. Back up important files before upgrading.
 
+**Installation requirement for 1.2.8: flash the complete image to a TF card as a fresh installation. In-place `.bosupd` upgrades from 1.2.7 or earlier are not supported.** Back up games, saves and other card data before flashing. This version publishes the complete image only; no update package is generated.
+
 See the [RG353PS platform guide](platforms/rg353ps/README.md) and [frontend installation and discovery guide](platforms/rg353ps/FRONTENDS.md).
 
 ### USB connection notes
@@ -139,7 +143,7 @@ See the [RG353PS platform guide](platforms/rg353ps/README.md) and [frontend inst
 The RG353PS USB transfer and debugging features use the device's **DC port**. MTP, Mass Storage, and USB virtual-network SSH must be connected through the DC port; the OTG port does not support the functions described here.
 
 - **Release default:** MTP-only, allowing a computer to access files in the user-data partition.
-- **Development configuration:** USB virtual network + SSH + MTP for remote debugging and file transfer. The default SSH username is `root` and the default password is `root`. These default credentials are for the development configuration only. Do not expose this configuration to untrusted networks; change the password before practical use.
+- **Development configuration:** `ssh_debug=yes` enables both USB SSH (`192.168.42.1:22`) and Wi-Fi SSH (the device's Wi-Fi address on TCP `2222`); `wifi_sftp=yes` independently enables Wi-Fi SFTP on TCP `22`. The default SSH username is `root` and the password is `root`. Interactive SSH exposes a root shell to the trusted LAN; do not enable it on untrusted networks.
 - **USB virtual network:** a point-to-point debugging link between the handheld and the computer; **it does not provide internet sharing or a network hotspot**.
 - **Mass Storage:** exclusively exports the user-data volume. The device does not mount or access that volume locally while it is exported.
 

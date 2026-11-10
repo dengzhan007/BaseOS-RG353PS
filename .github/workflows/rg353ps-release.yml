@@ -79,8 +79,8 @@ jobs:
 
       - name: Verify embedded OS version
         run: |
-          version="$(tr -d ' \\n' < VERSION)"
-          os_version="$(sed -n 's/^VERSION_ID="\\([^"]*\\)"$/\\1/p' platforms/rg353ps/rootfs/etc/os-release)"
+          version="$(tr -d '[:space:]' < VERSION)"
+          os_version="$(sed -n 's/^VERSION_ID="\([^"]*\)"$/\1/p' platforms/rg353ps/rootfs/etc/os-release)"
           [ -n "$os_version" ] || { echo "VERSION_ID missing from os-release" >&2; exit 1; }
           [ "$version" = "$os_version" ] || {
             echo "Version mismatch: VERSION=$version, os-release VERSION_ID=$os_version" >&2

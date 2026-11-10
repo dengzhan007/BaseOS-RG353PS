@@ -11,6 +11,7 @@ CONF=/run/baseos-wifi-sftp-sshd.conf
 HOSTKEY=/run/baseos-wifi-sftp-hostkey
 LOG=/run/baseos-wifi-sftp.log
 CURRENT_IP=
+CURRENT_SSH_IP=
 say() { printf '%s %s\n' "$(date '+%H:%M:%S' 2>/dev/null)" "$*" >> "$LOG" 2>/dev/null || :; }
 config_value() {
   key=$1

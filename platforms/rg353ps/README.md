@@ -25,10 +25,11 @@ hardware acceptance baseline. The 1.2.6 checks established that:
 Version 1.2.9 is based on the 1.2.8 release branch. It preserves Wi-Fi SFTP,
 Wi-Fi interactive SSH, the generated default boot logo and the generic
 frontend adapter contract. Its audio initialization gates the internal speaker
-switch only while creating the softvol control for the first PCM open, then
-restores normal speaker output and retains the existing ALSA state/volume
-restore path. The 1.2.9 audio-sequencing candidate still requires physical
-validation with actual sound playback.
+switch before any PCM open on each boot, creates/checks softvol, sets it to its
+minimum gain while reconnecting the speaker route, waits 100 ms, then restores
+the saved/default volume. The existing ALSA state restore path remains enabled.
+The 1.2.9 audio-sequencing candidate still requires physical validation with
+actual sound playback.
 
 ## Installation
 

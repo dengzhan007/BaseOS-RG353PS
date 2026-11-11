@@ -9,7 +9,8 @@
 - 每次启动/唤醒都先将 `Internal Speakers Switch` 关闭，再检查/创建 softvol，确保第一次 PCM 打开时扬声器端点不接通。
 - softvol 可用后先将 `BaseOS Master` 设为最低增益（-48 dB），再恢复扬声器通路；等待 100 ms 后按原逻辑恢复用户保存音量或首次启动默认音量。
 - 后续启动或唤醒时，如果 softvol 已存在，不重复关闭/开启扬声器，避免无意义的音频通路切换。
-- 保留原有延迟 ALSA 状态恢复、硬件增益固定和用户音量恢复逻辑；不调整 RK817 驱动、功放 GPIO、功放延时或音量曲线。
+- 保留原有延迟 ALSA 状态恢复、硬件增益固定和用户音量恢复逻辑；不调整 RK817 codec 驱动、功放 GPIO 极性、硬件增益或音量曲线。
+- **仅本测试候选增加功放时序实验**：内核构建将 `simple-audio-amplifier` 的 RG353PS 节点切换为 `PRE_PMU`，使能 GPIO 后等待 250 ms，再继续 DAPM 上电。该延时只作用于 RG353PS 的外置扬声器功放节点，不改变其他 simple-amplifier 设备。功放 IC 型号尚未由板级资料确认，不能把 SGM4865 当成已证实型号；实验结果需要真机听音确认，未验收前不得合入正式发行。
 - 该改动来自 RG353PS 实机的启动爆音隔离测试。最终“恢复扬声器后仍无爆音且声音正常”的结果仍需使用本候选包完成实机确认。极低电平、贴近扬声器才能听到的待机底噪未作硬件级处理。
 
 ### 安装与升级
@@ -36,7 +37,8 @@ BaseOS RG353PS 1.2.9 is based on the 1.2.8 release branch. It adjusts the first 
 - On every boot/resume, `Internal Speakers Switch` is turned off before the softvol check and any first PCM open.
 - Once softvol is available, `BaseOS Master` is set to its minimum gain (-48 dB) before reconnecting the speaker path. The code waits 100 ms, then restores the saved or first-boot default user volume.
 - On later boots or resume, an already-registered softvol control is not toggled off and on again.
-- The existing deferred ALSA state restore, hardware-gain pinning, and user-volume restore remain enabled. No RK817 driver, amplifier GPIO, amplifier delay, or volume-curve changes are included.
+- The existing deferred ALSA state restore, hardware-gain pinning, and user-volume restore remain enabled. No RK817 codec driver, amplifier GPIO polarity, hardware gain, or volume-curve changes are included.
+- **This test candidate alone includes an amplifier timing experiment**: the RG353PS `simple-audio-amplifier` node uses `PRE_PMU`, asserts the enable GPIO, waits 250 ms, then lets DAPM continue powering up. The delay applies only to this RG353PS external speaker-amp node. The physical amplifier IC has not been confirmed from board-level evidence; SGM4865 remains a hypothesis, not a verified part number. Device listening is required, and this test-only change must not enter a formal release before validation.
 - This candidate tests whether minimum digital gain during speaker-path reconnection attenuates the startup transient. The final behavior—normal audio with no startup pop—still requires hardware validation with this candidate. The extremely faint idle noise audible only close to the speaker is not addressed at the hardware level.
 
 ### Installation and updates

@@ -11,8 +11,9 @@ root = Path(sys.argv[1])
 driver_path = root / "sound/soc/codecs/simple-amplifier.c"
 dts_path = root / "arch/arm64/boot/dts/rockchip/rk3566-anbernic-rg353ps.dts"
 binding_path = root / "Documentation/devicetree/bindings/sound/simple-audio-amplifier.yaml"
+card_path = root / "sound/soc/generic/simple-card.c"
 
-for path in (driver_path, dts_path, binding_path):
+for path in (driver_path, dts_path, binding_path, card_path):
     if not path.is_file():
         raise SystemExit(f"required kernel source file is missing: {path}")
 
@@ -82,6 +83,15 @@ if driver != driver_path.read_text():
 
 # Set the delay only on RG353PS's external speaker-amplifier node.
 dts = dts_path.read_text()
+# Keep the RG353PS speaker pin disabled during initial ASoC/DAPM sync.
+# BaseOS audio-init will enable it only after PCM/softvol preparation.
+if "simple-audio-card,disable-pin-switches" not in dts:
+    old_pin_switch = '\t\tsimple-audio-card,pin-switches = "Internal Speakers";'
+    new_pin_switch = old_pin_switch + '\n\t\tsimple-audio-card,disable-pin-switches = "Internal Speakers";'
+    if dts.count(old_pin_switch) != 1:
+        raise SystemExit("cannot uniquely locate RG353PS speaker pin-switch declaration")
+    dts = dts.replace(old_pin_switch, new_pin_switch, 1)
+    dts_path.write_text(dts)
 node_start = dts.find("spk_amp: audio-amplifier")
 if node_start < 0:
     raise SystemExit("cannot locate RG353PS speaker amplifier node")
@@ -132,5 +142,55 @@ if "power-on-delay-ms:" not in binding:
         raise SystemExit("cannot uniquely locate simple-amplifier binding enable-gpios property")
     binding = binding.replace(enable_block, delay_block, 1)
     binding_path.write_text(binding)
+
+
+# Test whether the first pop is caused by the speaker route being enabled
+# automatically during initial ASoC card registration. Disable only the named
+# RG353PS pin switch before the first DAPM sync; userspace turns it back on
+# after PCM warm-up and minimum softvol gain are ready.
+card = card_path.read_text()
+card_anchor = """static int simple_soc_probe(struct snd_soc_card *card)
+{
+\tstruct simple_util_priv *priv = snd_soc_card_get_drvdata(card);
+\tint ret;
+
+\tret = simple_util_init_hp(card, &priv->hp_jack, PREFIX);"""
+card_replacement = """static int simple_soc_probe(struct snd_soc_card *card)
+{
+\tstruct simple_util_priv *priv = snd_soc_card_get_drvdata(card);
+\tconst char *disabled_pin;
+\tint pin_count;
+\tint pin_index;
+\tint ret;
+
+\tpin_count = of_property_count_strings(card->dev->of_node,
+\t\t\t\t\t       "simple-audio-card,disable-pin-switches");
+\tif (pin_count < 0 && pin_count != -EINVAL)
+\t\treturn pin_count;
+
+\tfor (pin_index = 0; pin_index < pin_count; pin_index++) {
+\t\tret = of_property_read_string_index(card->dev->of_node,
+\t\t\t\t\t\t    "simple-audio-card,disable-pin-switches",
+\t\t\t\t\t\t    pin_index, &disabled_pin);
+\t\tif (ret)
+\t\t\treturn ret;
+
+\t\tret = snd_soc_dapm_disable_pin(&card->dapm, disabled_pin);
+\t\tif (ret)
+\t\t\treturn ret;
+\t}
+
+\tif (pin_count > 0) {
+\t\tret = snd_soc_dapm_sync(&card->dapm);
+\t\tif (ret)
+\t\t\treturn ret;
+\t}
+
+\tret = simple_util_init_hp(card, &priv->hp_jack, PREFIX);"""
+if "simple-audio-card,disable-pin-switches" not in card:
+    if card.count(card_anchor) != 1:
+        raise SystemExit("cannot uniquely locate simple-card probe hook")
+    card = card.replace(card_anchor, card_replacement, 1)
+    card_path.write_text(card)
 
 print("Applied RG353PS speaker-amplifier pre-power-up settling delay: 250 ms")

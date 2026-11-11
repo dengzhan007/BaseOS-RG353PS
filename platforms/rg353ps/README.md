@@ -59,7 +59,7 @@ For a version with an available update payload:
 1. Download the matching `.bosupd` package from that version's release.
 2. Copy the update package to the root of either card's accessible volume,
    following the system's update procedure. This release's update payload is for
-systems already running 1.2.8; do not use it on 1.2.7 or earlier.
+   systems already running 1.2.8; do not use it on 1.2.7 or earlier.
 3. Restart the device and allow the updater to complete.
 
 The `.bosupd` package updates the A/B system BOOT and ROOTFS regions. It does

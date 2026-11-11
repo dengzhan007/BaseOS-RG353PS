@@ -175,13 +175,13 @@ card_replacement = """static int simple_soc_probe(struct snd_soc_card *card)
 \t\tif (ret)
 \t\t\treturn ret;
 
-\t\tret = snd_soc_dapm_disable_pin(&card->dapm, disabled_pin);
+\t\tret = snd_soc_dapm_disable_pin(card->dapm, disabled_pin);
 \t\tif (ret)
 \t\t\treturn ret;
 \t}
 
 \tif (pin_count > 0) {
-\t\tret = snd_soc_dapm_sync(&card->dapm);
+\t\tret = snd_soc_dapm_sync(card->dapm);
 \t\tif (ret)
 \t\t\treturn ret;
 \t}

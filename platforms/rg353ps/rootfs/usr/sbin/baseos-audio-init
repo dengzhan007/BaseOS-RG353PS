@@ -141,10 +141,11 @@ mixer_names() {
         sed -n "s/^numid=[0-9][0-9]*,.*name='\(.*\)'$/\1/p"
 }
 
-# 2. Pin every hardware gain at 0 dB and close every playback switch, so that
-#    nothing but the softvol layer can change the level. Capture controls are
-#    left alone, and the softvol control is filtered out by name.
+# 2. Pin every hardware gain at 0 dB and enable the playback path. The
+#    Internal Speakers Switch accepts an optional "off" override used only
+#    while creating the softvol control on a fresh boot.
 pin_hardware() {
+    speaker_switch=${1:-on}
     mixer_names | while IFS= read -r name; do
         [ "$name" = "$SOFTVOL_CTL" ] && continue
         case "$name" in
@@ -157,8 +158,12 @@ pin_hardware() {
                 case "$name" in
                     *Capture*|*Mic*|*PGA*) continue ;;
                 esac
-                if amixer -c "$CARD" cset name="$name" on >/dev/null 2>&1; then
-                    say "switch '$name' -> on"
+                switch_value=on
+                if [ "$name" = "Internal Speakers Switch" ]; then
+                    switch_value=$speaker_switch
+                fi
+                if amixer -c "$CARD" cset name="$name" "$switch_value" >/dev/null 2>&1; then
+                    say "switch '$name' -> $switch_value"
                 fi
                 ;;
         esac
@@ -169,11 +174,14 @@ softvol_present() {
     amixer -c "$CARD" sget "$SOFTVOL_CTL" >/dev/null 2>&1
 }
 
-# 3. Create the softvol control before restore: the plugin only registers it
-#    when a PCM using it is opened, and alsactl cannot restore a control that
-#    does not exist yet. One second of silence is enough and runs off the boot
-#    path.
+# 3. Register softvol with the speaker path gated during the first PCM open.
+#    Opening PCM while Internal Speakers Switch is on caused the boot pop on
+#    this board. Keep this one-time gate scoped to first initialization only:
+#    after the warm-up, restore the normal speaker path. Existing softvol on
+#    later boots/resume means PCM was already initialized, so do not toggle it.
 if ! softvol_present; then
+    pin_hardware off
+    say "initial PCM warm-up: Internal Speakers Switch off"
     # The control appears when the PCM is opened, so what matters is that the
     # device is opened and one period written - not how long the audio runs.
     # This used to play a full second of silence (-d 1), which measured 1.02 s
@@ -191,17 +199,9 @@ if ! softvol_present; then
     fi
 fi
 
-# 4. Pin the hardware before anything can open the PCM.
-#
-#    The state blob used to be restored here first, because a blob carrying an
-#    old, low hardware gain would otherwise land on top of the pin. That restore
-#    is cheap on a running system (0.02 s) but measured 1.6 s inside a boot -
-#    and it sat directly in front of the ready flag below, so it was the last
-#    large item between rcS and the frontend. Nothing the frontend needs comes
-#    out of it: the pin below is what makes sound audible, and it no longer has
-#    to wait. The restore moved to the deferred pass in 5, which re-pins and
-#    re-applies the user level afterwards, so the ordering still holds - the
-#    frontend just does not sit through it.
+# 4. Restore normal speaker output immediately after PCM initialization. The
+#    existing deferred ALSA-state restore remains enabled below; it is followed
+#    by the same hardware/softvol re-pin as before.
 pin_hardware
 
 # The ready flag goes here, not at the end of the file. Everything a frontend

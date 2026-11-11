@@ -1,7 +1,7 @@
 name: RG353PS release build
 
-# Produces the complete card image and, where supported, an A/B update payload.
-# Version 1.2.8 is a deliberate clean-flash migration and produces only the image.
+# Produces the complete card image and, for compatible versions, an A/B update payload.
+# Version 1.2.8 remains a clean-flash-only migration; 1.2.9 restores update builds.
 # The release workflow builds the complete BaseOS image and derives the A/B
 # update payload from that exact image. The game frontend remains user-installed.
 
@@ -51,7 +51,7 @@ on:
       - "VERSION"
       - "docs/RG353PS-RELEASE-1.2.7.md"
       - "docs/RG353PS-RELEASE-1.2.8.md"
-      - "docs/RG353PS-RELEASE-1.2.8.md"
+      - "docs/RG353PS-RELEASE-1.2.9.md"
     tags:
       - "v*"
 
@@ -110,7 +110,9 @@ jobs:
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-wifi-sftp
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-mtp
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-audio-init
           sh tests/test-frontend-adapters.sh
+          sh tests/test-rg353ps-audio-startup.sh
           sh tests/test-rg353ps-usb-mtp.sh
           sh tests/test-rg353ps-update-splash.sh
 

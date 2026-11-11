@@ -1,4 +1,4 @@
-# RG353PS port — BaseOS 1.2.8
+# RG353PS port — BaseOS 1.2.9
 
 This directory contains the independent BaseOS target for the Anbernic RG353PS
 (Rockchip RK3566). It does not replace or alter the existing Miyoo Flip
@@ -6,11 +6,12 @@ This directory contains the independent BaseOS target for the Anbernic RG353PS
 
 ## Release status
 
-**Version: 1.2.8 test build.** The RG353PS target has a complete image build path:
+**Version: 1.2.9 release candidate.** The RG353PS target has a complete image and A/B update build path:
 U-Boot, Linux kernel and device tree, kernel modules, wireless firmware,
 BusyBox-based root filesystem and GPT SD-card image. The release workflow
-normally supports A/B update payloads for compatible versions; **1.2.8 is
-full-image-only** because it changes the persisted SSH setting name.
+supports A/B update payloads for compatible versions. **1.2.8 remains
+full-image-only** because it changed the persisted SSH setting name; 1.2.9
+restores `.bosupd` updates from an installed 1.2.8 system.
 
 The 1.2.6 full image and update package have both been tested on physical
 RG353PS hardware. That remains the latest complete-image / in-place-update
@@ -21,23 +22,24 @@ hardware acceptance baseline. The 1.2.6 checks established that:
   frontends, so normal system updates do not replace ROMs, saves, frontend files,
   or user settings stored there.
 
-Version 1.2.8 integrates Wi-Fi SFTP, Wi-Fi interactive SSH, the generated
-default boot logo and the generic frontend adapter contract. It uses
-`manifest.conf` (`adapter_api=1`) to declare priority and volume/power
-ownership, with TF2-first discovery, legacy launch-script compatibility and
-cache invalidation. This is an integrated test build and still requires
-post-build validation on the handheld.
+Version 1.2.9 is based on the 1.2.8 release branch. It preserves Wi-Fi SFTP,
+Wi-Fi interactive SSH, the generated default boot logo and the generic
+frontend adapter contract. Its audio initialization gates the internal speaker
+switch only while creating the softvol control for the first PCM open, then
+restores normal speaker output and retains the existing ALSA state/volume
+restore path. The 1.2.9 audio-sequencing candidate still requires physical
+validation with actual sound playback.
 
 ## Installation
 
 ### New installation
 
-**1.2.8 must be installed by a full TF1 card reflash. In-place `.bosupd`
-upgrades from 1.2.7 or earlier are not supported.** Back up games, saves and
-other files before flashing. The 1.2.8 workflow publishes only the complete
-image and does not produce an update package.
+**For a fresh installation, use the complete 1.2.9 image.** A system already
+running 1.2.8 can use the 1.2.9 `.bosupd` package. In-place upgrades from 1.2.7
+or earlier remain unsupported because the 1.2.8 release changed the persisted
+SSH setting name. Back up important files before any system update or reflash.
 
-1. Download the complete `baseos-rg353ps-1.2.8.img.gz` image from the
+1. Download the complete `baseos-rg353ps-1.2.9.img.gz` image from the
    [GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases)
    page.
 2. Write the image to the TF1 card with an SD-card imaging tool.
@@ -56,7 +58,8 @@ For a version with an available update payload:
 
 1. Download the matching `.bosupd` package from that version's release.
 2. Copy the update package to the root of either card's accessible volume,
-   following the system's update procedure.
+   following the system's update procedure. This release's update payload is for
+systems already running 1.2.8; do not use it on 1.2.7 or earlier.
 3. Restart the device and allow the updater to complete.
 
 The `.bosupd` package updates the A/B system BOOT and ROOTFS regions. It does

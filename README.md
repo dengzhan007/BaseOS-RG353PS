@@ -8,7 +8,7 @@
 
 面向 **Anbernic RG353PS（Rockchip RK3566）** 的轻量级 Linux 系统底座。BaseOS 提供设备启动、硬件与系统服务、存储管理、前端发现和系统更新；游戏界面由独立前端提供。
 
-当前平台版本：**1.2.8**
+当前平台版本：**1.2.9**
 
 ### 功能概览
 
@@ -45,7 +45,7 @@ BaseOS 不规定统一的游戏目录或前端与游戏是否必须位于同一�
 
 BaseOS 支持完整镜像全新安装和 `.bosupd` 原地升级。A/B 更新切换系统槽，不需要重新安装前端或清空用户数据；升级前仍建议备份重要文件。
 
-**1.2.8 安装要求：必须使用完整镜像对 TF 卡全新刷写，不支持从 1.2.7 或更早版本通过 `.bosupd` 原地升级。** 刷写前请备份卡上的游戏、存档和其他文件；本版本只提供完整镜像，不生成升级包。
+**升级路径：** 1.2.9 提供 `.bosupd`，可从已全新刷写的 1.2.8 原地升级；1.2.7 及更早版本仍须先使用完整镜像迁移到 1.2.8/1.2.9。完整镜像用于新装或需要重刷系统时。升级前仍建议备份重要文件。
 
 详细步骤见 [RG353PS 平台说明](platforms/rg353ps/README.md) 和 [通用前端适配器规范](platforms/rg353ps/FRONTENDS.md)。
 
@@ -77,6 +77,7 @@ HDMI 相关代码和设备树支持仍在平台中，但 **RG353PS 实机 HDMI �
 - [USB 架构与硬件验证](platforms/rg353ps/USB.md)
 - [电源管理与深度休眠](platforms/rg353ps/POWER.md)
 - [启动画面持久化规范](platforms/rg353ps/BOOTLOGO.md)
+- [1.2.9 发布说明](docs/RG353PS-RELEASE-1.2.9.md)
 - [1.2.8 发布说明](docs/RG353PS-RELEASE-1.2.8.md)
 - [1.2.7 发布说明](docs/RG353PS-RELEASE-1.2.7.md)
 - [更新与发布工作流](.github/workflows/rg353ps-release.yml)
@@ -98,7 +99,7 @@ HDMI 相关代码和设备树支持仍在平台中，但 **RG353PS 实机 HDMI �
 
 A lightweight Linux system foundation for the **Anbernic RG353PS (Rockchip RK3566)**. BaseOS provides device boot, hardware and system services, storage management, frontend discovery, and system updates. The user interface and game library are provided by independent frontends.
 
-Current platform version: **1.2.8**
+Current platform version: **1.2.9**
 
 ### Features
 
@@ -135,7 +136,7 @@ BaseOS does not prescribe a universal game directory or require the frontend and
 
 BaseOS supports fresh installation from a complete image and in-place upgrades using `.bosupd`. A/B updates switch the system slot without requiring frontend reinstallation or user-data erasure. Back up important files before upgrading.
 
-**Installation requirement for 1.2.8: flash the complete image to a TF card as a fresh installation. In-place `.bosupd` upgrades from 1.2.7 or earlier are not supported.** Back up games, saves and other card data before flashing. This version publishes the complete image only; no update package is generated.
+**Upgrade path:** Version 1.2.9 provides a `.bosupd` package for in-place upgrades from a cleanly installed 1.2.8 system. Version 1.2.7 and earlier must first migrate using a complete 1.2.8 or 1.2.9 image. The complete image is intended for fresh installations or full reflashing. Back up important files before upgrading.
 
 See the [RG353PS platform guide](platforms/rg353ps/README.md) and [frontend installation and discovery guide](platforms/rg353ps/FRONTENDS.md).
 
@@ -167,6 +168,7 @@ HDMI-related code and device-tree support are present, but **HDMI output has not
 - [USB architecture and hardware validation](platforms/rg353ps/USB.md)
 - [Power management and deep suspend](platforms/rg353ps/POWER.md)
 - [Boot-logo persistence contract](platforms/rg353ps/BOOTLOGO.md)
+- [1.2.9 release notes](docs/RG353PS-RELEASE-1.2.9.md)
 - [1.2.8 release notes](docs/RG353PS-RELEASE-1.2.8.md)
 - [1.2.7 release notes](docs/RG353PS-RELEASE-1.2.7.md)
 - [Release workflow](.github/workflows/rg353ps-release.yml)

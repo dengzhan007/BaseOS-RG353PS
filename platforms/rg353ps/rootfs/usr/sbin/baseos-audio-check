@@ -84,6 +84,14 @@ card_for() {
     fi
     echo
 
+    echo "=== dmesg: RG353PS audio startup trace ==="
+    trace=$(dmesg 2>/dev/null | grep -F "RG353PS-AUDIO" | tail -80)
+    if [ -n "$trace" ]; then
+        printf '%s\n' "$trace"
+    else
+        echo "(no RG353PS-AUDIO kernel trace)"
+    fi
+    echo
     echo "=== dmesg: sound ==="
     dmesg 2>/dev/null | grep -iE "asoc|snd|rk817|i2s|simple-audio|es8" | tail -40 || echo "(no dmesg)"
     echo

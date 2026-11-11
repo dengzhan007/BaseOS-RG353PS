@@ -73,6 +73,7 @@ find_card() {
 }
 
 : >>"$LOG" 2>/dev/null || :
+say "audio-init started"
 
 CARD=
 n=0
@@ -210,6 +211,7 @@ fi
 
 # Restore normal speaker output only after PCM is ready and softvol is at its
 # minimum. Do not change the RK817 driver, amplifier GPIO, or hardware gain.
+say "requesting speaker route on while softvol is at minimum"
 pin_hardware
 sleep 0.1
 say "speaker route settled; restoring saved/default volume below"

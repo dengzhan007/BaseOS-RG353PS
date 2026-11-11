@@ -34,4 +34,10 @@ if grep -Eq 'AUDIO_DIAG_SPEAKER_SWITCH_OFF|baseos-audio-diagnostic-speaker-off|s
     echo "diagnostic-only permanent mute/restore suppression must not ship" >&2
     exit 1
 fi
+grep -Fq 'RG353PS-AUDIO pin-disable-count=' "$ROOT/platforms/rg353ps/kernel/patches/rg353ps-audio-startup.py"
+grep -Fq 'RG353PS-AUDIO pin-disable name=' "$ROOT/platforms/rg353ps/kernel/patches/rg353ps-audio-startup.py"
+grep -Fq 'RG353PS-AUDIO amp GPIO set' "$ROOT/platforms/rg353ps/kernel/patches/rg353ps-audio-startup.py"
+grep -Fq 'RG353PS-AUDIO amp event complete' "$ROOT/platforms/rg353ps/kernel/patches/rg353ps-audio-startup.py"
+grep -Fq 'RG353PS-AUDIO' "$ROOT/platforms/rg353ps/rootfs/usr/sbin/baseos-audio-check"
+grep -Fq 'requesting speaker route on while softvol is at minimum' "$SCRIPT"
 echo "PASS: speaker path is gated before PCM, attenuated before enable, then user volume/ALSA restore remain enabled"

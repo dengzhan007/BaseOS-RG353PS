@@ -78,6 +78,35 @@ if old_event_flags in driver:
 elif new_event_flags not in driver:
     raise SystemExit("cannot locate simple-amplifier DAPM event flags")
 
+# Add diagnostic markers without changing the amplifier power policy.
+trace_match = re.search(
+    r"static int (?:simple_amp_power_event|drv_event)\(.*?\n\}",
+    driver,
+    flags=re.S,
+)
+if not trace_match:
+    raise SystemExit("cannot locate amplifier event for RG353PS tracing")
+trace_fn = trace_match.group(0)
+if "RG353PS-AUDIO amp GPIO set" not in trace_fn:
+    gpio_trace = re.search(r"\n\s*gpiod_set_value_cansleep\([^;]+\);", trace_fn)
+    if not gpio_trace:
+        raise SystemExit("cannot locate amplifier GPIO call for RG353PS tracing")
+    trace_fn = (
+        trace_fn[:gpio_trace.end()]
+        + '\n\tdev_info(c->dev, "RG353PS-AUDIO amp GPIO set: event=%d logical=%d\\n", event, val);'
+        + trace_fn[gpio_trace.end():]
+    )
+    return_anchor = "\n\treturn 0;"
+    if trace_fn.count(return_anchor) != 1:
+        raise SystemExit("cannot uniquely locate amplifier event return for RG353PS tracing")
+    trace_fn = trace_fn.replace(
+        return_anchor,
+        '\n\tdev_info(c->dev, "RG353PS-AUDIO amp event complete: event=%d delay_ms=%u\\n", event, power_on_delay_ms);'
+        + return_anchor,
+        1,
+    )
+    driver = driver[:trace_match.start()] + trace_fn + driver[trace_match.end():]
+
 if driver != driver_path.read_text():
     driver_path.write_text(driver)
 
@@ -167,6 +196,7 @@ card_replacement = """static int simple_soc_probe(struct snd_soc_card *card)
 \t\t\t\t\t       "simple-audio-card,disable-pin-switches");
 \tif (pin_count < 0 && pin_count != -EINVAL)
 \t\treturn pin_count;
+\tdev_info(card->dev, "RG353PS-AUDIO pin-disable-count=%d\\n", pin_count);
 
 \tfor (pin_index = 0; pin_index < pin_count; pin_index++) {
 \t\tret = of_property_read_string_index(card->dev->of_node,
@@ -176,12 +206,17 @@ card_replacement = """static int simple_soc_probe(struct snd_soc_card *card)
 \t\t\treturn ret;
 
 \t\tret = snd_soc_dapm_disable_pin(card->dapm, disabled_pin);
+\t\tdev_info(card->dev,
+\t\t\t"RG353PS-AUDIO pin-disable name='%s' ret=%d\\n",
+\t\t\tdisabled_pin, ret);
 \t\tif (ret)
 \t\t\treturn ret;
 \t}
 
 \tif (pin_count > 0) {
 \t\tret = snd_soc_dapm_sync(card->dapm);
+\t\tdev_info(card->dev,
+\t\t\t"RG353PS-AUDIO pin-disable initial-sync ret=%d\\n", ret);
 \t\tif (ret)
 \t\t\treturn ret;
 \t}
@@ -193,4 +228,4 @@ if "simple-audio-card,disable-pin-switches" not in card:
     card = card.replace(card_anchor, card_replacement, 1)
     card_path.write_text(card)
 
-print("Applied RG353PS speaker-amplifier pre-power-up settling delay: 250 ms")
+print("Applied RG353PS 250 ms amplifier settling and DAPM/GPIO startup trace")

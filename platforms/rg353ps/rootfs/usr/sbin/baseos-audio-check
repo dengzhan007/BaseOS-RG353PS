@@ -1,5 +1,6 @@
 #!/bin/sh
 # Dump everything needed to explain "the games have no sound" on one page.
+# Includes timestamped RG353PS-AUDIO DAPM and amplifier-GPIO markers from dmesg.
 #
 # Usage: baseos-audio-check [output]
 # Default output is the user partition root, which shows up on a PC; the boot

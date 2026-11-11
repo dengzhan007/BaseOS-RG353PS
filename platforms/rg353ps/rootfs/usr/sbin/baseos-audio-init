@@ -183,6 +183,16 @@ say "speaker endpoint off before PCM initialization"
 # 4. Register the softvol control if this boot has not opened the PCM yet.
 #    PCM warm-up remains necessary because ALSA creates the softvol control
 #    lazily. The speaker endpoint stays off throughout this operation.
+if ! softvol_present; then
+    if head -c 2048 /dev/zero 2>/dev/null |
+            aplay -q -D default -t raw -f S16_LE -r 48000 -c 2 >/dev/null 2>&1 &&
+            softvol_present; then
+        say "softvol control created"
+    elif aplay -q -D default -t raw -f S16_LE -r 48000 -c 2 -d 1 /dev/zero >/dev/null 2>&1; then
+        say "softvol control created (slow path)"
+    else
+        say "could not open default PCM to create the softvol control"
+    fi
 fi
 
 # 5. Reconnect the speaker route at minimum softvol gain. This attenuates any

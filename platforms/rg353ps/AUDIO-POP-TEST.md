@@ -11,13 +11,13 @@ The cold-start pop may remain as a faint, known limitation. It is not claimed as
 ## Experiments excluded from the release
 
 - DAPM speaker-pin gating before PCM initialization.
-- Minimum \`BaseOS Master\` softvol level during speaker-path reconnection.
+- Minimum `BaseOS Master` softvol level during speaker-path reconnection.
 - The 100 ms userspace settling wait.
-- The kernel \`PRE_PMU\` change and \`power-on-delay-ms = <250>\` amplifier delay.
+- The kernel `PRE_PMU` change and `power-on-delay-ms = <250>` amplifier delay.
 - Early amplifier-enable GPIO assertion (S1), which made cold boot and hot reboot pops louder.
 
 These experiments did not provide a sufficient improvement to justify changing the released audio path. The S1 experiment is rejected and must not be used.
 
 ## Release behavior
 
-The \`baseos-audio-init\` script and kernel audio path in the 1.2.9 release are the same as the official 1.2.8 implementation. This document records the decision only; it is not an active test plan.
+The `baseos-audio-init` script and kernel audio path in the 1.2.9 release are the same as the official 1.2.8 implementation. This document records the decision only; it is not an active test plan.

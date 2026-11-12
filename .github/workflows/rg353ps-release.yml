@@ -290,4 +290,9 @@ jobs:
                   --target "$GITHUB_SHA"
               fi
             fi
+            # Keep the published release description synchronized with the checked-in notes.
+            notes_file="docs/RG353PS-RELEASE-$version.md"
+            if [ -f "$notes_file" ] && gh release view "$tag" >/dev/null 2>&1; then
+              gh release edit "$tag" --title "BaseOS RG353PS $version" --notes-file "$notes_file"
+            fi
           fi

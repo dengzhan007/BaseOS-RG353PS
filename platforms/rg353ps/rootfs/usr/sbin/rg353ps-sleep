@@ -26,6 +26,11 @@ LOG=/mnt/SDCARD/.baseos/state/rg353ps-sleep.log
 mkdir -p /mnt/SDCARD/.baseos/state 2>/dev/null || LOG=/var/log/rg353ps-sleep.log
 LOCK=/run/rg353ps-sleep.lock
 WIFI_CYCLE=/usr/sbin/rg353ps-wifi-cycle
+# Prefer the selected frontend's native network lifecycle. This keeps the
+# upstream Slot wifi.conf / supplicant / DHCP ownership intact across resume.
+FRONTEND_ROOT="${SLOT_ROOT:-${BASEOS_FRONTEND_ROOT:-/mnt/SDCARD}}"
+FRONTEND_WIFI="$FRONTEND_ROOT/System/slotnet.sh"
+# Compatibility fallback for older frontend packages without slotnet.sh.
 WIFI_CTL=/usr/sbin/rg353ps-wifi-connect
 SETTLE=2
 WIFI_OFF=1
@@ -94,21 +99,31 @@ if [ -e /sys/class/net/wlan0 ]; then
       WIFI_WAS_CONNECTED=1
     fi
   fi
-  if [ "$WIFI_WAS_CONNECTED" = 0 ]; then
-    case "$(cat /sys/class/net/wlan0/operstate 2>/dev/null)" in
-      up) WIFI_WAS_CONNECTED=1 ;;
-    esac
-  fi
+  # Do not use netdev operstate here: rcS deliberately sets wlan0 UP before
+  # any frontend association, so operstate=up does not mean a saved network
+  # was connected. wpa_state=COMPLETED or a running supplicant is authoritative.
 fi
 log "wifi_was_connected=$WIFI_WAS_CONNECTED"
 
-# --- stop the supplicant ----------------------------------------------------
-# A live supplicant holds the netdev open and keeps re-arming the SDIO function,
-# which makes the unbind flaky. Stop it first, restart after the rebind.
+# Record this before calling slotnet.sh down: that command normally stops
+# the supplicant, but a previously active scan session should also be restored.
 SUPPLICANT_WAS_RUNNING=0
 if pidof wpa_supplicant >/dev/null 2>&1; then
   SUPPLICANT_WAS_RUNNING=1
 fi
+
+# --- stop the frontend network session -------------------------------------
+# Slot's card-side script owns association and DHCP. Ask it to take the network
+# down first; the explicit process cleanup below remains a safety net for older
+# packages or a failed frontend helper.
+if [ -x "$FRONTEND_WIFI" ]; then
+  log "stopping frontend Wi-Fi through $FRONTEND_WIFI"
+  AGS_ROOT="$FRONTEND_ROOT" "$FRONTEND_WIFI" down >> "$LOG" 2>&1 || log "WARNING: frontend Wi-Fi down returned nonzero"
+fi
+
+# --- stop the supplicant ----------------------------------------------------
+# A live supplicant holds the netdev open and keeps re-arming the SDIO function,
+# which makes the unbind flaky. Stop it first, restart after the rebind.
 if [ "$SUPPLICANT_WAS_RUNNING" = 1 ]; then
   log "stopping wpa_supplicant (was running)"
   if command -v wpa_cli >/dev/null 2>&1; then
@@ -182,10 +197,14 @@ if [ "$WIFI_UNBOUND" = 1 ]; then
   if "$WIFI_CYCLE" bind >> "$LOG" 2>&1; then
     log "wifi rebound; wlan0 is back"
     if [ "$WIFI_WAS_CONNECTED" = 1 ] || [ "$SUPPLICANT_WAS_RUNNING" = 1 ]; then
-      if [ -x "$WIFI_CTL" ]; then
-        # Background: reconnect must not delay the hand-back to the frontend.
+      if [ -x "$FRONTEND_WIFI" ]; then
+        # Let Slot reload its card-side wifi.conf and own association + DHCP.
+        AGS_ROOT="$FRONTEND_ROOT" "$FRONTEND_WIFI" up >> "$LOG" 2>&1 &
+        log "frontend Wi-Fi restart requested"
+      elif [ -x "$WIFI_CTL" ]; then
+        # Backward compatibility for packages predating System/slotnet.sh.
         "$WIFI_CTL" up >> "$LOG" 2>&1 &
-        log "wpa_supplicant restart requested"
+        log "legacy BaseOS Wi-Fi restart requested"
       fi
     fi
   else

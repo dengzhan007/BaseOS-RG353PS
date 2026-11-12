@@ -82,6 +82,19 @@ splash() {
 	return 0
 }
 
+# System-update progress is drawn as the BaseOS wordmark itself, not as a pill
+# over whatever artwork was on screen. Drop the custom-logo opt-in for this
+# updater process so a user's selected BMP cannot become the update background.
+# The percentage is based on bytes written and read back, not elapsed time.
+update_progress() {
+	unset BASEOS_CUSTOM_SPLASH BASEOS_CUSTOM_SPLASH_ONLY
+	# Keep the wordmark illumination and overlay the traditional bottom
+	# progress pill. fbsplash with a message preserves the underlying logo.
+	[ -x /usr/bin/fbsplash ] && /usr/bin/fbsplash "$1" >/dev/null 2>&1 || :
+	[ -x /usr/bin/baseos-splash ] && /usr/bin/baseos-splash --important "$1" "UPDATING SYSTEM" >/dev/null 2>&1 || :
+	return 0
+}
+
 field() { sed -n "s/^$2=//p" "$1" 2>/dev/null | head -1; }
 
 is_mounted() { grep -q " $1 " /proc/mounts; }
@@ -317,7 +330,7 @@ select_payload() {
 	[ -n "$CHOSEN" ]
 }
 
-paint() { splash $(( $1 + ($2 - $1) * $3 / total_mb )) "UPDATING SYSTEM"; }
+paint() { update_progress $(( $1 + ($2 - $1) * $3 / total_mb )); }
 
 # Write one region's member into its inactive half, in chunks so the track can
 # move. iflag=fullblock is load-bearing: a short read from the pipe would leave
@@ -409,7 +422,8 @@ apply() {
 
 	mkdir -p "$STATE_DIR"
 	log "applying $version ($build) from $payload"
-	splash "$WRITE_FROM" "UPDATING SYSTEM"
+	# Switch from any selected user logo to the BaseOS progress wordmark.
+	update_progress "$WRITE_FROM"
 
 	total_mb=0
 	for r in $REGIONS; do total_mb=$((total_mb + $(slot "$r" _SECTORS) / 2048)); done
@@ -466,7 +480,7 @@ apply() {
 	sync
 	# Paint the last value only once every write is on the card: the flip, the
 	# history append and this sync take a few seconds between them.
-	splash "$COMMIT_STAGE" "UPDATING SYSTEM"
+	update_progress "$COMMIT_STAGE"
 	cleanup
 	reboot
 	# init takes over from here; hold rcS briefly so it does not race ahead into

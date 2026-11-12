@@ -13,16 +13,23 @@ gadget setup independently.
 | Either profile, on request | Exclusive | Exclusive | Existing Mass Storage mode |
 
 A card-side `/mnt/SDCARD/baseos.conf` overrides image defaults using the
-independent `usb_debug=yes|no` and `usb_mtp=yes|no` switches. Persistent USB
+independent `ssh_debug=yes|no` and `usb_mtp=yes|no` switches. Persistent USB
 failure reports have a separate `usb_diagnostics=yes|no` opt-in (default
 `no`); it does not enable USB networking or SSH.
+
+The `ssh_debug` switch controls both interactive root-shell endpoints:
+Dropbear on the USB DC-port network at `192.168.42.1:22`, and Dropbear on
+Wi-Fi at the current `wlan0` address on TCP `2222`. The Wi-Fi SFTP listener
+is a separate OpenSSH service on TCP `22`, controlled only by `wifi_sftp`.
+Turning `ssh_debug` off disables both interactive shells without disabling
+Wi-Fi SFTP or changing the independent MTP setting.
 
 ## Composite Gadget
 
 The normal gadget lives at `/sys/kernel/config/usb_gadget/baseos_debug`. One
 configuration contains:
 
-- `rndis.usb0`, `ncm.usb0` or `ecm.usb0` when `usb_debug=yes`.
+- `rndis.usb0`, `ncm.usb0` or `ecm.usb0` when `ssh_debug=yes`.
 - `ffs.mtp` when `usb_mtp=yes`.
 
 Development builds combine network + SSH and MTP. RNDIS keeps its Microsoft OS
@@ -110,8 +117,8 @@ Never mount `/mnt/SDCARD` locally while Mass Storage exports that raw partition.
 
 `build-rootfs.sh` accepts `BASEOS_USB_PROFILE=development|release`:
 
-- `development` (local/default): `usb_debug=yes`, `usb_mtp=yes`.
-- `release`: `usb_debug=no`, `usb_mtp=yes`.
+- `development` (local/default): `ssh_debug=yes`, `usb_mtp=yes`.
+- `release`: `ssh_debug=no`, `usb_mtp=yes`.
 
 The release workflow uses development for feature branches and release defaults
 for main/version tags. The card-side config can override either setting.
@@ -160,7 +167,7 @@ When enabled, the manager may write:
 - `/mnt/SDCARD/rg353ps-usb-debug.txt` — the USB manager's recent runtime log,
   including Supervisor recovery activity.
 
-The switch is independent of `usb_debug` (RNDIS/NCM/ECM and SSH) and
+The switch is independent of `ssh_debug` (RNDIS/NCM/ECM and SSH) and
 `debug` (verbose Mass Storage tracing). It gates persistent card copies only;
 it does not disable in-memory logging, USB reconnect supervision, or recovery.
 The forced-save path used for failed start/stop operations also respects this

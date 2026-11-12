@@ -1,9 +1,10 @@
 #!/bin/sh
-# RG353PS WiFi control plane for the frontend and for wake-up recovery.
+# Legacy RG353PS Wi-Fi helper for generic / older frontends and recovery.
 #
-# The device ships wpa_supplicant but no NetworkManager, so this script is the
-# single supported entry point: the frontend calls it, rg353ps-sleep calls it
-# after resume, and a human can call it over the debug shell.
+# The current Slot port follows upstream ownership: rcS initializes wlan0 and
+# System/slotnet.sh owns scan, credentials, supplicant and DHCP. rg353ps-sleep
+# prefers that card-side helper and calls this script only when it is absent.
+# Keep this interface for older frontends and manual diagnostics.
 #
 # Configuration lives in /etc/wpa_supplicant/wpa_supplicant.conf with
 # update_config=1, so `join` persists networks across reboots. A copy is kept on
@@ -26,6 +27,11 @@ IFACE=wlan0
 CONF=/etc/wpa_supplicant/wpa_supplicant.conf
 CTRL=/run/wpa_supplicant
 BACKUP=/mnt/SDCARD/.baseos/wifi.conf
+CARD_CONF="${SLOT_ROOT:-/mnt/SDCARD}/System/wifi.conf"
+RUNTIME_CONF="$CTRL/rg353ps-card.conf"
+ACTIVE_MARKER=/run/rg353ps-wifi-active-conf
+ACTIVE_CONF=
+ACTIVE_SIGNATURE=
 
 log() { printf 'rg353ps-wifi-connect: %s\n' "$*" >&2; }
 die() { log "$*"; exit 1; }
@@ -51,6 +57,34 @@ save_backup() {
   [ -d /mnt/SDCARD ] || return 0
   mkdir -p "$(dirname "$BACKUP")" 2>/dev/null || return 0
   cp "$CONF" "$BACKUP" 2>/dev/null || :
+}
+
+# Prefer the frontend's explicit System/wifi.conf when it exists. The frontend owns
+# that file; BaseOS owns wpa_supplicant and DHCP. Compose a runtime-only config so
+# the card file stays a plain network={} block and remains the single editable copy.
+prepare_active_conf() {
+  ensure_conf
+  mkdir -p "$CTRL" 2>/dev/null || :
+  if [ -s "$CARD_CONF" ] && grep -Eq '^[[:space:]]*ssid[[:space:]]*=' "$CARD_CONF"; then
+    COUNTRY=$(sed -n 's/^country=//p' "$CONF" 2>/dev/null | head -1)
+    [ -n "$COUNTRY" ] || COUNTRY=CN
+    {
+      printf 'ctrl_interface=%s\nupdate_config=0\ncountry=%s\n' "$CTRL" "$COUNTRY"
+      cat "$CARD_CONF"
+    } > "$RUNTIME_CONF" || die "could not stage frontend Wi-Fi config"
+    chmod 600 "$RUNTIME_CONF" 2>/dev/null || :
+    ACTIVE_CONF="$RUNTIME_CONF"
+    ACTIVE_SIGNATURE=$(cksum "$CARD_CONF" 2>/dev/null | awk '{print $1 "-" $2}')
+    log "using frontend Wi-Fi config: $CARD_CONF"
+  else
+    ACTIVE_CONF="$CONF"
+    ACTIVE_SIGNATURE=$(cksum "$CONF" 2>/dev/null | awk '{print $1 "-" $2}')
+    log "using BaseOS Wi-Fi config: $CONF"
+  fi
+}
+
+active_identity() {
+  printf '%s|%s\n' "$ACTIVE_CONF" "$ACTIVE_SIGNATURE"
 }
 
 wlan_present() { [ -e "/sys/class/net/$IFACE" ]; }
@@ -82,12 +116,24 @@ stop_dhcp() {
 
 do_up() {
   wlan_present || die "$IFACE is absent; is the WiFi module bound?"
-  ensure_conf
-  mkdir -p "$CTRL" 2>/dev/null || :
+  have wpa_supplicant || die "wpa_supplicant is not installed"
+  prepare_active_conf
+  WANT=$(active_identity)
+  if supplicant_running; then
+    HAVE=$(cat "$ACTIVE_MARKER" 2>/dev/null || :)
+    if [ "$HAVE" != "$WANT" ]; then
+      wpa_cli -i "$IFACE" terminate >/dev/null 2>&1 || killall wpa_supplicant 2>/dev/null || :
+      i=0
+      while [ "$i" -lt 30 ] && supplicant_running; do
+        sleep 0.1; i=$((i + 1))
+      done
+      supplicant_running && killall wpa_supplicant 2>/dev/null || :
+    fi
+  fi
   if ! supplicant_running; then
-    have wpa_supplicant || die "wpa_supplicant is not installed"
-    wpa_supplicant -B -i "$IFACE" -c "$CONF" -D nl80211,wext >/dev/null 2>&1 \
-      || die "wpa_supplicant failed to start"
+    wpa_supplicant -B -i "$IFACE" -c "$ACTIVE_CONF" -D nl80211,wext >/dev/null 2>&1 \
+      || die "wpa_supplicant failed to start with $ACTIVE_CONF"
+    printf '%s\n' "$WANT" > "$ACTIVE_MARKER" 2>/dev/null || :
   fi
   wait_supplicant || log "WARNING: control socket not ready; DHCP may retry"
   start_dhcp
@@ -99,6 +145,7 @@ do_down() {
   if supplicant_running; then
     wpa_cli -i "$IFACE" terminate >/dev/null 2>&1 || killall wpa_supplicant 2>/dev/null || :
   fi
+  rm -f "$ACTIVE_MARKER" 2>/dev/null || :
   ip link set "$IFACE" down 2>/dev/null || :
   log "WiFi stopped"
   return 0

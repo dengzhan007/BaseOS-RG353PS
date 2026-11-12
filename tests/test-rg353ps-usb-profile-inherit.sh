@@ -68,17 +68,17 @@ active_line() { # key file
     grep -E "^[[:space:]]*$1[[:space:]]*=" "$2" 2>/dev/null | tail -1 || :
 }
 
-# --- 1. Fresh-card seed must not contain an active usb_debug / usb_mtp -----
+# --- 1. Fresh-card seed must not contain an active ssh_debug / usb_mtp -----
 mkdir -p "$TMP/card1"
 seed "$TMP/card1"
 CARD1="$TMP/card1/baseos.conf"
 [ -s "$CARD1" ] || { echo "seed produced no card config" >&2; exit 1; }
-eq "1 fresh card seed has no active usb_debug" "$(active_line usb_debug "$CARD1")" ""
+eq "1 fresh card seed has no active ssh_debug" "$(active_line ssh_debug "$CARD1")" ""
 eq "1 fresh card seed has no active usb_mtp" "$(active_line usb_mtp "$CARD1")" ""
-if grep -Eq '^#[[:space:]]*usb_debug=yes' "$CARD1"; then
-    ok "1 seed keeps usb_debug=yes as a commented example"
+if grep -Eq '^#[[:space:]]*ssh_debug=yes' "$CARD1"; then
+    ok "1 seed keeps ssh_debug=yes as a commented example"
 else
-    bad "1 seed lost the commented usb_debug example"
+    bad "1 seed lost the commented ssh_debug example"
 fi
 if grep -Fq 'debug=no' "$CARD1"; then
     ok "1 seed keeps existing debug=no setting"
@@ -88,31 +88,31 @@ fi
 
 # --- Build development / release image configs from the real /etc template --
 sed -e 's/^usb_profile=.*/usb_profile=development/' \
-    -e 's/^usb_debug=.*/usb_debug=yes/' \
+    -e 's/^ssh_debug=.*/ssh_debug=yes/' \
     -e 's/^usb_mtp=.*/usb_mtp=yes/' "$ETC_SOURCE" > "$TMP/etc_development"
 sed -e 's/^usb_profile=.*/usb_profile=release/' \
-    -e 's/^usb_debug=.*/usb_debug=no/' \
+    -e 's/^ssh_debug=.*/ssh_debug=no/' \
     -e 's/^usb_mtp=.*/usb_mtp=yes/' "$ETC_SOURCE" > "$TMP/etc_release"
 : > "$TMP/boot_absent"
-eq "2 development image config really says usb_debug=yes" \
-   "$(active_line usb_debug "$TMP/etc_development" | sed 's/.*=//')" "yes"
-eq "3 release image config really says usb_debug=no" \
-   "$(active_line usb_debug "$TMP/etc_release" | sed 's/.*=//')" "no"
+eq "2 development image config really says ssh_debug=yes" \
+   "$(active_line ssh_debug "$TMP/etc_development" | sed 's/.*=//')" "yes"
+eq "3 release image config really says ssh_debug=no" \
+   "$(active_line ssh_debug "$TMP/etc_release" | sed 's/.*=//')" "no"
 
 # --- 2/3. Fresh card inherits the image profile ---------------------------
-eq "2 development + fresh card resolves usb_debug=yes" \
-   "$(resolve usb_debug "$CARD1" "$TMP/boot_absent" "$TMP/etc_development")" "yes"
-eq "3 release + fresh card resolves usb_debug=no" \
-   "$(resolve usb_debug "$CARD1" "$TMP/boot_absent" "$TMP/etc_release")" "no"
+eq "2 development + fresh card resolves ssh_debug=yes" \
+   "$(resolve ssh_debug "$CARD1" "$TMP/boot_absent" "$TMP/etc_development")" "yes"
+eq "3 release + fresh card resolves ssh_debug=no" \
+   "$(resolve ssh_debug "$CARD1" "$TMP/boot_absent" "$TMP/etc_release")" "no"
 
 # --- 4/5. Explicit card values still win in BOTH directions ----------------
 mkdir -p "$TMP/card_yes" "$TMP/card_no"
-printf 'debug=no\nusb_debug=yes\n' > "$TMP/card_yes/baseos.conf"
-printf 'debug=no\nusb_debug=no\n' > "$TMP/card_no/baseos.conf"
-eq "4 card usb_debug=yes overrides release image no" \
-   "$(resolve usb_debug "$TMP/card_yes/baseos.conf" "$TMP/boot_absent" "$TMP/etc_release")" "yes"
-eq "5 card usb_debug=no overrides development image yes" \
-   "$(resolve usb_debug "$TMP/card_no/baseos.conf" "$TMP/boot_absent" "$TMP/etc_development")" "no"
+printf 'debug=no\nssh_debug=yes\n' > "$TMP/card_yes/baseos.conf"
+printf 'debug=no\nssh_debug=no\n' > "$TMP/card_no/baseos.conf"
+eq "4 card ssh_debug=yes overrides release image no" \
+   "$(resolve ssh_debug "$TMP/card_yes/baseos.conf" "$TMP/boot_absent" "$TMP/etc_release")" "yes"
+eq "5 card ssh_debug=no overrides development image yes" \
+   "$(resolve ssh_debug "$TMP/card_no/baseos.conf" "$TMP/boot_absent" "$TMP/etc_development")" "no"
 
 # --- 6. usb_mtp inherits the image when the card leaves it unset ------------
 eq "6a usb_mtp inherits image yes" \
@@ -127,13 +127,13 @@ eq "6c explicit card usb_mtp=no still overrides image yes" \
 
 # --- 7. An existing non-empty card config is never rewritten ---------------
 mkdir -p "$TMP/card_existing"
-printf '# owner-owned config\ndebug=yes\nusb_debug=no\nusb_mtp=no\n' > "$TMP/card_existing/baseos.conf"
+printf '# owner-owned config\ndebug=yes\nssh_debug=no\nusb_mtp=no\n' > "$TMP/card_existing/baseos.conf"
 BEFORE="$(sha256sum "$TMP/card_existing/baseos.conf" | cut -d' ' -f1)"
 seed "$TMP/card_existing"
 AFTER="$(sha256sum "$TMP/card_existing/baseos.conf" | cut -d' ' -f1)"
 eq "7 existing non-empty card config is byte-identical after seeding" "$AFTER" "$BEFORE"
-eq "7 existing card usb_debug=no is preserved" \
-   "$(resolve usb_debug "$TMP/card_existing/baseos.conf" "$TMP/boot_absent" "$TMP/etc_development")" "no"
+eq "7 existing card ssh_debug=no is preserved" \
+   "$(resolve ssh_debug "$TMP/card_existing/baseos.conf" "$TMP/boot_absent" "$TMP/etc_development")" "no"
 
 # --- 8. Sandbox-only: no real mount point was touched ----------------------
 case "$TMP" in

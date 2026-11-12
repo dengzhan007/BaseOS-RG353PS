@@ -88,11 +88,42 @@ BaseOS exports:
 | `BASEOS_BOOT` | Mounted boot partition |
 | `BASEOS_SYSTEM_ROOT` | System root (`/`) |
 | `BASEOS_LAUNCHER` | Adapter launch-script path |
+| `BASEOS_SLEEP` | RG353PS suspend helper (`/usr/sbin/rg353ps-sleep`) |
 
 The two private directories are created under
 `<frontend-root>/.baseos/data` and `<frontend-root>/.baseos/userdata`.
 The adapter may use its own existing storage layout instead, but should not
 write persistent settings into the read-only system root.
+
+On RG353PS, `BASEOS_SLEEP` is the supported suspend entry point. A frontend
+that declares `power_owner=frontend` should invoke this helper on an explicit
+user suspend action. It selects deep suspend-to-RAM, handles the SDIO Wi-Fi
+power sequence, and returns after the physical Power key wakes the device.
+**Do not blank the backlight or write brightness=0 before calling it, and do
+not overwrite the restored brightness with a cached frontend level after it
+returns**: BaseOS owns backlight capture, blanking and restoration for this
+native suspend path. Frontend on_close/on_open backlight handling is reserved
+for platforms without this helper or a fallback when it cannot start. Do not
+replace this with an idle poweroff timer. The helper is not hibernation and
+does not provide RTC self-wakeup; see [POWER.md](POWER.md).
+
+BaseOS follows the upstream ownership boundary for RG353PS Wi-Fi:
+it loads the `rtw88_8821cs` driver asynchronously during boot, waits for
+`wlan0`, unblocks Wi-Fi through `rfkill` and raises the interface. It does
+not associate with an access point or run the frontend's DHCP session.
+
+The frontend owns scanning, saved credentials, association, `wpa_supplicant`
+and DHCP through its card-side `System/slotnet.sh` and `System/wifi.conf`.
+The RG353PS Slot launcher passes `AGS_ROOT` as the selected card root and
+overrides `AGS_NET_MODULE=rtw88_8821cs`: the upstream helper defaults to the
+H700 vendor module name `8821cs`, while this target uses the mainline rtw88
+SDIO driver. Normally BaseOS has already loaded it asynchronously before the
+Wi-Fi UI is opened; the module override is a recovery fallback if `wlan0`
+has not appeared yet. The RG353PS Slot package otherwise uses the upstream
+script without translating its connection lifecycle into a BaseOS-specific
+API. During deep suspend, BaseOS passes the active card root to the script,
+takes the network down, and starts it again after the SDIO driver has rebound;
+older packages without the script retain a legacy BaseOS-helper fallback.
 
 A minimal adapter:
 
@@ -126,6 +157,11 @@ restores the prior mixer level when it exits. Otherwise use `system`.
 A frontend that must process the power key itself should declare
 `power_owner=frontend`. Otherwise BaseOS's hotkey daemon remains responsible
 for short-press suspend and long-press shutdown.
+
+When `power_owner=frontend` is declared, the frontend must provide both
+short-press suspend and an explicit shutdown path. On RG353PS, short-press
+suspend should use `BASEOS_SLEEP`; long-press shutdown remains a real
+poweroff/reboot action chosen by the frontend.
 
 Older adapters without a manifest may still use the transitional
 `# baseos: volume-owned` and `# baseos: power-owned` markers. New adapters

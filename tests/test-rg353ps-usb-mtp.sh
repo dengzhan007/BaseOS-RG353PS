@@ -5,6 +5,47 @@ USB="$ROOT/platforms/rg353ps"
 
 sh -n "$USB/rootfs/usr/sbin/baseos-usb-debug"
 sh -n "$USB/rootfs/usr/sbin/baseos-usb-mtp"
+sh -n "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
+
+# Wi-Fi SFTP is independent of ssh_debug. A second Wi-Fi Dropbear shell uses
+# TCP/2222 and is enabled by that same switch as USB SSH on 192.168.42.1:22.
+# OpenSSH SFTP stays on wlan0 TCP/22 and remains chrooted.
+grep -Fq 'wifi_sftp=yes' "$USB/rootfs/etc/baseos.conf"
+grep -Fq 'ListenAddress $ip_addr:22' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
+grep -Fq 'ForceCommand internal-sftp -d / -u 022' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
+grep -Fq 'ChrootDirectory /mnt/SDCARD' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
+grep -Fq 'DisableForwarding yes' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
+grep -Fq 'wifi_sftp_enabled() { setting_enabled wifi_sftp; }' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
+grep -Fq 'wifi_ssh_enabled() { setting_enabled ssh_debug; }' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
+grep -Fq 'dropbear -R -p "$ip_addr:2222"' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
+grep -Fq 'usb_dropbear_alive && return 0' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'usb_dropbear_alive || start_sshd' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'wifi_ssh_enabled() { setting_enabled ssh_debug; }' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
+grep -Fq 'dropbear -R -p "$ip_addr:2222"' "$USB/rootfs/usr/sbin/baseos-wifi-sftp"
+grep -Fq 'usb_dropbear_alive && return 0' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq 'usb_dropbear_alive || start_sshd' "$USB/rootfs/usr/sbin/baseos-usb-debug"
+grep -Fq '/usr/sbin/baseos-wifi-sftp start' "$USB/rootfs/etc/init.d/rcS"
+grep -Fq 'Wi-Fi SFTP supervisor started after early boot-storage exit' "$USB/rootfs/usr/sbin/baseos-usb-storage"
+grep -Fq '[ "$BOOT_MODE" -eq 1 ]' "$USB/rootfs/usr/sbin/baseos-usb-storage"
+grep -Fq "openssh-server>=10.0_p1-r11" "$USB/build-rootfs.sh"
+grep -Fq 'sshd:x:22:22:SSH privilege separation:/var/empty:/sbin/nologin' "$USB/build-rootfs.sh"
+grep -Fq 'sshd:!:19000:0:99999:7:::' "$USB/build-rootfs.sh"
+grep -Fq 'chroot "$R" /usr/sbin/sshd -t -f /run/baseos-wifi-sftp-build-test.conf' "$USB/build-rootfs.sh"
+
+# The SFTP listener and active sshd-session workers must be stopped before
+# BASEOS_DATA is unmounted for raw USB Mass Storage; restart only after remount.
+wifi_stop_line="$(grep -n 'stopping Wi-Fi SFTP before exporting' "$USB/rootfs/usr/sbin/baseos-usb-storage" | cut -d: -f1)"
+unmount_line="$(grep -n '^umount_msg=' "$USB/rootfs/usr/sbin/baseos-usb-storage" | cut -d: -f1)"
+finish_line="$(grep -n 'if usb_mode_finish_session ' "$USB/rootfs/usr/sbin/baseos-usb-storage" | cut -d: -f1)"
+wifi_restart_line="$(grep -n '/usr/sbin/baseos-wifi-sftp start' "$USB/rootfs/usr/sbin/baseos-usb-storage" | tail -n 1 | cut -d: -f1)"
+[ -n "$wifi_stop_line" ] && [ -n "$unmount_line" ] && [ "$wifi_stop_line" -lt "$unmount_line" ] || {
+    echo "Wi-Fi SFTP must stop before BASEOS_DATA unmount" >&2
+    exit 1
+}
+[ -n "$finish_line" ] && [ -n "$wifi_restart_line" ] && [ "$finish_line" -lt "$wifi_restart_line" ] || {
+    echo "Wi-Fi SFTP must restart after the USB storage remount attempt" >&2
+    exit 1
+}
 sh -n "$USB/rootfs/etc/init.d/rcS"
 sh -n "$USB/build-rootfs.sh"
 
@@ -39,7 +80,7 @@ PY
 
 grep -q '^CONFIG_USB_F_FS=y$' "$USB/kernel/config/linux.aarch64.conf"
 grep -q '^CONFIG_USB_CONFIGFS_F_FS=y$' "$USB/kernel/config/linux.aarch64.conf"
-grep -q '^usb_debug=yes$' "$USB/rootfs/etc/baseos.conf"
+grep -q '^ssh_debug=yes$' "$USB/rootfs/etc/baseos.conf"
 grep -q '^usb_mtp=yes$' "$USB/rootfs/etc/baseos.conf"
 grep -Fqx 'storage "/mnt/SDCARD" "RG353PS" "rw"' "$USB/rootfs/etc/umtprd/umtprd.conf"
 storage_count="$(grep -c '^storage ' "$USB/rootfs/etc/umtprd/umtprd.conf")"

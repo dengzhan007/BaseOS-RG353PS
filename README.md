@@ -8,7 +8,7 @@
 
 面向 **Anbernic RG353PS（Rockchip RK3566）** 的轻量级 Linux 系统底座。BaseOS 提供设备启动、硬件与系统服务、存储管理、前端发现和系统更新；游戏界面由独立前端提供。
 
-当前平台版本：**1.2.7**
+当前平台版本：**1.2.9**
 
 ### 功能概览
 
@@ -18,6 +18,7 @@
 - **持久化用户数据**：系统更新采用 A/B 机制，用户数据分区与系统槽分离，更新不会主动清除用户文件。
 - **USB 文件传输与调试**：Release 默认启用 MTP；开发配置可启用 USB 虚拟网卡、SSH 和 MTP；另提供独占 USB Mass Storage 模式。
 - **设备基础功能**：集成显示、按键输入、RK817 音频、Wi-Fi、蓝牙及电源管理相关适配。
+- **深度休眠与唤醒**：支持 RK3566 deep suspend-to-RAM，机身 Power 键唤醒；休眠前处理 SDIO Wi-Fi 电源，唤醒后自动恢复无线服务。前端通过 BaseOS 提供的休眠接口进入，不再用闲置计时器代替休眠。
 - **启动画面持久化**：自定义启动图保存在用户数据分区，系统更新后会在启动阶段恢复。
 
 ### 底座与前端的职责
@@ -44,6 +45,8 @@ BaseOS 不规定统一的游戏目录或前端与游戏是否必须位于同一�
 
 BaseOS 支持完整镜像全新安装和 `.bosupd` 原地升级。A/B 更新切换系统槽，不需要重新安装前端或清空用户数据；升级前仍建议备份重要文件。
 
+**升级路径：** 1.2.9 提供 `.bosupd`，可从已全新刷写的 1.2.8 原地升级；1.2.7 及更早版本仍须先使用完整镜像迁移到 1.2.8/1.2.9。完整镜像用于新装或需要重刷系统时。升级前仍建议备份重要文件。
+
 详细步骤见 [RG353PS 平台说明](platforms/rg353ps/README.md) 和 [通用前端适配器规范](platforms/rg353ps/FRONTENDS.md)。
 
 ### USB 连接说明
@@ -51,7 +54,7 @@ BaseOS 支持完整镜像全新安装和 `.bosupd` 原地升级。A/B 更新切�
 RG353PS 的 USB 文件传输和调试功能使用机身 **DC 接口**。MTP、Mass Storage 和 USB 虚拟网卡 SSH 均应连接 DC 接口；连接 OTG 接口不能使用这里描述的这些功能。
 
 - **Release 默认配置：** MTP-only，可通过电脑访问用户数据分区中的文件。
-- **开发配置：** USB 虚拟网卡 + SSH + MTP，用于连接电脑进行远程调试和文件传输。SSH 默认用户名为 `root`，默认密码为 `root`。此默认凭据仅用于开发调试配置；请勿将该配置暴露到不可信网络，并建议在实际使用前修改密码。
+- **开发配置：** `ssh_debug=yes` 同时启用 USB SSH（`192.168.42.1:22`）和 Wi-Fi SSH（设备 Wi-Fi 地址的 TCP `2222`）；`wifi_sftp=yes` 独立启用 Wi-Fi SFTP（TCP `22`）。SSH 默认用户名为 `root`，默认密码为 `root`。这会在可信局域网内开放 root shell，请勿暴露到不可信网络。
 - **USB 虚拟网卡：** 提供设备与电脑之间的点对点调试通道，**不是互联网共享或网络热点**。
 - **Mass Storage：** 独占导出用户数据卷，设备在该模式下不会同时挂载和访问被导出的卷。
 
@@ -72,7 +75,10 @@ HDMI 相关代码和设备树支持仍在平台中，但 **RG353PS 实机 HDMI �
 - [RG353PS 平台说明](platforms/rg353ps/README.md)
 - [前端安装、发现与存储规则](platforms/rg353ps/FRONTENDS.md)
 - [USB 架构与硬件验证](platforms/rg353ps/USB.md)
+- [电源管理与深度休眠](platforms/rg353ps/POWER.md)
 - [启动画面持久化规范](platforms/rg353ps/BOOTLOGO.md)
+- [1.2.9 发布说明](docs/RG353PS-RELEASE-1.2.9.md)
+- [1.2.8 发布说明](docs/RG353PS-RELEASE-1.2.8.md)
 - [1.2.7 发布说明](docs/RG353PS-RELEASE-1.2.7.md)
 - [更新与发布工作流](.github/workflows/rg353ps-release.yml)
 - [贡献指南](CONTRIBUTING.md)
@@ -93,7 +99,7 @@ HDMI 相关代码和设备树支持仍在平台中，但 **RG353PS 实机 HDMI �
 
 A lightweight Linux system foundation for the **Anbernic RG353PS (Rockchip RK3566)**. BaseOS provides device boot, hardware and system services, storage management, frontend discovery, and system updates. The user interface and game library are provided by independent frontends.
 
-Current platform version: **1.2.7**
+Current platform version: **1.2.9**
 
 ### Features
 
@@ -103,6 +109,7 @@ Current platform version: **1.2.7**
 - **Persistent user data:** A/B system slots are separate from the user-data partition. System updates do not intentionally erase user files.
 - **USB transfer and debugging:** Release builds default to MTP; development configuration can enable a USB virtual network interface, SSH, and MTP. An exclusive USB Mass Storage mode is also available.
 - **Device integration:** display, button input, RK817 audio, Wi-Fi, Bluetooth, and power-management adaptations are integrated.
+- **Deep suspend and wake:** RK3566 deep suspend-to-RAM is supported and can be resumed with the physical Power button. BaseOS manages the SDIO Wi-Fi power sequence and restores wireless service after wake; frontends use the provided suspend hook rather than an idle poweroff timer.
 - **Persistent boot logo:** custom boot logos are stored in user data and restored during startup after system updates.
 
 ### BaseOS and frontend responsibilities
@@ -129,6 +136,8 @@ BaseOS does not prescribe a universal game directory or require the frontend and
 
 BaseOS supports fresh installation from a complete image and in-place upgrades using `.bosupd`. A/B updates switch the system slot without requiring frontend reinstallation or user-data erasure. Back up important files before upgrading.
 
+**Upgrade path:** Version 1.2.9 provides a `.bosupd` package for in-place upgrades from a cleanly installed 1.2.8 system. Version 1.2.7 and earlier must first migrate using a complete 1.2.8 or 1.2.9 image. The complete image is intended for fresh installations or full reflashing. Back up important files before upgrading.
+
 See the [RG353PS platform guide](platforms/rg353ps/README.md) and [frontend installation and discovery guide](platforms/rg353ps/FRONTENDS.md).
 
 ### USB connection notes
@@ -136,7 +145,7 @@ See the [RG353PS platform guide](platforms/rg353ps/README.md) and [frontend inst
 The RG353PS USB transfer and debugging features use the device's **DC port**. MTP, Mass Storage, and USB virtual-network SSH must be connected through the DC port; the OTG port does not support the functions described here.
 
 - **Release default:** MTP-only, allowing a computer to access files in the user-data partition.
-- **Development configuration:** USB virtual network + SSH + MTP for remote debugging and file transfer. The default SSH username is `root` and the default password is `root`. These default credentials are for the development configuration only. Do not expose this configuration to untrusted networks; change the password before practical use.
+- **Development configuration:** `ssh_debug=yes` enables both USB SSH (`192.168.42.1:22`) and Wi-Fi SSH (the device's Wi-Fi address on TCP `2222`); `wifi_sftp=yes` independently enables Wi-Fi SFTP on TCP `22`. The default SSH username is `root` and the password is `root`. Interactive SSH exposes a root shell to the trusted LAN; do not enable it on untrusted networks.
 - **USB virtual network:** a point-to-point debugging link between the handheld and the computer; **it does not provide internet sharing or a network hotspot**.
 - **Mass Storage:** exclusively exports the user-data volume. The device does not mount or access that volume locally while it is exported.
 
@@ -157,7 +166,10 @@ HDMI-related code and device-tree support are present, but **HDMI output has not
 - [RG353PS platform guide](platforms/rg353ps/README.md)
 - [Generic frontend adapter contract](platforms/rg353ps/FRONTENDS.md)
 - [USB architecture and hardware validation](platforms/rg353ps/USB.md)
+- [Power management and deep suspend](platforms/rg353ps/POWER.md)
 - [Boot-logo persistence contract](platforms/rg353ps/BOOTLOGO.md)
+- [1.2.9 release notes](docs/RG353PS-RELEASE-1.2.9.md)
+- [1.2.8 release notes](docs/RG353PS-RELEASE-1.2.8.md)
 - [1.2.7 release notes](docs/RG353PS-RELEASE-1.2.7.md)
 - [Release workflow](.github/workflows/rg353ps-release.yml)
 - [Contributing guide](CONTRIBUTING.md)

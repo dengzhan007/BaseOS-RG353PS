@@ -599,16 +599,18 @@ static void rotate_blit(uint8_t *fb, const struct fb_var_screeninfo *pv,
 	}
 }
 
-// --- optional user-supplied BMP boot logo ---------------------------------
+// --- selected user-supplied BMP boot logo ---------------------------------
 //
-// The logo is a file on BASEOS_BOOT, the FAT volume that also carries the
-// kernel: it is where the frontend can write to change the boot artwork, and it
-// is the partition an update never touches, so a logo survives a system update
-// exactly as it does upstream. There is deliberately no copy on the data
-// partition. Accept only the simple uncompressed 24-bit BMP3 format so
-// malformed files cannot stall early boot.
+// BASEOS_BOOT is an A/B-updated cache, not the source of truth. rcS sets
+// BASEOS_CUSTOM_SPLASH=1 only after it has restored a selected image from
+// /mnt/SDCARD/Bootlogos and verified it against System/bootlogo.txt. Without
+// that explicit opt-in, fbsplash uses the generated BaseOS wordmark even when
+// a stale or bundled bootlogo.bmp happens to exist on the BOOT partition.
 #define CUSTOM_SPLASH_PATH "/mnt/boot/bootlogo.bmp"
 static const char *custom_splash_path(void) {
+	const char *enabled = getenv("BASEOS_CUSTOM_SPLASH");
+	if (!enabled || strcmp(enabled, "1") != 0)
+		return NULL;
 	if (access(CUSTOM_SPLASH_PATH, R_OK) == 0)
 		return CUSTOM_SPLASH_PATH;
 	return NULL;

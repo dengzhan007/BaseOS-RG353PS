@@ -1,4 +1,4 @@
-# RG353PS port — BaseOS 1.2.7
+# RG353PS port — BaseOS 1.2.9
 
 This directory contains the independent BaseOS target for the Anbernic RG353PS
 (Rockchip RK3566). It does not replace or alter the existing Miyoo Flip
@@ -6,11 +6,12 @@ This directory contains the independent BaseOS target for the Anbernic RG353PS
 
 ## Release status
 
-**Version: 1.2.7.** The RG353PS target now has a complete release build path:
+**Version: 1.2.9 release candidate.** The RG353PS target has a complete image and A/B update build path:
 U-Boot, Linux kernel and device tree, kernel modules, wireless firmware,
-BusyBox-based root filesystem, GPT SD-card image, and A/B system-update
-payload. The release workflow can build the full image and update package
-separately (`full` or `update`) or together (`both`).
+BusyBox-based root filesystem and GPT SD-card image. The release workflow
+supports A/B update payloads for compatible versions. **1.2.8 remains
+full-image-only** because it changed the persisted SSH setting name; 1.2.9
+restores `.bosupd` updates from an installed 1.2.8 system.
 
 The 1.2.6 full image and update package have both been tested on physical
 RG353PS hardware. That remains the latest complete-image / in-place-update
@@ -21,21 +22,22 @@ hardware acceptance baseline. The 1.2.6 checks established that:
   frontends, so normal system updates do not replace ROMs, saves, frontend files,
   or user settings stored there.
 
-Version 1.2.7 adds the generic frontend adapter contract and release-workflow
-checks described below. It uses `manifest.conf` (`adapter_api=1`) to declare
-priority and volume/power ownership, with TF2-first discovery, legacy
-launch-script compatibility and cache invalidation. The formal GitHub Release
-uses the tag `1.2.7`; download the complete image and update package from the
-[GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases)
-page. The 1.2.7 image and update package still require their own post-release
-device validation; this document does not claim those tests have already been
-performed.
+Version 1.2.9 is based on the 1.2.8 release branch. It preserves Wi-Fi
+SFTP, Wi-Fi interactive SSH, the generated default boot logo and the generic
+frontend adapter contract. Audio initialization and the kernel audio path are
+restored to the 1.2.8 implementation. The minor startup pop remains a known
+limitation; this release does not claim to fix it.
 
 ## Installation
 
 ### New installation
 
-1. Download the complete `baseos-rg353ps-1.2.7.img.gz` image from the
+**For a fresh installation, use the complete 1.2.9 image.** A system already
+running 1.2.8 can use the 1.2.9 `.bosupd` package. In-place upgrades from 1.2.7
+or earlier remain unsupported because the 1.2.8 release changed the persisted
+SSH setting name. Back up important files before any system update or reflash.
+
+1. Download the complete `baseos-rg353ps-1.2.9.img.gz` image from the
    [GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases)
    page.
 2. Write the image to the TF1 card with an SD-card imaging tool.
@@ -47,9 +49,15 @@ performed.
 
 ### Upgrade an existing BaseOS RG353PS installation
 
-1. Download `baseos-rg353ps-1.2.7.bosupd`.
+This procedure applies only to versions that publish a compatible update
+payload. **Do not use it to install or migrate to 1.2.8.**
+
+For a version with an available update payload:
+
+1. Download the matching `.bosupd` package from that version's release.
 2. Copy the update package to the root of either card's accessible volume,
-   following the system's update procedure.
+   following the system's update procedure. This release's update payload is for
+   systems already running 1.2.8; do not use it on 1.2.7 or earlier.
 3. Restart the device and allow the updater to complete.
 
 The `.bosupd` package updates the A/B system BOOT and ROOTFS regions. It does
@@ -231,13 +239,16 @@ This is accepted as a usage convention rather than a pending fix. Closing it
 properly means reworking charger detection or the PHY init order in
 `phy-rockchip-inno-usb2`, which needs repeated bench validation on hardware.
 
-The switch is `usb_debug` in `baseos.conf`. The image ships one at the root of
+The `ssh_debug` setting controls both interactive shell endpoints: USB
+Dropbear at `192.168.42.1:22` and Wi-Fi Dropbear at the current `wlan0`
+address on TCP `2222`. Wi-Fi SFTP is independent and remains on TCP `22`
+when `wifi_sftp=yes`. The image ships `baseos.conf` at the root of
 `BASEOS_BOOT`, but that partition is hidden from file browsers on purpose, so
 first boot also writes a card-side copy to the root of the visible `BASEOS`
 volume, next to `Games/`:
 
 ```
-BASEOS/baseos.conf      # debug=no, usb_debug=yes, frontend_id=auto
+BASEOS/baseos.conf      # debug=no, ssh_debug=yes, frontend_id=auto
 ```
 
 That copy is read before the image one and only overrides the keys it contains,
@@ -248,8 +259,9 @@ Root logs in with either the key or the password `root` (the hash is baked into
 `/etc/shadow` by `build-rootfs.sh`). A key dropped at
 `BASEOS/baseos-ssh/authorized_keys` replaces the one baked into the image and
 keeps working alongside the password. Setting
-`usb_debug=no` leaves the UDC unbound, so the port behaves like a plain USB
-device port again — and still enters mass storage with Function + plug:
+`ssh_debug=no` disables both interactive SSH listeners. When `usb_mtp=yes`,
+the USB gadget remains MTP-only; it can still enter exclusive Mass Storage with
+Function + Power:
 `baseos-usb-storage` releases this gadget first and restarts it from its cleanup
 trap, so the two modes never fight over the controller.
 
@@ -429,9 +441,13 @@ replace decoding/viewing the image or longer-duration testing.
 
 To inspect suspend and wakeup support without changing power state, create an empty file named `BASEOS-SUSPEND-AUDIT` in the FAT `BASEOS_BOOT` partition from a PC, then boot the device once. `rcS` consumes this one-shot request and writes a timestamped report named `rg353ps-suspend-audit-*.txt` to `BASEOS_BOOT`. You can also run `/usr/sbin/rg353ps-suspend-audit` manually from a shell. The audit is read-only and does not attempt suspend. It records `/sys/power/state`, `mem_sleep`, per-device wakeup attributes, input/power-key devices, CPU idle states, battery/RTC data, and relevant kernel messages.
 
-For the first hardware test, save any game progress and shut down the device. On a PC, open the FAT `BASEOS_BOOT` partition and create an empty file named `BASEOS-SUSPEND-TEST-S2IDLE` at its root; safely eject the card, reinstall it, and boot normally. Keep USB data cables disconnected and do not enter USB storage mode. The frontend supervisor consumes this one-shot request only after the selected frontend has launched. It waits eight seconds, stores a pre-test report, turns the backlight off, selects `s2idle`, and requests the kernel `mem` state. When the backlight turns off, briefly press the physical power button to wake the device. After resume, the helper restores the previous backlight brightness and `mem_sleep` selection, then writes `rg353ps-suspend-test-s2idle-*.txt` to `BASEOS_BOOT`. The pre-suspend report is flushed before the suspend call, so it should remain readable even if the device does not resume. If the device fails to wake, a long power-button hold may force a shutdown and discard unsaved game progress; use it only as a last resort.
+**Runtime deep suspend is supported.** Use `/usr/sbin/rg353ps-sleep` for the product suspend path. On Slot cards it stops the frontend-owned Wi-Fi session through `System/slotnet.sh`, unbinds the Realtek SDIO Wi-Fi function so the MMC core can cut the Wi-Fi rail, selects `deep`, turns off the backlight and requests `mem`. A short press of the physical Power button wakes the device; after rebinding the radio, the helper asks the frontend script to reconnect using the card's `System/wifi.conf`. Other older frontends without that script use the legacy `rg353ps-wifi-connect` fallback. If the deep request fails after Wi-Fi was unbound, the helper attempts `s2idle` as a fallback. RTC self-wakeup is not supported, so the device must be woken by the Power button. This is suspend-to-RAM, not hibernation or poweroff.
 
-This first test is intentionally limited to `s2idle`. It is opt-in, consumed before suspend, and does not change normal power-key behavior. Passing it validates only the basic suspend/resume path; it does not prove that deep suspend-to-RAM works or that it saves enough power. Do not run either suspend test while USB storage mode is active or while files are being transferred. A separate deep-suspend test should be considered only after this test confirms wake and display recovery.
+For normal Wi-Fi use, BaseOS initializes the RTL8821CS radio and exposes `wlan0`; the frontend owns scanning, credentials, `wpa_supplicant` and DHCP through its card-side network helper. This matches upstream BaseOS/Slot separation. See [FRONTENDS.md](FRONTENDS.md) for the Slot contract.
+
+BaseOS exports `BASEOS_SLEEP=/usr/sbin/rg353ps-sleep` to the selected frontend. Frontends that own the power key should invoke this helper for a user-requested suspend rather than using an idle timeout that later calls `poweroff`. The Slot RG353PS adapter uses this contract. See [POWER.md](POWER.md) for the sequence, frontend requirements and diagnostics.
+
+The one-shot `BASEOS-SUSPEND-TEST-S2IDLE` helper remains available for diagnostic comparison. Save game progress and shut down the device. On a PC, create an empty file named `BASEOS-SUSPEND-TEST-S2IDLE` at the root of the FAT `BASEOS_BOOT` partition; safely eject the card, reinstall it, and boot normally. Keep USB data cables disconnected and do not enter USB storage mode. The frontend supervisor consumes this request only after the selected frontend has launched. It waits eight seconds, stores a pre-test report, selects `s2idle`, and requests the kernel `mem` state. When the backlight turns off, briefly press the physical Power button to wake the device. After resume, the helper restores the previous backlight brightness and `mem_sleep` selection, then writes `rg353ps-suspend-test-s2idle-*.txt` to `BASEOS_BOOT`. This test is not the product deep-suspend path. Do not run either test while USB storage mode is active or while files are transferring. A long Power-button hold may force a PMIC hard poweroff and discard unsaved progress; use it only as a last resort.
 
 For the next hardware pass, run `/usr/sbin/rg353ps-hardware-audit`. It creates
 a read-only inventory of display/backlight, input devices, audio, battery and

@@ -1,8 +1,7 @@
 name: RG353PS release build
 
-# Produces the two artifacts a user actually needs:
-#   baseos-rg353ps-<version>.img.gz   complete card image, for a new SD card
-#   baseos-rg353ps-<version>.bosupd   update payload, for a card already running
+# Produces the complete card image and, for compatible versions, an A/B update payload.
+# Version 1.2.8 remains a clean-flash-only migration; 1.2.9 restores update builds.
 # The release workflow builds the complete BaseOS image and derives the A/B
 # update payload from that exact image. The game frontend remains user-installed.
 
@@ -29,10 +28,12 @@ on:
       - ".github/workflows/rg353ps-release.yml"
       - "src/fbsplash.c"
       - "platforms/rg353ps/build-*.sh"
+      - "platforms/rg353ps/kernel/**"
       - "platforms/rg353ps/rootfs/**"
       - "platforms/rg353ps/src/**"
       - "tests/**"
       - "tools/common.sh"
+      - "tools/make-bootlogo.sh"
       - "VERSION"
   push:
     branches:
@@ -44,12 +45,15 @@ on:
       - ".github/workflows/rg353ps-release.yml"
       - "src/fbsplash.c"
       - "platforms/rg353ps/build-*.sh"
+      - "platforms/rg353ps/kernel/**"
       - "platforms/rg353ps/rootfs/**"
       - "platforms/rg353ps/src/**"
       - "tests/**"
       - "tools/common.sh"
       - "VERSION"
       - "docs/RG353PS-RELEASE-1.2.7.md"
+      - "docs/RG353PS-RELEASE-1.2.8.md"
+      - "docs/RG353PS-RELEASE-1.2.9.md"
     tags:
       - "v*"
 
@@ -76,6 +80,17 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Building BaseOS RG353PS $version"
 
+      - name: Verify embedded OS version
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          os_version="$(sed -n 's/^VERSION_ID="\([^"]*\)"$/\1/p' platforms/rg353ps/rootfs/etc/os-release)"
+          [ -n "$os_version" ] || { echo "VERSION_ID missing from os-release" >&2; exit 1; }
+          [ "$version" = "$os_version" ] || {
+            echo "Version mismatch: VERSION=$version, os-release VERSION_ID=$os_version" >&2
+            exit 1
+          }
+          echo "Version metadata verified: $version"
+
       - name: Enable ARM64 container emulation
         uses: docker/setup-qemu-action@v3
         with:
@@ -84,18 +99,23 @@ jobs:
       - name: Check shell syntax
         run: |
           sh -n tools/common.sh
+          sh -n tools/make-bootlogo.sh
           sh -n platforms/rg353ps/build-uboot.sh
           sh -n platforms/rg353ps/build-firmware.sh
           sh -n platforms/rg353ps/build-kernel.sh
           sh -n platforms/rg353ps/build-rootfs.sh
           sh -n platforms/rg353ps/build-image.sh
           sh -n platforms/rg353ps/build-update.sh
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-update
           sh -n platforms/rg353ps/rootfs/etc/init.d/rcS
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-debug
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-wifi-sftp
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-mtp
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-audio-init
           sh tests/test-frontend-adapters.sh
           sh tests/test-rg353ps-usb-mtp.sh
+          sh tests/test-rg353ps-update-splash.sh
 
       - name: Build RG353PS U-Boot
         run: ./platforms/rg353ps/build-uboot.sh
@@ -153,12 +173,15 @@ jobs:
 
       # The update payload is derived from the composed image, so the image
       # remains an intermediate input even when only the update is published.
+      # Version 1.2.8 changes the persisted SSH setting name without a
+      # compatibility alias. It is a clean-flash migration and must not ship
+      # an update package for earlier cards.
       - name: Build .bosupd update payload
-        if: ${{ inputs.package_type != 'full' }}
+        if: ${{ inputs.package_type != 'full' && steps.version.outputs.version != '1.2.8' }}
         run: ./platforms/rg353ps/build-update.sh
 
       - name: Verify .bosupd manifest
-        if: ${{ inputs.package_type != 'full' }}
+        if: ${{ inputs.package_type != 'full' && steps.version.outputs.version != '1.2.8' }}
         run: |
           python3 - work/rg353ps/baseos-rg353ps-${{ steps.version.outputs.version }}.bosupd "${{ steps.version.outputs.version }}" <<'PY'
           import sys, tarfile
@@ -179,7 +202,12 @@ jobs:
         id: stage
         run: |
           version="${{ steps.version.outputs.version }}"
-          package_type="${{ inputs.package_type || 'both' }}"
+          case "$GITHUB_REF" in
+            refs/heads/release/1.2.8) package_type=full ;;
+            *) package_type="${{ inputs.package_type || 'both' }}" ;;
+          esac
+          # 1.2.8 is a full-image-only clean-flash migration.
+          if [ "$version" = "1.2.8" ]; then package_type=full; fi
           work=work/rg353ps
           out=work/release
           mkdir -p "$out"
@@ -233,9 +261,17 @@ jobs:
             esac
           fi
           if [ -n "$tag" ]; then
+            if [ "$GITHUB_REF" = "refs/heads/release/1.2.8" ] && gh release view "$tag" >/dev/null 2>&1; then
+              # 1.2.8 is a clean-flash-only release. Remove any update payload
+              # left by an earlier queued workflow attempt before uploading.
+              assets="$(gh release view "$tag" --json assets --jq '.assets[].name' | grep -E '\\.bosupd$' || true)"
+              while IFS= read -r asset; do
+                [ -n "$asset" ] && gh release delete-asset "$tag" "$asset" --yes
+              done <<EOF_ASSETS
+          $assets
+          EOF_ASSETS
+            fi
             if [ "$GITHUB_REF" = "refs/heads/release/1.2.6-rebuild" ] || { [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$GITHUB_HEAD_REF" = "release/1.2.6-rebuild" ]; }; then
-              # A release rebuild must update the existing release, never create
-              # a second tag or release by accident.
               gh release view "$tag" >/dev/null
               gh release upload "$tag" work/release/* --clobber
             elif gh release view "$tag" >/dev/null 2>&1; then
@@ -243,15 +279,14 @@ jobs:
             else
               notes_file="docs/RG353PS-RELEASE-$version.md"
               if [ -f "$notes_file" ]; then
-                gh release create "$tag" work/release/* \
-                  --title "BaseOS RG353PS $version" \
-                  --notes-file "$notes_file" \
-                  --target "$GITHUB_SHA"
+                gh release create "$tag" work/release/* --title "BaseOS RG353PS $version" --notes-file "$notes_file" --target "$GITHUB_SHA"
               else
-                gh release create "$tag" work/release/* \
-                  --title "BaseOS RG353PS $version" \
-                  --notes "Complete image and .bosupd update payload for $version." \
-                  --target "$GITHUB_SHA"
+                gh release create "$tag" work/release/* --title "BaseOS RG353PS $version" --notes "Complete image for $version." --target "$GITHUB_SHA"
               fi
+            fi
+            # Keep the published release description synchronized with the checked-in notes.
+            notes_file="docs/RG353PS-RELEASE-$version.md"
+            if [ -f "$notes_file" ] && gh release view "$tag" >/dev/null 2>&1; then
+              gh release edit "$tag" --title "BaseOS RG353PS $version" --notes-file "$notes_file"
             fi
           fi

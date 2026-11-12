@@ -62,11 +62,10 @@ fi
 cat "$PLATFORM_DIR"/kernel/patches/rk3566/*.patch \
     "$PLATFORM_DIR"/kernel/patches/mainline-rockchip/*.patch > "$PATCHSET"
 PATCH_SHA="$(baseos_sha256 "$PATCHSET")"
-AUDIO_PATCH_SHA="$(baseos_sha256 "$PLATFORM_DIR/kernel/patches/rg353ps-audio-startup.py")"
 CONFIG_SHA="$(baseos_sha256 "$PLATFORM_DIR/kernel/config/linux.aarch64.conf")"
 BUILDER_SHA="$(baseos_sha256 "$PLATFORM_DIR/build-kernel.sh")"
-printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
-  "$KERNEL_VERSION" "$ROCKNIX_REF" "$PATCH_SHA" "$AUDIO_PATCH_SHA" "$CONFIG_SHA" \
+printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \
+  "$KERNEL_VERSION" "$ROCKNIX_REF" "$PATCH_SHA" "$CONFIG_SHA" \
   "$REGDB_SHA" "$REGDB_SIG_SHA" "$REGDB_CERT_SHA" "$BUILDER_SHA" > "$INPUT_KEY_FILE"
 INPUT_KEY="$(baseos_sha256 "$INPUT_KEY_FILE")"
 
@@ -2484,9 +2483,6 @@ source.write_text(text)
 print("Applied RG353PS event-driven OTG polling policy")
 print("Applied RG353PS OTG immediate reschedule fix using mod_delayed_work")
 PYCODE
-
-    echo "== applying RG353PS speaker-amplifier settling test patch =="
-    python3 /inputs/patches/rg353ps-audio-startup.py "$SRC"
 
     cd "$SRC"
     export ARCH=arm64 CROSS_COMPILE="$CROSS" SOURCE_DATE_EPOCH=0

@@ -141,11 +141,10 @@ mixer_names() {
         sed -n "s/^numid=[0-9][0-9]*,.*name='\(.*\)'$/\1/p"
 }
 
-# 2. Pin every hardware gain at 0 dB and enable the playback path. The
-#    Internal Speakers Switch accepts an optional "off" override used only
-#    while creating the softvol control on a fresh boot.
+# 2. Pin every hardware gain at 0 dB and close every playback switch, so that
+#    nothing but the softvol layer can change the level. Capture controls are
+#    left alone, and the softvol control is filtered out by name.
 pin_hardware() {
-    speaker_switch=${1:-on}
     mixer_names | while IFS= read -r name; do
         [ "$name" = "$SOFTVOL_CTL" ] && continue
         case "$name" in
@@ -158,12 +157,8 @@ pin_hardware() {
                 case "$name" in
                     *Capture*|*Mic*|*PGA*) continue ;;
                 esac
-                switch_value=on
-                if [ "$name" = "Internal Speakers Switch" ]; then
-                    switch_value=$speaker_switch
-                fi
-                if amixer -c "$CARD" cset name="$name" "$switch_value" >/dev/null 2>&1; then
-                    say "switch '$name' -> $switch_value"
+                if amixer -c "$CARD" cset name="$name" on >/dev/null 2>&1; then
+                    say "switch '$name' -> on"
                 fi
                 ;;
         esac
@@ -174,16 +169,17 @@ softvol_present() {
     amixer -c "$CARD" sget "$SOFTVOL_CTL" >/dev/null 2>&1
 }
 
-# 3. Keep the speaker endpoint disconnected before any PCM activity on every
-#    boot/resume. The earlier candidate only gated it when softvol was missing;
-#    on an upgraded card, the path could still be enabled during the first open.
-pin_hardware off
-say "speaker endpoint off before PCM initialization"
-
-# 4. Register the softvol control if this boot has not opened the PCM yet.
-#    PCM warm-up remains necessary because ALSA creates the softvol control
-#    lazily. The speaker endpoint stays off throughout this operation.
+# 3. Create the softvol control before restore: the plugin only registers it
+#    when a PCM using it is opened, and alsactl cannot restore a control that
+#    does not exist yet. One second of silence is enough and runs off the boot
+#    path.
 if ! softvol_present; then
+    # The control appears when the PCM is opened, so what matters is that the
+    # device is opened and one period written - not how long the audio runs.
+    # This used to play a full second of silence (-d 1), which measured 1.02 s
+    # of the boot for no benefit; piping a few hundred bytes into aplay gets
+    # the same registration in 0.14 s. The fallback keeps the old path for a
+    # codec whose first open needs longer than that to settle.
     if head -c 2048 /dev/zero 2>/dev/null |
             aplay -q -D default -t raw -f S16_LE -r 48000 -c 2 >/dev/null 2>&1 &&
             softvol_present; then
@@ -195,24 +191,18 @@ if ! softvol_present; then
     fi
 fi
 
-# 5. Reconnect the speaker route at minimum softvol gain. This attenuates any
-#    switch/DAPM transient while the external amplifier path settles. The
-#    saved user level (or first-boot default) is restored below, after 100 ms.
-if softvol_present; then
-    if amixer -c "$CARD" cset name="$SOFTVOL_CTL" 0 >/dev/null 2>&1; then
-        say "softvol '$SOFTVOL_CTL' -> 0 (-48 dB) before speaker enable"
-    else
-        say "WARNING: could not mute softvol before speaker enable"
-    fi
-else
-    say "WARNING: softvol missing; speaker route will be enabled without attenuation"
-fi
-
-# Restore normal speaker output only after PCM is ready and softvol is at its
-# minimum. Do not change the RK817 driver, amplifier GPIO, or hardware gain.
+# 4. Pin the hardware before anything can open the PCM.
+#
+#    The state blob used to be restored here first, because a blob carrying an
+#    old, low hardware gain would otherwise land on top of the pin. That restore
+#    is cheap on a running system (0.02 s) but measured 1.6 s inside a boot -
+#    and it sat directly in front of the ready flag below, so it was the last
+#    large item between rcS and the frontend. Nothing the frontend needs comes
+#    out of it: the pin below is what makes sound audible, and it no longer has
+#    to wait. The restore moved to the deferred pass in 5, which re-pins and
+#    re-applies the user level afterwards, so the ordering still holds - the
+#    frontend just does not sit through it.
 pin_hardware
-sleep 0.1
-say "speaker route settled; restoring saved/default volume below"
 
 # The ready flag goes here, not at the end of the file. Everything a frontend
 # needs is already true at this point - the softvol control exists and the

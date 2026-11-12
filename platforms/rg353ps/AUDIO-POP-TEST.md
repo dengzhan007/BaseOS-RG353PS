@@ -1,36 +1,23 @@
-# RG353PS speaker-amplifier power-up test
+# RG353PS startup audio pop — investigation closed
 
-**Status: test-only kernel change. Not a release default.**
+**Status: software investigation closed. BaseOS 1.2.9 restores the 1.2.8 audio implementation.**
 
-## Hypothesis
+## Decision
 
-The RG353PS device tree describes the external speaker stage as a generic `simple-audio-amplifier` controlled by GPIO4_PC2. The repository does not identify the physical amplifier IC. SGM4865 is one possible hypothesis, not a confirmed board-level part number.
+Repeated device testing found no meaningful audio improvement from the 1.2.9 audio-sequencing candidate compared with the official 1.2.8 behavior. The release therefore removes the experimental audio changes and keeps the established 1.2.8 startup sequence.
 
-The existing userspace experiment keeps `Internal Speakers Switch` off while the default PCM and softvol are initialized, sets `BaseOS Master` to minimum, and then re-enables the DAPM route. The pop remains. This narrows the remaining transient to the speaker-path / external-amplifier power-up sequence; digital softvol attenuation alone has not suppressed it.
+The cold-start pop may remain as a faint, known limitation. It is not claimed as fixed in 1.2.9. No further software changes for this issue are planned.
 
-## Test change
+## Experiments excluded from the release
 
-The kernel build applies an opt-in `power-on-delay-ms` property to the RG353PS speaker-amplifier node:
+- DAPM speaker-pin gating before PCM initialization.
+- Minimum \`BaseOS Master\` softvol level during speaker-path reconnection.
+- The 100 ms userspace settling wait.
+- The kernel \`PRE_PMU\` change and \`power-on-delay-ms = <250>\` amplifier delay.
+- Early amplifier-enable GPIO assertion (S1), which made cold boot and hot reboot pops louder.
 
-- The generic `simple-audio-amplifier` driver asserts the enable GPIO at DAPM `PRE_PMU`, rather than `POST_PMU`.
-- It waits for the node's `power-on-delay-ms` value (clamped to 1000 ms) before the DAPM power-up sequence continues.
-- The RG353PS node sets this property to 250 ms.
-- Power-down remains on `PRE_PMD`; GPIO polarity, RK817 mixer gains, `BaseOS Master`, and frontend volume ownership are unchanged.
-- Other simple-amplifier nodes without the property retain their original behavior.
+These experiments did not provide a sufficient improvement to justify changing the released audio path. The S1 experiment is rejected and must not be used.
 
-This tests whether allowing the external amplifier to settle before the speaker signal path completes power-up avoids the transient. It does not prove the installed chip is SGM4865 and does not add a separate hardware MUTE control.
+## Release behavior
 
-## Device validation
-
-After a clean full-image flash:
-
-1. Listen for the pop during a cold boot, especially when the BaseOS wordmark is first drawn.
-2. From SSH, with no game or music playing and at low volume, toggle `Internal Speakers Switch` off and on. Check whether the transition itself clicks.
-3. Confirm normal audio during the frontend, game effects, music, volume hotkeys, suspend, and resume.
-
-Interpretation:
-
-- Pop reduced or gone: DAPM/GPIO ordering and amplifier settling time are relevant; the delay value may still need measurement.
-- Pop unchanged: the assumed amplifier settling behavior or 250 ms interval is insufficient, or the physical amplifier differs from the hypothesized part.
-
-Do not merge this test-only behavior into the release branch until the device test is complete.
+The \`baseos-audio-init\` script and kernel audio path in the 1.2.9 release are the same as the official 1.2.8 implementation. This document records the decision only; it is not an active test plan.

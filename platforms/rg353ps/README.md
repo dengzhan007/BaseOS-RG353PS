@@ -6,7 +6,7 @@ This directory contains the independent BaseOS target for the Anbernic RG353PS
 
 ## Release status
 
-**Version: 1.2.9 release candidate.** The RG353PS target has a complete image and A/B update build path:
+**Version: 1.2.9 — official release (published 2026-11-12).** The RG353PS target has a complete image and A/B update build path:
 U-Boot, Linux kernel and device tree, kernel modules, wireless firmware,
 BusyBox-based root filesystem and GPT SD-card image. The release workflow
 supports A/B update payloads for compatible versions. **1.2.8 remains
@@ -21,6 +21,15 @@ hardware acceptance baseline. The 1.2.6 checks established that:
 - The persistent user-data partition is kept separate from the A/B system
   frontends, so normal system updates do not replace ROMs, saves, frontend files,
   or user settings stored there.
+
+The 1.2.6 baseline above is the latest complete-image and in-place-update
+hardware acceptance recorded in this guide. Version 1.2.9 is a published
+release, but its successful CI build must not be read as full hardware
+acceptance. Wi-Fi association/DHCP/routing, deep-suspend current and
+wake/resume, Wi-Fi SSH/SFTP transfer, and concurrent USB/Wi-Fi tests remain
+open as **NOT TESTED** in
+[Issue #21](https://github.com/dengzhan007/BaseOS-RG353PS/issues/21). Update
+that issue only when each item has been exercised on the physical device.
 
 Version 1.2.9 is based on the 1.2.8 release branch. It preserves Wi-Fi
 SFTP, Wi-Fi interactive SSH, the generated default boot logo and the generic

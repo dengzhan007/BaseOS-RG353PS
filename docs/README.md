@@ -1,54 +1,78 @@
-# BaseOS for the Miyoo Flip — how it works
 
-Reference docs for the port: Rockchip RK3566, `MIYOO RK3566 355 V10 Board`,
-NextUI platform id **`my355`**. For installing BaseOS, see
-[INSTALL.md](../INSTALL.md); for building it, [CONTRIBUTING.md](../CONTRIBUTING.md).
+# BaseOS RG353PS 文档索引 / Documentation
 
-Everything here was observed on hardware unless it says *inferred* (read out of a
-binary and not confirmed by a boot). Claims that turned out to be wrong are kept,
-not deleted, in [history](history.md).
+[简体中文](#简体中文) | [English](#english)
 
-## The pages
+## 简体中文
 
-**Reference — how it works now**
+本仓库包含上游 BaseOS（Miyoo Flip / my355）的部分历史资料，以及独立的 RG353PS（RK3566）平台实现。**RG353PS 的安装、刷写、升级和硬件操作请以 RG353PS 文档为准，不要照搬 my355 的 Preloader、NAND、mtd5 或卡槽步骤。**
 
-| | |
+### RG353PS 用户文档
+
+| 文档 | 内容 |
 |---|---|
-| [hardware](hardware.md) | SoC, MTD layout, kernel config, SD slots. Start here. |
-| [boot chain](boot-chain.md) | The preloader patch, the card installer, and how SD boot works at all. |
-| [the card](card.md) | Partition layout, image build, boot image surgery, first-boot expansion, A/B updates. |
-| [rootfs](rootfs.md) | The rootfs assembly, init, and runtime dependencies. |
-| [RG353PS network access](rg353ps-network-access.md) | Wi-Fi SFTP plus USB and Wi-Fi interactive SSH. |
-| [boot time](boot-time.md) | Where the time goes, what each change was worth, what is left. |
+| [安装与升级](../INSTALL.md) | TF1 全新安装、前端安装、USB 文件传输和 1.2.9 升级 |
+| [平台说明](../platforms/rg353ps/README.md) | 架构、构建、镜像布局和限制 |
+| [USB 架构与验证](../platforms/rg353ps/USB.md) | MTP、Mass Storage、USB SSH、Wi-Fi SFTP、重连和验证 |
+| [前端适配规范](../platforms/rg353ps/FRONTENDS.md) | manifest、启动接口、存储和休眠职责 |
+| [电源管理](../platforms/rg353ps/POWER.md) | 深度休眠、唤醒和 Wi-Fi 生命周期 |
+| [启动画面规范](../platforms/rg353ps/BOOTLOGO.md) | 自定义启动图、持久化和更新恢复 |
+| [Wi-Fi SFTP / SSH](rg353ps-network-access.md) | 服务地址、端口和开关 |
 
-**When something is wrong**
+### 发布、配置与验证
 
-| | |
+- [1.2.9 正式版说明](RG353PS-RELEASE-1.2.9.md)、[1.2.8](RG353PS-RELEASE-1.2.8.md)、[1.2.7](RG353PS-RELEASE-1.2.7.md)
+- [历史发布基线](RG353PS-RELEASE-BASELINE-1.2.4.md)
+- [贡献指南](../CONTRIBUTING.md)
+- [待实机验收 Issue #21](https://github.com/dengzhan007/BaseOS-RG353PS/issues/21)
+- [USB profile 首次启动继承问题](usb-profile-inheritance.md)：记录旧版缺陷和当前回归测试；usb_debug 是历史设置名，当前使用 ssh_debug。
+- [修订后的 MTP-only 验收记录](mtp-only-release-fixed-20261106/README.md)
+- [早期 MTP-only 验收记录](mtp-only-release-20261106/README.md)：如与修订记录冲突，以修订记录和当前 USB 文档为准。
+
+### 上游 my355 参考资料（不是 RG353PS 操作指南）
+
+以下文件来自上游 Miyoo Flip / my355 移植资料，仅用于理解原始 BaseOS 工程和上游实现，不代表 RG353PS 的硬件布局或操作步骤：
+
+- [硬件笔记](hardware.md)、[启动链与 Preloader 研究](boot-chain.md)
+- [卡片布局与 A/B 机制](card.md)、[rootfs 笔记](rootfs.md)
+- [诊断笔记](diagnostics.md)、[恢复笔记](recovery.md)、[U-Boot 笔记](uboot.md)
+- [设计决策](decisions.md)、[历史记录](history.md)
+
+涉及 Preloader、NAND、mtd5、my355 板型和 Miyoo Flip 卡槽的操作不适用于 RG353PS。
+
+## English
+
+This repository contains historical upstream BaseOS material for the Miyoo Flip (my355) as well as a separate RG353PS (RK3566) platform implementation. **Use the RG353PS documentation for installation, flashing, updates and hardware operations. Do not apply my355 Preloader, NAND, mtd5 or card-slot procedures to an RG353PS.**
+
+### RG353PS documentation
+
+| Document | Contents |
 |---|---|
-| [diagnostics](diagnostics.md) | Debugging a device that can print nothing. |
-| [recovery](recovery.md) | Taking a NAND backup, restoring the preloader, getting back to stock. |
+| [Installation and updates](../INSTALL.md) | TF1 installation, frontend setup, USB transfer and the 1.2.9 upgrade path |
+| [Platform guide](../platforms/rg353ps/README.md) | Architecture, build, image layout and known limitations |
+| [USB architecture](../platforms/rg353ps/USB.md) | MTP, Mass Storage, USB SSH, Wi-Fi SFTP and validation |
+| [Frontend adapter contract](../platforms/rg353ps/FRONTENDS.md) | Manifest, launch interface, storage and suspend ownership |
+| [Power management](../platforms/rg353ps/POWER.md) | Deep suspend, wake and Wi-Fi lifecycle |
+| [Boot-logo contract](../platforms/rg353ps/BOOTLOGO.md) | User logos, persistence and restoration after updates |
+| [Wi-Fi SFTP / SSH](rg353ps-network-access.md) | Service addresses, ports and switches |
 
-**Why it is the way it is**
+### Releases and validation
 
-| | |
-|---|---|
-| [decisions](decisions.md) | The choices the port rests on, and what is still open. |
-| [U-Boot](uboot.md) | Tuning the vendor one (tried, 22 ms), and the mainline one BaseOS boots. |
-| [history](history.md) | Experiments, SPL disassembly, superseded measurements, every retracted theory. |
+- [1.2.9 official release](RG353PS-RELEASE-1.2.9.md), [1.2.8](RG353PS-RELEASE-1.2.8.md), [1.2.7](RG353PS-RELEASE-1.2.7.md)
+- [Historical release baseline](RG353PS-RELEASE-BASELINE-1.2.4.md)
+- [Contributing guide](../CONTRIBUTING.md)
+- [Hardware acceptance follow-up, Issue #21](https://github.com/dengzhan007/BaseOS-RG353PS/issues/21)
+- [USB profile inheritance](usb-profile-inheritance.md) documents the earlier defect; usb_debug is historical terminology and current images use ssh_debug.
+- [Revised MTP-only acceptance record](mtp-only-release-fixed-20261106/README.md)
+- [Initial MTP-only acceptance record](mtp-only-release-20261106/README.md); prefer the revised record and current USB guide where conclusions differ.
 
-## The short version
+### Upstream my355 reference material (not RG353PS instructions)
 
-The stock preloader **cannot** boot this device from SD, and no card layout
-changes that: its SPL device tree has an empty `/pinctrl` node, so the SD pins
-are never muxed. A preloader with a working `/pinctrl` can, and it looks up a GPT
-partition named `uboot` and reads a U-Boot FIT from its first sector.
+The following files are retained from the upstream Miyoo Flip / my355 port for historical context. They do not describe RG353PS hardware layout or operating procedures:
 
-So BaseOS patches **2 MiB of internal NAND** — the user's own preloader, in
-place, from a card, with a backup written first — and leaves the stock U-Boot in
-NAND, the kernel and the stock rootfs untouched. Card in: BaseOS. Card out:
-stock, exactly as before.
+- [Hardware notes](hardware.md), [boot-chain and Preloader research](boot-chain.md)
+- [Card layout and A/B notes](card.md), [rootfs notes](rootfs.md)
+- [Diagnostics](diagnostics.md), [recovery](recovery.md), [U-Boot notes](uboot.md)
+- [Design decisions](decisions.md), [history](history.md)
 
-From there the card supplies a mainline U-Boot, the vendor kernel with a rewritten
-command line, and a BusyBox userland built on a measured subset of the stock
-libraries. Power-on to frontend hand-off is **1.99 s** (3.73 s with the vendor
-U-Boot), against stock's 15.79 s.
+Procedures involving the Preloader, NAND, mtd5, the my355 board or Miyoo Flip card slots do not apply to RG353PS.

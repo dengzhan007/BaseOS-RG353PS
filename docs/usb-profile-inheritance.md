@@ -1,76 +1,66 @@
+
 # USB profile inheritance on first boot
+
+## Scope and terminology
+
+This document records the first-boot USB profile inheritance defect found during the MTP-only Release acceptance work (PR #5). The original defect and its first fix used the historical setting name usb_debug.
+
+**Current RG353PS images use ssh_debug, not usb_debug.** The setting was renamed in the 1.2.8 development line. In current images, ssh_debug controls both interactive SSH endpoints (USB Dropbear and Wi-Fi Dropbear); wifi_sftp independently controls Wi-Fi SFTP; usb_mtp controls MTP; and usb_diagnostics controls persistent USB fault reports.
+
+Do not copy old usb_debug= examples into a current baseos.conf. Use the current settings documented in [USB architecture](../platforms/rg353ps/USB.md) and [Wi-Fi SFTP / SSH access](rg353ps-network-access.md).
 
 ## Why this document exists
 
-While preparing the **MTP-only Release acceptance image** (PR #5 work), a P0
-defect was found: a brand-new, blank user-data partition could turn a Release
-image (`usb_debug=no`) back into a Development image with RNDIS/SSH enabled.
+The original P0 defect was that a brand-new, blank user-data partition could turn a Release image into a Development image with RNDIS/SSH enabled.
 
-`baseos-init-userdata::ensure_card_config()` seeds
-`/mnt/SDCARD/baseos.conf` once, on first boot. The old seed contained an
-**active** line:
+At the time, baseos-init-userdata::ensure_card_config() seeded /mnt/SDCARD/baseos.conf once on first boot. The old seed contained an **active** line:
 
-```ini
-usb_debug=yes
-```
+    usb_debug=yes
 
-`baseos-usb-debug::config_value()` resolves keys in this order:
+The original USB manager read configuration in this order:
 
-1. `/mnt/SDCARD/baseos.conf`
-2. `/mnt/boot/baseos.conf`
-3. `/etc/baseos.conf`
+1. /mnt/SDCARD/baseos.conf
+2. /mnt/boot/baseos.conf
+3. /etc/baseos.conf
 
-The card copy always wins, so the seed silently overrode the image default.
-No gadget, kernel, DWC3, supervisor or recovery logic was involved; this was
-purely a default-configuration inheritance bug.
+The card copy took precedence, so the generated active value silently overrode the image's Release default. This was a configuration-inheritance defect, not a gadget, kernel, DWC3, supervisor or recovery defect.
 
-## The fix
+## Fix and current behavior
 
-The generated card config no longer contains an active `usb_debug=` or
-`usb_mtp=` line. Both keys are left as **commented examples** so the image
-profile is inherited unless the owner explicitly sets a value. `debug=no` and
-the other existing user-facing keys are unchanged. An existing non-empty card
-config is still never rewritten or deleted.
+The generated card-side configuration no longer writes active values for profile-dependent switches. The keys are omitted or shown only as commented examples, allowing the image profile to supply the default. Existing non-empty card configuration files are not rewritten or deleted.
 
-The resolution order itself is unchanged: an explicit card value still wins.
+The current production configuration uses ssh_debug and usb_mtp:
 
-| Image profile | Card `usb_debug` | Effective value | USB functions |
+| Image profile | Card setting | Effective value | Result |
 | --- | --- | --- | --- |
-| Development (`yes`) | unset (new card) | `yes` | network + SSH + MTP |
-| Release (`no`) | unset (new card) | `no` | MTP only |
-| Release (`no`) | explicit `yes` | `yes` | network + SSH + MTP |
-| Development (`yes`) | explicit `no` | `no` | MTP only |
+| Development | ssh_debug unset | yes | USB SSH + Wi-Fi SSH |
+| Release | ssh_debug unset | no | Interactive SSH disabled |
+| Release | ssh_debug=yes | yes | Interactive SSH explicitly enabled |
+| Development | ssh_debug=no | no | Interactive SSH explicitly disabled |
+| Either profile | usb_mtp unset | Image default | Inherits MTP policy |
+| Either profile | Explicit usb_mtp=yes/no | Card value | Card overrides image |
 
-`usb_mtp` follows the same rule.
+Wi-Fi SFTP is controlled independently by wifi_sftp; it is not enabled or disabled by ssh_debug. Persistent USB failure reports are also separate: usb_diagnostics=no is the normal-use default and does not enable SSH or MTP.
 
-## Existing cards are NOT migrated
+The current card configuration resolver checks the user-data card before the boot-partition and system copies. A card-side value therefore overrides the image default. Only keys explicitly present in the card file override defaults.
 
-A card seeded by an older build may already contain an active
-`usb_debug=yes`. There is no way to tell whether that value was written by the
-old seed or deliberately set by the owner, so this fix **does not** migrate,
-delete or rewrite any existing card config. That is intentional.
+## Existing cards are not migrated
 
-On such a card, `usb_debug=yes` continues to override a Release image. To
-restore inheritance, the owner removes that one active line from
-`/mnt/SDCARD/baseos.conf` (or deletes the whole file to get a fresh seed).
-No automatic cleanup is performed.
+A card created by an older image may contain an active historical usb_debug=yes, or may contain a current active ssh_debug=yes. Existing non-empty files are deliberately not rewritten because BaseOS cannot determine whether a value was generated by an old template or intentionally selected by the owner.
+
+For current images, inspect /mnt/SDCARD/baseos.conf and remove or change an active ssh_debug= line only when you intend to change SSH behavior. Do not delete the whole configuration file unless you also intend to discard other card-side settings. An absent ssh_debug key inherits the image profile.
 
 ## Regression coverage
 
-`tests/test-rg353ps-usb-profile-inherit.sh` extracts the **real**
-`ensure_card_config()` and `config_value()` bodies from the production scripts
-and redirects only their three hard-coded config paths into a temporary
-sandbox. It covers:
+tests/test-rg353ps-usb-profile-inherit.sh extracts the real ensure_card_config() and config_value() function bodies from the production scripts and runs them in a temporary sandbox. It verifies:
 
-1. a fresh seed has no active `usb_debug` / `usb_mtp`;
-2. Development image + fresh card resolves to `yes`;
-3. Release image + fresh card resolves to `no`;
-4. card `yes` still overrides a Release image;
-5. card `no` still overrides a Development image;
-6. `usb_mtp` inherits the image (both values) and honours an explicit card value;
-7. an existing non-empty card config is byte-identical after seeding;
-8. all reads/writes stay inside a temporary sandbox.
+1. A fresh card seed has no active ssh_debug or usb_mtp value.
+2. The seed retains ssh_debug=yes only as a commented example.
+3. A fresh card inherits ssh_debug=yes from a Development image.
+4. A fresh card inherits ssh_debug=no from a Release image.
+5. Explicit card-side ssh_debug=yes/no values override image defaults in both directions.
+6. usb_mtp inherits the image value when unset and accepts an explicit card override.
+7. An existing non-empty card configuration remains byte-identical after seeding.
+8. Reads and writes remain inside the temporary test sandbox.
 
-It is invoked from `tests/test-rg353ps-usb-mtp.sh`, which the existing
-`RG353PS USB storage mode checks` workflow already runs, so the regression is
-part of every PR check.
+The test is invoked by tests/test-rg353ps-usb-mtp.sh, which is run by the RG353PS USB storage mode checks workflow. The original usb_debug wording above is retained only to explain the historical defect; the regression test exercises the current ssh_debug setting.

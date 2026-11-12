@@ -1,199 +1,202 @@
-# BaseOS Install Guide (Miyoo Flip)
 
-BaseOS boots your Miyoo Flip from the SD card and hands off to NextUI. It does not
-replace the stock system. Take the card out and the Flip boots stock again, exactly as
-before.
+# BaseOS RG353PS 安装与升级指南
 
-Installing does make one change to internal storage: a 2 MiB patch to the preloader, so
-the device will look at the SD card when it starts. The card does this for you on the
-first boot. Nothing else in internal storage is touched, and your own preloader is
-backed up to the card before anything is written.
+[简体中文](#简体中文) | [English](#english)
 
-## Before you start
+> **适用设备：Anbernic RG353PS（Rockchip RK3566）。** 本指南只适用于 RG353PS。不要在 RG353PS 上使用 Miyoo Flip（my355）的 Preloader、NAND、mtd5 或右侧卡槽安装步骤。
 
-Installing BaseOS writes to the device's internal storage. That carries real risk.
+## 简体中文
 
-The change is small and deliberately conservative. It touches 2 MiB, the preloader
-only, and leaves the stock system, its kernel and its bootloader alone. The installer
-copies your original preloader to the SD card before it erases anything, checks what it
-wrote afterwards, and puts the original back if it cannot verify the result. It has
-been tested on hardware from start to finish.
+### 准备工作
 
-None of that makes it risk-free. It has been tested on very few devices and very few
-firmware versions, yours may differ in ways we have not seen, and a power loss at the
-wrong moment can still leave the device needing recovery over USB.
+需要 RG353PS、一张用于 TF1 的 microSD 卡、电脑和读卡器、磁盘镜像写入工具，以及稳定电源。建议提前备份 TF1 卡和其他重要数据。**写入完整镜像会清除目标卡上的全部内容。**
 
-Install at your own risk. Back up anything on your SD cards that you care about first,
-and read the last section of this page before you begin, so you know what recovery
-looks like if you need it.
+BaseOS 是系统底座，不包含游戏前端。没有发现可用前端时，系统会进入内置诊断界面。
 
-## What you need
+### 全新安装
 
-- A Miyoo Flip
-- An SD card of 4GB or larger for BaseOS
-- A computer with an SD card reader
-- Raspberry Pi Imager, balenaEtcher, [Flash Tool](https://github.com/pvaibhav/FlashTool/)
-for Mac users, or any tool that writes a disk image
-- A second SD card with NextUI on it (see below)
-- At least 25% battery, or the Flip on its charger
+1. 从 [BaseOS RG353PS Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases) 下载正式版完整镜像文件 baseos-rg353ps-<version>.img.gz 和 .sha256 校验文件。
+2. 校验下载文件。使用支持 gzip 镜像的写卡工具，或先解压 .img.gz，再将得到的 .img 作为整盘镜像写入 TF1 卡。
+3. 确认写入目标是 TF1 卡。写入会覆盖目标卡的分区表和原有内容。
+4. 将 TF1 卡插入 RG353PS 的 TF1 卡槽并开机。
+5. 首次启动时，BaseOS 会初始化用户数据分区，并将其扩展到 TF 卡末尾。等待初始化完成，不要拔卡或断电。
+6. 按需安装游戏前端，见下文。
 
-## How to install BaseOS?
+RG353PS 直接从 TF1 上的 BaseOS 镜像启动。此流程不修改设备内部 NAND 或 Preloader，也不使用 Miyoo Flip 的启动卡槽流程。
 
-1. Download **baseos-my355-\<version\>.img.zip** from the releases page.
-2. Use Raspberry Pi Imager to burn the image to an empty SD card. Choose
-   **Use Custom** and select the .zip file; there is no need to unzip it first.
-3. Put the card in the **right-hand SD slot**. This is the only slot the Flip can boot
-   from.
-4. Power the Flip on.
+### 安装前端
 
-The stock system will start as usual, and after a few seconds a **firmware update**
-progress bar will appear. This is the preloader patch. Please be patient and do not
-power the device off while it runs. It takes about four seconds.
+BaseOS 负责启动、硬件服务、存储挂载、前端发现和系统更新；游戏扫描、ROM 识别、列表展示及游戏启动由前端负责。
 
-The Flip will then reboot by itself and come up in BaseOS. On that first boot it
-takes a second to expand the card's BASEOS volume to the full size of the card, and
-shows **EXPANDING STORAGE** while it does. Anything already on the volume is kept.
+将前端安装到 TF1 或 TF2 的用户数据分区根目录，不要放到小容量的 BASEOS_BOOT 启动分区。通用适配器目录如下：
 
-This only happens once. From then on the Flip boots straight to BaseOS whenever the
-card is in the right-hand slot, and boots stock whenever it is not.
+    <用户数据分区>/
+    └── .baseos/
+        └── frontends/
+            └── <adapter-id>/
+                ├── manifest.conf
+                └── launch.sh
 
-The installer leaves two files on the card's BASEOS volume, which you can read from
-your computer:
+旧版兼容前端可能只提供 launch.sh；新适配器应同时提供 manifest.conf 和 launch.sh。详细格式见 [前端适配规范](platforms/rg353ps/FRONTENDS.md)。
 
-- **baseos-preloader.log**, a record of what was done
-- **mtd5-original-\<hash\>.img**, a copy of your own original preloader
+BaseOS 启动时优先检查 TF2；TF2 没有可用适配器时再检查 TF1。BaseOS 不统一规定 ROM 目录，也不强制游戏和前端必须放在同一张卡上，具体布局由前端适配器决定。
 
-Keep the second one. It is the way back if you ever want to undo the change.
+### USB 文件传输
 
-If your Flip already runs GammaLoader, nothing will happen at all. BaseOS will simply
-boot from the card, and your existing preloader is left alone.
+MTP、USB Mass Storage 和 USB SSH 使用 RG353PS 机身 **DC 接口**；OTG 接口不能用于本指南所述功能。
 
-## How to install NextUI?
+- **MTP：** 正式 Release 默认采用 MTP-only。连接 DC 数据线后，电脑可以访问用户数据分区。
+- **USB Mass Storage：** 可从内置诊断界面进入；也可以开机时按住 Function，再按 Power 进入。此模式会独占导出用户数据卷，期间设备本地程序不得访问该卷。
+- **读卡器：** 也可以关机取出 TF 卡，通过电脑读卡器复制文件。
 
-BaseOS needs a frontend. Put NextUI on a **second SD card** and insert it in the
-**left-hand slot**. BaseOS will find it and start it automatically.
+使用 Mass Storage 时，建议先连接 DC 数据线，再按住 Function 并按 Power 开机。完成操作后，在电脑上安全弹出设备，再拔线。
 
-If you already use NextUI on your Flip, use that exact card. Move it from the
-right-hand slot to the left-hand slot and you are done. Your settings, saves and ROMs
-all carry over untouched, and nothing needs to be reinstalled.
+### USB SSH 与 Wi-Fi 服务配置
 
-A brand-new card works too: format it FAT32, unzip a NextUI `base` (or `all`) release
-onto it, and put it in the left-hand slot. BaseOS installs it on the next boot, NextUI's
-own progress screen and all. It does not need to have been started on stock first.
+编辑用户数据分区根目录的 baseos.conf。首次初始化会创建示例文件；卡上的配置优先于镜像内默认配置。只需写入需要覆盖默认值的项目：
 
-You're done, enjoy!
+    ssh_debug=no
+    wifi_sftp=yes
+    usb_mtp=yes
+    usb_diagnostics=no
 
-### Advanced: one card for both
+- **ssh_debug=yes** 同时启用 USB Dropbear SSH（192.168.42.1:22）和 Wi-Fi Dropbear SSH（设备当前 Wi-Fi 地址的 TCP 2222）；no 关闭两个交互式 shell。
+- **wifi_sftp=yes** 独立启用 Wi-Fi SFTP（设备当前 Wi-Fi 地址的 TCP 22），不受 ssh_debug 控制；no 可关闭 SFTP。
+- **usb_mtp=yes** 启用 USB MTP；Release 默认开启。
+- **usb_diagnostics=yes** 只启用持久化 USB 故障报告，不会启用 SSH。正常使用保持 no。
 
-BaseOS and NextUI can share one card, leaving the left-hand slot free. Two cards is
-still the recommended setup: your games and saves stay on a card you can pull out,
-reformat or replace without touching the one that boots the device.
+当前镜像默认 root 密码为 root。启用 SSH 会在 USB 或 Wi-Fi 局域网开放 root shell；SFTP 也使用设备账户凭据。仅在可信网络中启用，并在对外分发前处理默认凭据。
 
-**After** the first boot — the volume is only 64 MB until then — put the card in your
-computer and unzip a NextUI `base` (or `all`) release onto the BASEOS volume, next to
-`README.txt`. Put the card back in the right-hand slot and power on; NextUI installs
-itself as it would on any other card.
+Windows 因 USB RNDIS 网卡出现普通网络访问异常时，可将其 IPv4 接口跃点设为 9999 并关闭自动跃点。步骤见 [USB 架构文档](platforms/rg353ps/USB.md)。
 
-A card carrying a frontend in the left-hand slot is still used in preference, so an
-occasional second card works, and an empty one changes nothing.
+### 系统升级
 
-## Settings
+1.2.9 的 A/B 原地升级包只适用于**已经全新安装官方 1.2.8** 的设备：
 
-Edit `baseos.conf` at the root of the BASEOS volume on the BaseOS card, then
-restart. The first boot puts a commented-out copy there; if it is missing, create
-it. Settings stay on the BaseOS card whichever card holds NextUI, and survive BaseOS
-updates.
+1. 从 [GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases) 下载 baseos-rg353ps-1.2.9.bosupd。
+2. 将 .bosupd 复制到设备可访问的用户数据分区根目录。
+3. 重启并等待更新完成。期间保持供电稳定，不要拔卡或强制关机。
 
-```ini
-hostname=my-flip
-ssh_password=a-password
-```
+升级路径限制：
 
-- **`hostname`**: the Flip's network name, which your router sees when it joins
-  Wi-Fi. Defaults to `miyoo-flip`. Use 1–63 letters, digits or hyphens, with no
-  hyphen at either end; anything else uses the default.
-- **`ssh_password`**: the password for `ssh root@<address>`. Defaults to `root`
-  if omitted or empty. It is stored as plain text on the card, so don't reuse an
-  important password. Write it without quotes; surrounding spaces are trimmed.
+- 官方 1.2.8 → 1.2.9：可以使用 1.2.9 .bosupd。
+- 1.2.7 或更早版本 → 1.2.9：必须备份数据后使用完整镜像重新写入 TF1，不能直接使用 1.2.9 .bosupd；1.2.8 调整了持久化 SSH 设置名称。
+- .bosupd 更新 A/B 系统 BOOT 和 ROOTFS 区域，不包含 Rockchip U-Boot，也不覆盖独立的用户数据分区。需要更新 U-Boot 或恢复完整分区布局时，按对应版本说明使用完整镜像。
 
-Omitted settings use their defaults. Lines starting with `#` are comments; `#`
-within an SSH password is part of the password.
+升级前请核对 SHA-256，并以目标版本的 Release Notes 为准。
 
-## How to update BaseOS?
+### 已知限制与验证范围
 
-To update BaseOS, you can simply re-flash the SD card. The `.bosupd` file can also be
-used to update only the OS without re-flashing the card. This can be of interest if
-you are using a one-card setup and do not want to overwrite your front-end data.
+- 1.2.9 是正式发布版本。CI 构建成功不代表所有硬件功能都已完成实机验收。
+- RG353PS 实机 HDMI 输出尚未完成验证。
+- 冷启动时可能仍听到轻微扬声器爆音；1.2.9 保留 1.2.8 音频初始化逻辑，没有声称解决此问题。
+- Wi-Fi association、DHCP、路由可达性、深度休眠电流与唤醒恢复、Wi-Fi SSH/SFTP 传输及 USB/Wi-Fi 并发仍由 [Issue #21](https://github.com/dengzhan007/BaseOS-RG353PS/issues/21) 跟踪。真机测试完成前不得视为已验收。
 
-Download `baseos-my355-<version>.bosupd` and copy it to the root of either card,
-then power on. The screen shows **UPDATING SYSTEM** with a progress bar for about a
-minute and the Flip reboots into the new version. Once it has started, the `.bosupd`
-file is deleted.
+### 更多文档
 
-Your ROMs, saves and settings are untouched: the card reserves spare space for this,
-and the update writes there rather than over the volume your files are on. If the new
-version does not start, the Flip restores the previous one by itself after three
-tries.
+- [RG353PS 平台说明](platforms/rg353ps/README.md)
+- [USB 架构与验证](platforms/rg353ps/USB.md)
+- [前端适配规范](platforms/rg353ps/FRONTENDS.md)
+- [电源管理](platforms/rg353ps/POWER.md)
+- [启动画面规范](platforms/rg353ps/BOOTLOGO.md)
+- [Wi-Fi SFTP / SSH](docs/rg353ps-network-access.md)
+- [1.2.9 正式版说明](docs/RG353PS-RELEASE-1.2.9.md)
 
-You can leave the file on the card — it is applied once and then ignored.
+---
 
-## If something goes wrong
+## English
 
-Most problems are bounded by design. The stock system, its kernel and its bootloader
-are never touched, so in the common failure the Flip simply comes back to stock and you
-try again. The preloader is only rewritten after the patched copy has been checked, and
-if the write cannot be verified the installer puts your original back by itself.
+### Scope and requirements
 
-The cases below are the ones that have actually been seen. This is new software on a
-device with more than one firmware version in circulation, so you may hit something
-that is not on this list. If you do, power off, take the card out, and start the Flip
-without it — if stock comes up, nothing is lost and you can try again. Keep
-**baseos-preloader.log** and the **mtd5-original** file from the card; between them
-they say what happened and hold the way back.
+This guide applies only to the **Anbernic RG353PS (Rockchip RK3566)**. Do not use Miyoo Flip (my355) Preloader, NAND, mtd5 or card-slot procedures on an RG353PS.
 
-### The Flip boots to stock and no update bar appears
+You need an RG353PS, a microSD card for TF1, a computer and card reader, a disk-image writer, and stable power. Back up important data first. **Writing a full image erases the target card.**
 
-The card was not found. Power off, check that the card is in the right-hand slot, and
-try again. If it still does nothing, write the image to the card again, and try a
-different SD card if you have one.
+BaseOS is the system layer and does not bundle a game frontend. The built-in diagnostic interface starts when no usable frontend is found.
 
-### The update ran, but the Flip came back to stock
+### Fresh installation
 
-Read **baseos-preloader.log** on the card's BASEOS volume from your computer.
+1. Download the official full image baseos-rg353ps-<version>.img.gz and .sha256 file from [GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases).
+2. Verify the download. Use an imaging utility that supports gzip images, or decompress the file and write the resulting .img as a whole-disk image.
+3. Select the TF1 card as the target. The operation replaces its partition table and all existing contents.
+4. Insert the card into TF1 and power on the RG353PS.
+5. On first boot, BaseOS initializes the user-data partition and expands it to the end of the card. Do not remove the card or interrupt power during initialization.
+6. Install a compatible frontend separately.
 
-- If it says **move the card to the right-hand slot**, the card was in the left-hand
-  slot. The patch worked. Move the card over and power on.
-- If it says **not patched**, nothing was written, because the preloader was already
-  patched or is GammaLoader's. In that case check that you wrote a full BaseOS image to
-  the card rather than only copying files onto it.
+RG353PS boots directly from the BaseOS image on TF1. This process does not patch internal NAND or the Preloader and does not use the Miyoo Flip installation path.
 
-### BaseOS shows INSERT SD CARD, or ADD FRONTEND TO SD CARD
+### Install a frontend
 
-BaseOS is running and has no frontend to hand off to. The first message means the
-left-hand slot is empty, the second that the card in it carries no frontend. Put
-NextUI on a card in the left-hand slot, as above.
+Install the frontend on the root of a card's user-data volume, not on the small BASEOS_BOOT partition. A generic adapter uses:
 
-### You copied a .bosupd and nothing happened
+    <userdata-volume>/
+    └── .baseos/
+        └── frontends/
+            └── <adapter-id>/
+                ├── manifest.conf
+                └── launch.sh
 
-Updates are skipped in silence, because the check runs on every boot. To see why, run
-`baseos-update status` over adb: it lists every payload it can find with the verdict
-for each — most often the file is older than what is already installed, or it has been
-applied before.
+Older compatible adapters may provide only launch.sh; new adapters should provide both files. See the [frontend adapter contract](platforms/rg353ps/FRONTENDS.md).
 
-### The Flip does not start at all
+BaseOS checks TF2 first, then TF1 if TF2 has no usable adapter. BaseOS does not impose one universal ROM directory or require frontend and games to be on the same card; the selected adapter defines that layout.
 
-Rare, and realistically only if power was lost during the write. Put the Flip on its
-charger and try again first, with the SD card removed.
+### USB file transfer
 
-If the screen stays dark and the device does nothing, the preloader did not survive.
-The Flip is not permanently broken: it can be restored over USB with RKDevTool, using
-the [Miyoo Flip unbricking guide](https://github.com/spruceUI/spruceOS/wiki/16.-Miyoo-Flip-Unbricking).
-That restores the device to stock firmware, after which you can install again.
+MTP, USB Mass Storage and USB SSH use the RG353PS **DC port**, not the OTG port.
 
-### You want to go back to stock
+- **MTP:** Official Release builds default to MTP-only. Connect the DC cable to access the user-data volume.
+- **USB Mass Storage:** Enter from the built-in diagnostic interface, or hold Function and press Power while booting. The user-data volume is exported exclusively and must not be accessed locally by the device at the same time.
+- **Card reader:** Alternatively, power off, remove the card and copy files with a computer card reader.
 
-Take the card out. The Flip boots stock, with everything as it was.
+For Mass Storage, connect the DC cable before powering on with Function held. Safely eject the device on the computer before unplugging it.
 
-To undo the preloader patch as well, write the **mtd5-original-\<hash\>.img** file from
-your card back to internal storage. See
-[docs/recovery.md](docs/recovery.md).
+### SSH and Wi-Fi settings
+
+Edit baseos.conf at the root of the user-data volume. The first-boot initializer creates an example file. Card-side values override image defaults:
+
+    ssh_debug=no
+    wifi_sftp=yes
+    usb_mtp=yes
+    usb_diagnostics=no
+
+- **ssh_debug=yes** enables USB Dropbear SSH (192.168.42.1:22) and Wi-Fi Dropbear SSH (the current Wi-Fi address on TCP 2222). no disables both interactive shells.
+- **wifi_sftp=yes** independently enables Wi-Fi SFTP on TCP 22; it is not controlled by ssh_debug. Set it to no to disable SFTP.
+- **usb_mtp=yes** enables MTP; Release builds enable it by default.
+- **usb_diagnostics=yes** only enables persistent USB fault reports. It does not enable SSH. Leave it at no for normal use.
+
+The current image's default root password is root. Enabling SSH exposes a root shell over USB or the Wi-Fi LAN; SFTP also uses device credentials. Use these services only on trusted networks and address the default credentials before distributing a build.
+
+If a Windows RNDIS adapter disrupts ordinary network access, set its IPv4 interface metric to 9999 and disable Automatic metric. See the [USB architecture guide](platforms/rg353ps/USB.md).
+
+### System updates
+
+The 1.2.9 A/B update package is for devices **freshly installed with the official 1.2.8 release**:
+
+1. Download baseos-rg353ps-1.2.9.bosupd from [GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases).
+2. Copy it to the root of an accessible user-data volume.
+3. Reboot and allow the update to finish. Keep the device powered; do not remove the card or force shutdown during the update.
+
+Upgrade compatibility:
+
+- Official 1.2.8 to 1.2.9: use the 1.2.9 .bosupd.
+- 1.2.7 or earlier: back up data and install the 1.2.9 full image to TF1. Do not apply the 1.2.9 .bosupd directly; 1.2.8 changed the persisted SSH setting name.
+- .bosupd updates the A/B system BOOT and ROOTFS regions. It does not contain Rockchip U-Boot or overwrite the separate user-data partition. Use a full image when U-Boot or the complete partition layout must be updated.
+
+Verify the SHA-256 checksum and follow the compatibility statement in the target release notes.
+
+### Known limitations and validation
+
+- Version 1.2.9 is an official release. A successful CI build does not mean every hardware feature has passed physical-device acceptance.
+- HDMI output has not yet been verified on RG353PS hardware.
+- A faint speaker pop may still occur during cold boot. Version 1.2.9 retains the 1.2.8 audio initialization path and does not claim to fix it.
+- Wi-Fi association, DHCP, route reachability, deep-suspend current and wake/resume, Wi-Fi SSH/SFTP transfers, and concurrent USB/Wi-Fi sessions remain tracked in [Issue #21](https://github.com/dengzhan007/BaseOS-RG353PS/issues/21). They are not accepted until tested on hardware.
+
+### More documentation
+
+- [RG353PS platform guide](platforms/rg353ps/README.md)
+- [USB architecture and validation](platforms/rg353ps/USB.md)
+- [Frontend adapter contract](platforms/rg353ps/FRONTENDS.md)
+- [Power management](platforms/rg353ps/POWER.md)
+- [Boot-logo contract](platforms/rg353ps/BOOTLOGO.md)
+- [Wi-Fi SFTP / SSH access](docs/rg353ps-network-access.md)
+- [Version 1.2.9 release notes](docs/RG353PS-RELEASE-1.2.9.md)

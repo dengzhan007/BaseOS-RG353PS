@@ -121,6 +121,13 @@ adapter-manifest key). It is a one-generation migration alias: when the saved
 rewrites the saved default to the new composite ID. The RG353PS Slot package
 uses this to migrate from `slot-rg353ps` to `LUCKLUCK-SLOT`.
 
+When upgrading a card that still has `Frontends/slot-rg353ps/`, install the new
+`Frontends/LUCKLUCK-SLOT/` package first. After confirming the new package boots,
+remove the old program directory to avoid showing both packages in the selector.
+Do not delete `.baseos/instances/slot-rg353ps--<profile-id>/` manually: the Slot
+launcher copies matching profile data to the new instance identity on first launch
+and leaves the old directory intact as a rollback copy.
+
 ```ini
 package_api=1
 display_name=LUCKLUCK-SLOT

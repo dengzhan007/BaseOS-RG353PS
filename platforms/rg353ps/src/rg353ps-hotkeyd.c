@@ -52,6 +52,7 @@ static long long power_ignore_until_ms = 0;
 static long long vol_last_ms = -1000000;
 static int function_down;
 static int mode_down;
+static int frontend_select_down;
 static int storage_latched;
 static int startup_checked;
 static int startup_key_release_seen;
@@ -85,6 +86,7 @@ static int stale_report_removed;
    at startup; it is cached briefly because the flush below runs every loop. */
 static int debug_logging_enabled(void);
 #define BOOT_STORAGE_REQUEST "/run/baseos-usb-storage.boot-request"
+#define BOOT_FRONTEND_SELECT_REQUEST "/run/baseos-frontend-select.boot-request"
 
 static void stop_running(int sig) { (void)sig; running = 0; }
 static int userdata_is_mounted(void) {
@@ -459,9 +461,16 @@ static void discover_inputs(void) {
                             (1UL << (KEY_MODE % (sizeof(unsigned long) * 8)))) != 0;
                 mode = mode || ((key_bits[KEY_MENU / (sizeof(unsigned long) * 8)] &
                                  (1UL << (KEY_MENU % (sizeof(unsigned long) * 8)))) != 0);
+                int frontend_select =
+                    (key_bits[BTN_TL / (sizeof(unsigned long) * 8)] &
+                     (1UL << (BTN_TL % (sizeof(unsigned long) * 8)))) != 0 ||
+                    (key_bits[BTN_TR / (sizeof(unsigned long) * 8)] &
+                     (1UL << (BTN_TR % (sizeof(unsigned long) * 8)))) != 0;
                 function_down = function_down || fn;
                 mode_down = mode_down || mode;
+                frontend_select_down = frontend_select_down || frontend_select;
                 if (fn || mode) log_message("Function/Mode is already held when input device opens");
+                if (frontend_select) log_message("L1/R1 already held at boot; frontend selector requested");
             }
         }
         {
@@ -805,6 +814,7 @@ static void handle_input(struct input_device *dev) {
             log_message(msg);
             if (ev.code == KEY_F1 || ev.code == KEY_FN || ev.code == BTN_MODE) function_down = down;
             if (ev.code == KEY_MODE || ev.code == KEY_MENU) mode_down = down;
+            if (ev.code == BTN_TL || ev.code == BTN_TR) frontend_select_down = down;
         }
     }
     if(count<0&&errno!=EAGAIN&&errno!=EINTR) {
@@ -857,9 +867,9 @@ int main(void) {
                 monotonic_ms() - keys_first_seen_ms >= STARTUP_KEY_WINDOW_MS) {
                 char boot_msg[256];
                 startup_checked = 1;
-                startup_key_release_seen = !(function_down || mode_down);
+                startup_key_release_seen = !(function_down || mode_down || frontend_select_down);
                 /* Publish the storage gate before rcS sees READY; otherwise
-                   tty1 can launch NextUI over the storage prompt. */
+                   tty1 can launch a frontend over the storage or selector UI. */
                 if (function_down) {
                     int request = open(BOOT_STORAGE_REQUEST, O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0600);
                     if (request >= 0) {
@@ -889,12 +899,25 @@ int main(void) {
                            the cable with Function held, or reboot normally. */
                         log_message("boot-triggered USB storage failed; keeping boot storage gate active to prevent frontend launch");
                     }
+                } else if (frontend_select_down) {
+                    int request = open(BOOT_FRONTEND_SELECT_REQUEST,
+                                       O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC, 0600);
+                    if (request >= 0) {
+                        close(request);
+                        log_message("L1/R1 held at startup; frontend selector gate enabled");
+                    } else {
+                        log_message("WARNING: could not create frontend selector gate");
+                    }
+                    (void)snprintf(boot_msg, sizeof(boot_msg),
+                        "BOOT_KEY_CHECK result=sampled key_device_found=1 function_down=0 mode_down=%d decision=FRONTEND_SELECT",
+                        mode_down);
+                    log_message(boot_msg);
                 } else {
                     (void)snprintf(boot_msg, sizeof(boot_msg),
                         "BOOT_KEY_CHECK result=sampled key_device_found=1 function_down=0 mode_down=%d decision=NORMAL_BOOT",
                         mode_down);
                     log_message(boot_msg);
-                    log_message("normal boot; hold Function while powering on to enter USB storage, then connect the data cable when prompted");
+                    log_message("normal boot; hold Function for USB storage or L1/R1 for frontend selection");
                 }
             }
         }
@@ -923,7 +946,7 @@ int main(void) {
             execl("/sbin/poweroff","poweroff",(char *)NULL);
             log_message("poweroff command failed");
         }
-        if (startup_checked && !(function_down || mode_down))
+        if (startup_checked && !(function_down || mode_down || frontend_select_down))
             startup_key_release_seen = 1;
         {
             int cable_now = usb_cable_connected();

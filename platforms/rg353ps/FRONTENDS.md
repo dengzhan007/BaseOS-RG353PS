@@ -8,13 +8,16 @@ launching.
 
 ## Installation and discovery
 
-Install a frontend package on the root of a user-data card. Do not install
-frontend files on the small `BASEOS_BOOT` partition.
+For new installations, use the managed package layout under
+`Frontends/<package-id>/` described below. Managed package/profile discovery
+requires RG353PS BaseOS **1.2.10 or newer**; older BaseOS builds understand
+legacy adapters only. Extract the archive with its one top-level directory
+intact; do not place frontend files on the small `BASEOS_BOOT` partition.
 
-At boot, BaseOS checks TF2 first. If TF2 has no usable adapter, it checks the
-TF1 `BASEOS` user-data partition. On each card it checks the card root and one
-wrapper-directory level, so archives extracted into a single containing folder
-remain discoverable.
+Legacy adapters remain supported at their historical paths. At boot, BaseOS
+checks TF2 first and then TF1. Legacy discovery continues to check the card
+root and one wrapper-directory level; managed packages are discovered directly
+under each card's `Frontends/` directory.
 
 A generic adapter is discovered at either path:
 
@@ -70,11 +73,216 @@ The card-side `/mnt/SDCARD/baseos.conf` may set `frontend_id=<adapter-id>`
 to pin one adapter. The default `frontend_id=auto` selects the highest-priority
 valid adapter. The legacy `frontends_order` setting is no longer used.
 
+## Managed frontend packages and configuration profiles (package API 1)
+
+New installations should use a managed package directory rather than placing
+files in the DATA root:
+
+```text
+/mnt/SDCARD/
+├── Games/                         # shared ROM library
+└── Frontends/
+    └── slot-rg353ps/               # package_id: slot-rg353ps
+        ├── baseos-frontend.conf
+        ├── launch.sh
+        ├── payload/                # package-owned executable/resources
+        └── profiles/
+            ├── 640-native.conf     # profile_id: 640-native
+            └── 640x480.conf       # profile_id: 640x480
+```
+
+Install by extracting the archive so its one top-level package directory is
+directly inside `Frontends/`. Do not split the archive or copy individual
+files into the DATA root. BaseOS discovers packages in `TF2/Frontends/` and
+then `TF1/Frontends/`; TF2 wins if the same package/profile ID is present on
+both cards.
+
+The package directory name is its stable `package_id`. Each file name inside
+`profiles/` (without `.conf`) is a separate `profile_id`. Both IDs use 1–22
+ASCII letters, digits, dots, underscores or hyphens and cannot start with a
+dot, hyphen or underscore. The combined runtime ID is:
+
+```text
+<package_id>--<profile_id>
+slot-rg353ps--640-native
+slot-rg353ps--640x480
+```
+
+This permits one program package to offer multiple configurations without
+duplicating the executable payload. Each profile gets a separate BaseOS
+instance directory at:
+
+```text
+/mnt/SDCARD/.baseos/instances/<package_id>--<profile_id>/
+```
+
+The package manifest is plain data, never sourced:
+
+```ini
+package_api=1
+display_name=Slot
+priority=100
+volume_owner=frontend
+power_owner=frontend
+```
+
+Each profile file is also plain data:
+
+```ini
+profile_api=1
+display_name=640 Native
+priority=100
+```
+
+Required keys are `package_api=1` and `profile_api=1`. Optional profile
+values `priority`, `volume_owner` and `power_owner` override the package
+defaults. Invalid IDs, unsupported API versions, invalid ownership values,
+missing `launch.sh` or missing profile files are rejected.
+
+The selected profile is exposed to the launch script through:
+
+| Variable | Meaning |
+|---|---|
+| `BASEOS_FRONTEND_ID` | Combined package/profile ID |
+| `BASEOS_PACKAGE_ID` | Package identity |
+| `BASEOS_PROFILE_ID` | Configuration profile identity |
+| `BASEOS_PACKAGE_DIR` | Package directory |
+| `BASEOS_PROFILE_CONFIG` | Selected profile's default config file |
+| `BASEOS_INSTANCE_ID` | Combined instance ID |
+| `BASEOS_INSTANCE_DIR` | Per-profile persistent instance directory |
+| `BASEOS_DATA_DIR` | Per-profile private data directory |
+| `BASEOS_USERDATA_DIR` | Per-profile private user-data directory |
+| `BASEOS_CARD_ROOT` | TF1 user-data root |
+| `BASEOS_GAMES_DIR` | Canonical shared game directory (`Games/`) |
+
+`BASEOS_FRONTEND_ROOT` continues to mean the selected card root for backward
+compatibility. New package launchers should use `BASEOS_PACKAGE_DIR` for
+program files and `BASEOS_CARD_ROOT` / `BASEOS_GAMES_DIR` for shared card
+content. Read the selected profile file as configuration data; do not source
+it as shell code.
+
+### Boot selector and uninstall
+
+Hold **L1 or R1 while powering on** to open the BaseOS frontend selector.
+Function-triggered USB storage keeps priority over the selector. In the
+selector:
+
+The selector makes the persistent default explicit: its top line shows
+`DEFAULT STARTUP`, and the matching profile row is marked `[DEFAULT]`.
+When `frontend_id=auto`, the top line says `AUTO (priority-based discovery)`.
+A temporary selection never changes this marker.
+
+- **A** launches the highlighted profile once; the saved default is unchanged.
+- **Start** saves the highlighted profile as `frontend_id`, refreshes the
+  default marker, and launches it.
+- **Y** opens a confirmation to remove only the selected profile/configuration.
+- **X** opens a confirmation to uninstall the entire frontend package.
+- **B** cancels and continues with the configured default frontend.
+
+Profile removal deletes only the selected `profiles/<profile-id>.conf`. If
+other profiles remain, the common program payload stays installed and those
+profiles remain selectable. If the removed profile was the last one, BaseOS
+also removes the now-unused package directory.
+
+Full frontend uninstall removes the complete
+`Frontends/<package-id>/` directory, including every profile and the shared
+program payload. Both removal operations preserve
+`.baseos/instances/<package-id>--<profile-id>/`, `Games/`, shared saves,
+cores and all other shared data. Reinstalling the same package/profile IDs can
+therefore reuse their previous settings. If a removed profile/package supplied
+the configured default, BaseOS selects another discovered managed profile as
+the new default; if none remain, it changes `frontend_id` back to `auto`.
+
+The selector manages the new `Frontends/<package-id>/` package format,
+including multiple profiles within one package. A profile is an independent
+user configuration, not a second copy of the executable. Legacy
+`.baseos/frontends/<adapter-id>/` adapters remain supported for automatic and
+pinned startup, but are not removable through this managed-package selector.
+
+### Shared Games directory
+
+The canonical ROM directory is `/mnt/SDCARD/Games/`. The old `Roms/`
+directory is renamed to `Games/` at startup only when `Games/` does not
+already exist. If both exist, BaseOS preserves both and does not attempt an
+automatic merge; merge their contents manually before removing the old
+directory. Frontend-specific system names and internal ROM paths are mapped
+by the package's adapter configuration; BaseOS does not require each frontend
+to use the same internal system labels.
+
+
+### Runtime data ownership in the RG353PS Slot package
+
+The managed Slot adapter applies the following ownership boundaries:
+
+| Data | Location while Slot runs | Ownership |
+|---|---|---|
+| ROM library | `Games/` | Shared by all frontends and profiles |
+| Battery saves (`.sav`) | `Saves/` | Shared by all frontends and profiles |
+| Emulator cores | DATA-root `System/` or the BaseOS shared-core directory | Shared |
+| Slot user data | Per-profile `.userdata/` | Private to the selected profile |
+| Favorites, time zone and Slot preferences | Per-profile `.userdata/slot.state` | Private to the selected profile |
+| Per-game core selections | Per-profile `.userdata/selected_core.ini` | Private to the selected profile |
+| Display/theme and other mutable Slot settings | Per-profile `System/*.txt` state files | Private to the selected profile |
+| Save-state snapshots / resume states | Per-profile `States/` | Private to the selected profile |
+
+The launcher seeds profile-owned state once from an existing card-root Slot
+installation when present, then bind-mounts the profile copy for subsequent
+sessions. Battery saves under `Saves/` remain shared; save-state snapshots
+under `States/` are intentionally separate. Removing a profile does not
+remove its instance data, so reinstalling the same package/profile identity
+can reuse it.
+
+ 
+Slot's main state record, per-game core selections and library cache are stored below the profile's
+directory-mounted `.userdata/` root. This is intentional: Slot writes those
+files with a temporary-file-plus-rename sequence. A single-file bind mount at
+`System/slot.state` or `System/library.cache` cannot safely receive that
+atomic replacement. Previous card layouts under `System/` remain readable as
+migration fallbacks; new writes go to `.userdata/`.
+
+The current RG353PS Slot source does not implement a recently-played list.
+The API ownership rule for recent-play history is nevertheless profile-private:
+frontends that add this feature must persist it below
+`BASEOS_USERDATA_DIR` or another profile-owned path, never in the shared
+package payload.
+
+### Per-category asset-sharing extension (reserved design; runtime not implemented)
+
+The API reserves per-profile policy keys in the persistent
+`BASEOS_PROFILE_CONFIG` file:
+
+```ini
+asset_cartridge_art=shared
+asset_overlays=separate
+asset_wallpapers=shared
+asset_bootlogos=separate
+asset_music=shared
+asset_fonts=shared
+asset_bios=separate
+```
+
+Accepted values are `shared` and `separate`. The intended roots are
+`/mnt/SDCARD/.baseos/shared/assets/<category>/` for shared assets and
+`/mnt/SDCARD/.baseos/instances/<package-id>--<profile-id>/assets/<category>/`
+for profile-private assets. Categories are independent; a frontend may support
+only the categories it actually consumes. Program binaries, package resources,
+ROMs and battery saves are not moved by this policy.
+
+This is a design reservation, not an implemented runtime feature in the
+current RG353PS package/profile runtime. In particular, the current Slot
+package still reads its artwork and media from its established package/card
+paths; it does not yet apply the `asset_*` keys or merge shared/private
+overlays with package defaults. Adding these keys does not change asset
+visibility. The adapter implementation and migration tests must land before
+this extension is considered supported.
+
 ## Launch contract
 
-BaseOS runs `launch.sh` using `/bin/sh`, with the selected frontend card as
-the current working directory. Scripts do not need the executable bit, which
-is important for exFAT cards and Windows extraction tools.
+BaseOS runs `launch.sh` using `/bin/sh`. For a managed package, its package
+directory is the current working directory; for a legacy adapter, the selected
+card or wrapper directory remains the current working directory. Scripts do
+not need the executable bit, which is important for exFAT cards and Windows
+extraction tools.
 
 BaseOS exports:
 
@@ -82,18 +290,31 @@ BaseOS exports:
 |---|---|
 | `PLATFORM` | Device platform identifier (`rg353ps`) |
 | `BASEOS_FRONTEND_ID` | Selected adapter ID |
-| `BASEOS_FRONTEND_ROOT` | Card or wrapper directory containing the frontend |
-| `BASEOS_DATA_DIR` | Persistent adapter-private data directory |
-| `BASEOS_USERDATA_DIR` | Persistent adapter-private user-data directory |
+| `BASEOS_FRONTEND_ROOT` | Selected card root (kept compatible with legacy launchers) |
+| `BASEOS_PACKAGE_DIR` | Managed package directory; empty for legacy adapters |
+| `BASEOS_PACKAGE_ID` | Stable package identity |
+| `BASEOS_PROFILE_ID` | Selected configuration profile identity |
+| `BASEOS_PROFILE_CONFIG` | Persistent per-profile config, seeded once from package defaults |
+| `BASEOS_PROFILE_DEFAULTS` | Read-only profile defaults shipped by the package |
+| `BASEOS_INSTANCE_ID` | Combined package/profile identity |
+| `BASEOS_INSTANCE_DIR` | Per-profile persistent instance directory |
+| `BASEOS_CARD_ROOT` | TF1 user-data root |
+| `BASEOS_GAMES_DIR` | Canonical shared game root (`Games/`) |
+| `BASEOS_DATA_DIR` | Persistent adapter/profile-private data directory |
+| `BASEOS_USERDATA_DIR` | Persistent adapter/profile-private user-data directory |
 | `BASEOS_BOOT` | Mounted boot partition |
 | `BASEOS_SYSTEM_ROOT` | System root (`/`) |
 | `BASEOS_LAUNCHER` | Adapter launch-script path |
 | `BASEOS_SLEEP` | RG353PS suspend helper (`/usr/sbin/rg353ps-sleep`) |
 
-The two private directories are created under
+Legacy adapters receive private directories under
 `<frontend-root>/.baseos/data` and `<frontend-root>/.baseos/userdata`.
-The adapter may use its own existing storage layout instead, but should not
-write persistent settings into the read-only system root.
+Managed package profiles receive independent directories under
+`/mnt/SDCARD/.baseos/instances/<package-id>--<profile-id>/`. Their
+`config/profile.conf` is copied from package defaults only on first use, so
+user settings survive package updates and uninstall/reinstall. A launch script
+should use these exported paths rather than writing persistent settings into
+the read-only system root.
 
 On RG353PS, `BASEOS_SLEEP` is the supported suspend entry point. A frontend
 that declares `power_owner=frontend` should invoke this helper on an explicit
@@ -189,9 +410,11 @@ and update lifecycle.
 ## Storage and multi-card behavior
 
 BaseOS exposes the selected frontend card as `/mnt/sdcard` for compatibility.
-It does not impose a universal ROM directory, save directory or multi-card
-layout. A frontend may use its own card, TF1, TF2, or multiple game roots,
-provided its adapter configures and documents those paths.
+Managed packages use `/mnt/SDCARD/Games/` as the canonical shared ROM library;
+the frontend still owns its system names, scanning rules and internal paths.
+The old `Roms/` directory is renamed to `Games/` only when `Games/` is
+absent. If both exist, BaseOS preserves both and does not merge them
+automatically. Legacy adapters may continue using their historical layout.
 
 The system user-data partition is mounted at `/mnt/SDCARD`. Keep frontend
 packages and game data on user-data partitions, not on `BASEOS_BOOT`.

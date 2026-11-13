@@ -202,15 +202,56 @@ fi
 # healthy system and keying it later made that state look like a failed update.
 confirm_update
 
-# Legacy `frontend=...` and `allow_external_frontend_adapters=...` keys are
-# intentionally not used: detection is automatic and user-installed frontends
-# are expected to ship their own adapter. force_diagnostic=yes is the explicit
-# troubleshooting override. Adapter scripts must only come from trusted cards.
+# The shared ROM root is Games/. Migrate the old spelling only when the new
+# directory does not exist; when both exist, preserve both and let the owner
+# merge them manually rather than silently overwriting game files.
+if is_mounted "$TF1"; then
+  if [ -d "$TF1/Roms" ] && [ ! -e "$TF1/Games" ]; then
+    if mv "$TF1/Roms" "$TF1/Games" 2>/dev/null; then
+      log "migrated legacy ROM directory Roms/ to Games/"
+    else
+      log "WARNING: could not rename Roms/ to Games/"
+    fi
+  elif [ -d "$TF1/Roms" ] && [ -d "$TF1/Games" ]; then
+    log "both Roms/ and Games/ exist; preserving both without automatic merge"
+  fi
+  mkdir -p "$TF1/Games" "$TF1/Frontends" 2>/dev/null || :
+fi
+
+# force_diagnostic is an explicit troubleshooting override and therefore
+# takes precedence over the optional frontend selector.
 if [ "$(setting force_diagnostic no)" = "yes" ]; then
   diagnostic
 fi
 
+# A boot-time L1/R1 request opens the BaseOS selector after both user volumes
+# are mounted and after Function-triggered USB storage has had priority.
+if [ -e /run/baseos-frontend-select.boot-request ]; then
+  rm -f /run/baseos-frontend-select.boot-request
+  rm -f /run/baseos-frontend-selection
+  if [ -x /usr/sbin/baseos-frontend-manager ] && [ -x /usr/sbin/rg353ps-frontend-selector ]; then
+    if /usr/sbin/baseos-frontend-manager catalog && [ -s /run/baseos-frontend-catalog ]; then
+      log "opening frontend selector from boot L1/R1 request"
+      /usr/sbin/rg353ps-frontend-selector || log "frontend selector returned an error"
+    else
+      log "frontend selector requested but no managed frontend profiles were found"
+    fi
+  else
+    log "frontend selector components are missing; continuing with configured frontend"
+  fi
+fi
+
+# Legacy `frontend=...` and `allow_external_frontend_adapters=...` keys are
+# intentionally not used; frontend_id is either auto, a legacy adapter ID,
+# or the package--profile identity of a managed frontend instance.
 FRONTEND_PREFERENCE=$(setting frontend_id auto)
+if [ -s /run/baseos-frontend-selection ]; then
+  read -r requested_frontend < /run/baseos-frontend-selection || requested_frontend=
+  if [ -n "$requested_frontend" ] && baseos_frontend_valid_id "$requested_frontend"; then
+    FRONTEND_PREFERENCE=$requested_frontend
+    log "one-time frontend profile selection: $FRONTEND_PREFERENCE"
+  fi
+fi
 [ -n "$FRONTEND_PREFERENCE" ] || FRONTEND_PREFERENCE=auto
 if [ "$FRONTEND_PREFERENCE" != auto ] && ! baseos_frontend_valid_id "$FRONTEND_PREFERENCE"; then
   log "invalid frontend_id setting; falling back to automatic discovery"
@@ -257,14 +298,25 @@ scan_root() {
     SELECTED=$BASEOS_SCAN_ID LAUNCH_MODE=script LAUNCHER=$BASEOS_SCAN_LAUNCHER
     FRONTEND_ROOT=$BASEOS_SCAN_ROOT ADAPTER_DIR=$BASEOS_SCAN_DIR
     ADAPTER_VOLUME_OWNER=$BASEOS_SCAN_VOLUME_OWNER ADAPTER_POWER_OWNER=$BASEOS_SCAN_POWER_OWNER
-    [ "$FRONTEND_ROOT" = "$scan_root_dir" ] || log "found adapter $SELECTED in nested directory $FRONTEND_ROOT"
-    log "selected adapter $SELECTED (priority $BASEOS_SCAN_PRIORITY)"
+    FRONTEND_PACKAGE_MODE=no FRONTEND_PACKAGE_ID= FRONTEND_PROFILE_ID=
+    FRONTEND_PROFILE_CONFIG= FRONTEND_PACKAGE_DIR=
+    if [ "$BASEOS_SCAN_KIND" = package ]; then
+      FRONTEND_PACKAGE_MODE=yes
+      FRONTEND_PACKAGE_ID=$BASEOS_SCAN_PACKAGE_ID
+      FRONTEND_PROFILE_ID=$BASEOS_SCAN_PROFILE_ID
+      FRONTEND_PROFILE_CONFIG=$BASEOS_SCAN_PROFILE_CONFIG
+      FRONTEND_PACKAGE_DIR=$BASEOS_SCAN_PACKAGE_DIR
+    fi
+    [ "$FRONTEND_ROOT" = "$scan_root_dir" ] || log "found frontend $SELECTED in nested directory $FRONTEND_ROOT"
+    log "selected frontend profile $SELECTED (kind=$BASEOS_SCAN_KIND priority=$BASEOS_SCAN_PRIORITY)"
     return 0
   fi
   if [ "$FRONTEND_PREFERENCE" = auto ] || [ "$FRONTEND_PREFERENCE" = legacy-updater ]; then
     if legacy_path=$(stage_legacy_updater "$scan_root_dir"); then
       SELECTED=legacy-updater LAUNCH_MODE=exec LAUNCHER=$legacy_path FRONTEND_ROOT=$scan_root_dir ADAPTER_DIR=
       ADAPTER_VOLUME_OWNER=system ADAPTER_POWER_OWNER=system
+      FRONTEND_PACKAGE_MODE=no FRONTEND_PACKAGE_ID= FRONTEND_PROFILE_ID=
+      FRONTEND_PROFILE_CONFIG= FRONTEND_PACKAGE_DIR=
       return 0
     fi
     for nested_root in "$scan_root_dir"/*; do
@@ -273,6 +325,8 @@ scan_root() {
         log "found legacy package in nested directory $nested_root"
         SELECTED=legacy-updater LAUNCH_MODE=exec LAUNCHER=$legacy_path FRONTEND_ROOT=$nested_root ADAPTER_DIR=
         ADAPTER_VOLUME_OWNER=system ADAPTER_POWER_OWNER=system
+        FRONTEND_PACKAGE_MODE=no FRONTEND_PACKAGE_ID= FRONTEND_PROFILE_ID=
+        FRONTEND_PROFILE_CONFIG= FRONTEND_PACKAGE_DIR=
         return 0
       fi
     done
@@ -283,6 +337,8 @@ scan_root() {
 
 SELECTED= LAUNCHER= FRONTEND_ROOT= ADAPTER_DIR=
 ADAPTER_VOLUME_OWNER=system ADAPTER_POWER_OWNER=system
+FRONTEND_PACKAGE_MODE=no FRONTEND_PACKAGE_ID= FRONTEND_PROFILE_ID=
+FRONTEND_PROFILE_CONFIG= FRONTEND_PACKAGE_DIR=
 LAUNCH_MODE=script
 SELECTION_CACHE=/mnt/SDCARD/.baseos/cache/frontend-selection
 # Same test as is_mounted, without the fork: this runs on the path it is
@@ -318,6 +374,8 @@ cached_selection() {
     baseos_frontend_load_manifest "${c_launcher%/*}" || return 1
     [ "$BASEOS_ADAPTER_ID" = "$c_id" ] || return 1
     ADAPTER_DIR=$BASEOS_ADAPTER_DIR ADAPTER_VOLUME_OWNER=$BASEOS_ADAPTER_VOLUME_OWNER ADAPTER_POWER_OWNER=$BASEOS_ADAPTER_POWER_OWNER
+    FRONTEND_PACKAGE_MODE=no FRONTEND_PACKAGE_ID= FRONTEND_PROFILE_ID=
+    FRONTEND_PROFILE_CONFIG= FRONTEND_PACKAGE_DIR=
   else
     [ "$c_id" = legacy-updater ] || return 1
     ADAPTER_DIR= ADAPTER_VOLUME_OWNER=system ADAPTER_POWER_OWNER=system
@@ -326,6 +384,9 @@ cached_selection() {
   return 0
 }
 write_selection_cache() {
+  # Package/profile instances are rescanned for now; their compact profile
+  # metadata is small, and the legacy cache format has only one adapter ID.
+  [ "${FRONTEND_PACKAGE_MODE:-no}" = no ] || return 0
   [ -n "$LAUNCHER" ] && [ -n "$FRONTEND_ROOT" ] || return 0
   [ -f "$(launcher_path_of "$LAUNCHER")" ] || return 0
   mkdir -p "${SELECTION_CACHE%/*}" 2>/dev/null || return 0
@@ -372,11 +433,39 @@ BASEOS_FRONTEND_ID=$SELECTED
 BASEOS_SYSTEM_ROOT=/
 BASEOS_BOOT=/mnt/boot
 BASEOS_FRONTEND_ROOT=$FRONTEND_ROOT
-BASEOS_DATA_DIR="$FRONTEND_ROOT/.baseos/data"
-BASEOS_USERDATA_DIR="$FRONTEND_ROOT/.baseos/userdata"
+BASEOS_PACKAGE_ID=${FRONTEND_PACKAGE_ID:-}
+BASEOS_PROFILE_ID=${FRONTEND_PROFILE_ID:-}
+BASEOS_PROFILE_DEFAULTS=${FRONTEND_PROFILE_CONFIG:-}
+BASEOS_PACKAGE_DIR=${FRONTEND_PACKAGE_DIR:-}
+BASEOS_INSTANCE_ID=$SELECTED
+BASEOS_CARD_ROOT=$TF1
+BASEOS_GAMES_DIR=$TF1/Games
+if [ "${FRONTEND_PACKAGE_MODE:-no}" = yes ]; then
+  BASEOS_INSTANCE_DIR="$TF1/.baseos/instances/$SELECTED"
+  BASEOS_DATA_DIR="$BASEOS_INSTANCE_DIR/data"
+  BASEOS_USERDATA_DIR="$BASEOS_INSTANCE_DIR/userdata"
+  BASEOS_PROFILE_CONFIG="$BASEOS_INSTANCE_DIR/config/profile.conf"
+  mkdir -p "$BASEOS_INSTANCE_DIR/config" "$BASEOS_INSTANCE_DIR/cache" \
+    "$BASEOS_INSTANCE_DIR/states" "$BASEOS_INSTANCE_DIR/database" \
+    "$BASEOS_INSTANCE_DIR/assets" "$BASEOS_INSTANCE_DIR/logs" \
+    "$BASEOS_DATA_DIR" "$BASEOS_USERDATA_DIR" 2>/dev/null || :
+  # Seed once from package defaults. Later package updates cannot overwrite
+  # user-edited profile settings; uninstall/reinstall keeps the same instance.
+  if [ -n "$BASEOS_PROFILE_DEFAULTS" ] && [ -f "$BASEOS_PROFILE_DEFAULTS" ] &&
+     [ ! -s "$BASEOS_PROFILE_CONFIG" ]; then
+    cp "$BASEOS_PROFILE_DEFAULTS" "$BASEOS_PROFILE_CONFIG" 2>/dev/null || :
+  fi
+else
+  BASEOS_INSTANCE_DIR="$FRONTEND_ROOT/.baseos"
+  BASEOS_DATA_DIR="$FRONTEND_ROOT/.baseos/data"
+  BASEOS_USERDATA_DIR="$FRONTEND_ROOT/.baseos/userdata"
+  BASEOS_PROFILE_CONFIG=
+fi
 BASEOS_LAUNCHER=$LAUNCHER
 export PLATFORM BASEOS_FRONTEND_ID BASEOS_SYSTEM_ROOT BASEOS_BOOT
-export BASEOS_FRONTEND_ROOT BASEOS_DATA_DIR BASEOS_USERDATA_DIR BASEOS_LAUNCHER
+export BASEOS_FRONTEND_ROOT BASEOS_PACKAGE_ID BASEOS_PROFILE_ID BASEOS_PROFILE_CONFIG BASEOS_PROFILE_DEFAULTS
+export BASEOS_PACKAGE_DIR BASEOS_INSTANCE_ID BASEOS_INSTANCE_DIR BASEOS_CARD_ROOT BASEOS_GAMES_DIR
+export BASEOS_DATA_DIR BASEOS_USERDATA_DIR BASEOS_LAUNCHER
 # Mesa's on-disk program cache keeps GL program compilation out of later starts.
 # It was never enabled on purpose: it follows $XDG_CACHE_HOME, then $HOME, and the
 # launcher sets HOME=/ for the frontend, so the cache ended up in /.cache beside
@@ -396,7 +485,11 @@ export BASEOS_FRONTEND_ROOT BASEOS_DATA_DIR BASEOS_USERDATA_DIR BASEOS_LAUNCHER
 #
 # The fallback is a tmpfs: a unit whose user volume did not mount still gets a
 # frontend, it just compiles its shaders every time.
-MESA_CACHE_DIR=/mnt/SDCARD/.baseos/cache
+if [ "${FRONTEND_PACKAGE_MODE:-no}" = yes ]; then
+  MESA_CACHE_DIR="$BASEOS_INSTANCE_DIR/cache/mesa"
+else
+  MESA_CACHE_DIR=/mnt/SDCARD/.baseos/cache
+fi
 # [ -d ] before mkdir, not instead of it: busybox sh has no builtin mkdir, so
 # every call forks /bin/mkdir, and on exFAT each of those does a directory walk
 # before it can answer "it's already there". The test is a builtin stat. These
@@ -416,7 +509,11 @@ export MESA_SHADER_CACHE_MAX_SIZE=32M
 if [ "$LAUNCH_MODE" = "exec" ]; then
   ensure_baseos_paths "$FRONTEND_ROOT"
 fi
-cd "$FRONTEND_ROOT" || diagnostic
+if [ "${FRONTEND_PACKAGE_MODE:-no}" = yes ]; then
+  cd "$BASEOS_PACKAGE_DIR" || diagnostic
+else
+  cd "$FRONTEND_ROOT" || diagnostic
+fi
 # rcS starts baseos-audio-init in the background, so a fast boot can reach this
 # point before the softvol volume layer exists. A frontend that opens ALSA in
 # that window picks whatever control the codec happens to expose and gets the

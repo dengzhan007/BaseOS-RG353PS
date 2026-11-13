@@ -1,0 +1,165 @@
+#!/bin/sh
+set -eu
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH
+. "${BASEOS_DISCOVERY_LIB:-/usr/sbin/baseos-frontend-discovery}"
+
+TF1=${BASEOS_FRONTEND_TF1:-/mnt/SDCARD}
+TF2=${BASEOS_FRONTEND_TF2:-/mnt/TF2}
+CATALOG=${BASEOS_FRONTEND_CATALOG:-/run/baseos-frontend-catalog}
+CONFIG=$TF1/baseos.conf
+
+valid_package_id() { baseos_frontend_valid_id "$1" && [ "${#1}" -le 22 ]; }
+valid_profile_id() { baseos_frontend_valid_id "$1" && [ "${#1}" -le 22 ]; }
+
+build_catalog() {
+  catalog_tmp=$CATALOG.$$
+  : > "$catalog_tmp"
+  for catalog_root in "$TF2" "$TF1"; do
+    [ -d "$catalog_root/Frontends" ] || continue
+    for catalog_package in "$catalog_root"/Frontends/*; do
+      [ -d "$catalog_package" ] || continue
+      [ -f "$catalog_package/baseos-frontend.conf" ] || continue
+      [ -d "$catalog_package/profiles" ] || continue
+      for catalog_profile in "$catalog_package"/profiles/*.conf; do
+        [ -f "$catalog_profile" ] || continue
+        baseos_frontend_load_package "$catalog_root" "$catalog_package" "$catalog_profile" || continue
+        catalog_id=$BASEOS_ADAPTER_ID
+        if grep -F -q "$catalog_id|" "$catalog_tmp"; then continue; fi
+        printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
+          "$catalog_id" "$BASEOS_FRONTEND_NAME" "$BASEOS_PACKAGE_ID" \
+          "$BASEOS_PROFILE_ID" "$catalog_root" "$BASEOS_PACKAGE_DIR" \
+          "$BASEOS_PROFILE_CONFIG" "$BASEOS_ADAPTER_PRIORITY" >> "$catalog_tmp"
+      done
+    done
+  done
+  mv -f "$catalog_tmp" "$CATALOG"
+}
+
+find_catalog_entry() {
+  find_id=$1
+  ENTRY_ID= ENTRY_NAME= ENTRY_PACKAGE= ENTRY_PROFILE=
+  ENTRY_ROOT= ENTRY_DIR= ENTRY_CONFIG= ENTRY_PRIORITY=
+  [ -r "$CATALOG" ] || return 1
+  while IFS='|' read -r entry_id entry_name entry_package entry_profile entry_root entry_dir entry_config entry_priority; do
+    [ "$entry_id" = "$find_id" ] || continue
+    ENTRY_ID=$entry_id ENTRY_NAME=$entry_name ENTRY_PACKAGE=$entry_package
+    ENTRY_PROFILE=$entry_profile ENTRY_ROOT=$entry_root ENTRY_DIR=$entry_dir
+    ENTRY_CONFIG=$entry_config ENTRY_PRIORITY=$entry_priority
+    return 0
+  done < "$CATALOG"
+  return 1
+}
+
+write_default() {
+  default_id=$1
+  case "$default_id" in
+    auto) ;;
+    *--*)
+      valid_package_id "${default_id%%--*}" || return 1
+      default_profile=${default_id#*--}
+      valid_profile_id "$default_profile" || return 1
+      ;;
+    *) return 1 ;;
+  esac
+  mkdir -p "$TF1" 2>/dev/null || :
+  [ -f "$CONFIG" ] || : > "$CONFIG"
+  default_tmp=$CONFIG.tmp.$$
+  awk -v value="$default_id" '
+    BEGIN { written=0 }
+    /^[[:space:]]*frontend_id=/ {
+      if (!written) print "frontend_id=" value
+      written=1
+      next
+    }
+    { print }
+    END { if (!written) print "frontend_id=" value }
+  ' "$CONFIG" > "$default_tmp" || { rm -f "$default_tmp"; return 1; }
+  mv -f "$default_tmp" "$CONFIG" || { rm -f "$default_tmp"; return 1; }
+  sync
+}
+
+cmd=${1:-catalog}
+case "$cmd" in
+  catalog)
+    build_catalog
+    ;;
+  set-default)
+    [ "$#" -eq 2 ] || exit 2
+    build_catalog
+    find_catalog_entry "$2" || { echo "frontend profile not found: $2" >&2; exit 1; }
+    write_default "$ENTRY_ID"
+    ;;
+  uninstall|uninstall-package)
+    [ "$#" -eq 2 ] || exit 2
+    remove_action=$cmd
+    remove_id=$2
+    build_catalog
+    find_catalog_entry "$remove_id" || { echo "frontend profile not found: $remove_id" >&2; exit 1; }
+    valid_package_id "$ENTRY_PACKAGE" || exit 1
+    valid_profile_id "$ENTRY_PROFILE" || exit 1
+    case "$ENTRY_ROOT" in "$TF1"|"$TF2") ;; *) echo "refusing unexpected frontend root" >&2; exit 1 ;; esac
+    expected_dir=$ENTRY_ROOT/Frontends/$ENTRY_PACKAGE
+    [ "$ENTRY_DIR" = "$expected_dir" ] || { echo "refusing unexpected package path" >&2; exit 1; }
+    [ "$ENTRY_CONFIG" = "$expected_dir/profiles/$ENTRY_PROFILE.conf" ] || {
+      echo "refusing unexpected profile path" >&2
+      exit 1
+    }
+    [ -d "$expected_dir" ] && [ ! -L "$expected_dir" ] || {
+      echo "frontend package directory is missing or is a symlink" >&2
+      exit 1
+    }
+    [ -d "$expected_dir/profiles" ] && [ ! -L "$expected_dir/profiles" ] || {
+      echo "refusing an absent or symlinked profile directory" >&2
+      exit 1
+    }
+    if [ "$remove_action" = uninstall ]; then
+      [ -f "$ENTRY_CONFIG" ] && [ ! -L "$ENTRY_CONFIG" ] || {
+        echo "refusing an absent or symlinked profile config" >&2
+        exit 1
+      }
+      # Remove only this profile; the shared program remains available to
+      # every other profile in the same package.
+      rm -f -- "$ENTRY_CONFIG"
+      profiles_remain=no
+      for remaining_profile in "$expected_dir"/profiles/*.conf; do
+        [ -f "$remaining_profile" ] || continue
+        profiles_remain=yes
+        break
+      done
+      if [ "$profiles_remain" = no ]; then
+        rmdir "$expected_dir/profiles" 2>/dev/null || :
+        rm -rf -- "$expected_dir"
+      fi
+      removed_label=PROFILE
+    else
+      # Uninstall the complete frontend package, including all configurations
+      # and the shared executable payload. Profile data stays in instances/.
+      rm -rf -- "$expected_dir"
+      removed_label=FRONTEND
+    fi
+    sync
+    current_default=$(sed -n 's/^[[:space:]]*frontend_id=//p' "$CONFIG" 2>/dev/null | tail -n 1)
+    build_catalog
+    remove_default=no
+    if [ "$removed_label" = PROFILE ]; then
+      [ "$current_default" = "$ENTRY_ID" ] && remove_default=yes
+    else
+      case "$current_default" in "$ENTRY_PACKAGE"--*) remove_default=yes ;; esac
+    fi
+    if [ "$remove_default" = yes ]; then
+      next_default=$(awk -F '|' 'NR == 1 { print $1; exit }' "$CATALOG")
+      [ -n "$next_default" ] || next_default=auto
+      write_default "$next_default"
+    fi
+    if [ "$removed_label" = FRONTEND ]; then
+      printf '%s\n' "UNINSTALLED_FRONTEND:$ENTRY_PACKAGE"
+    else
+      printf '%s\n' "UNINSTALLED_PROFILE:$ENTRY_PACKAGE/$ENTRY_PROFILE"
+    fi
+    ;;
+  *)
+    echo "usage: baseos-frontend-manager [catalog|set-default ID|uninstall ID|uninstall-package ID]" >&2
+    exit 2
+    ;;
+esac

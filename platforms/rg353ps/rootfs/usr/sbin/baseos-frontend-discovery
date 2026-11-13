@@ -163,7 +163,9 @@ baseos_frontend_consider_package() {
     # is renamed. Preserve the selected profile across that one-time migration.
     case "$bcp_preference" in *--*) bcp_old_package=${bcp_preference%%--*}; bcp_old_profile=${bcp_preference#*--} ;; *) return 0 ;; esac
     valid_old_package=no
-    baseos_frontend_valid_id "$bcp_old_package" && [ "${#bcp_old_package}" -le 22 ] && valid_old_package=yes
+    if baseos_frontend_valid_id "$bcp_old_package" && [ "${#bcp_old_package}" -le 22 ]; then
+      valid_old_package=yes
+    fi
     [ "$valid_old_package" = yes ] || return 0
     [ "$bcp_old_profile" = "$BASEOS_PROFILE_ID" ] || return 0
     baseos_frontend_read_value "$bcp_dir/baseos-frontend.conf" previous_package_id ""

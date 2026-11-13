@@ -2,11 +2,11 @@
 set -eu
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
 export PATH
-. /usr/sbin/baseos-frontend-discovery
+. "${BASEOS_DISCOVERY_LIB:-/usr/sbin/baseos-frontend-discovery}"
 
-TF1=/mnt/SDCARD
-TF2=/mnt/TF2
-CATALOG=/run/baseos-frontend-catalog
+TF1=${BASEOS_FRONTEND_TF1:-/mnt/SDCARD}
+TF2=${BASEOS_FRONTEND_TF2:-/mnt/TF2}
+CATALOG=${BASEOS_FRONTEND_CATALOG:-/run/baseos-frontend-catalog}
 CONFIG=$TF1/baseos.conf
 
 valid_package_id() { baseos_frontend_valid_id "$1" && [ "${#1}" -le 22 ]; }

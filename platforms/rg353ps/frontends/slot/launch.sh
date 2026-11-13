@@ -160,6 +160,10 @@ if [ -n "$PACKAGE_DIR" ]; then
     }
     SLOT_SYSTEM_BIND_TARGETS="$state_target $SLOT_SYSTEM_BIND_TARGETS"
   }
+  # Keep legacy System/ state files available as read-only migration
+  # fallbacks. Slot's main state and its cache now write below the directory-
+  # mounted .userdata tree: their atomic temp-file + rename writes must not
+  # target a single-file bind mount.
   for state_name in slot.state theme.txt mask.txt overlay.txt shelf.txt cc.txt \
                     display.txt audio.txt open.txt selected_core.ini library.cache \
                     palette.v2 display.v2; do

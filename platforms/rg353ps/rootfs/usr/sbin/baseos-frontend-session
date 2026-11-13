@@ -306,6 +306,18 @@ scan_root() {
       FRONTEND_PROFILE_ID=$BASEOS_SCAN_PROFILE_ID
       FRONTEND_PROFILE_CONFIG=$BASEOS_SCAN_PROFILE_CONFIG
       FRONTEND_PACKAGE_DIR=$BASEOS_SCAN_PACKAGE_DIR
+      # A package folder rename may resolve a previously pinned ID through
+      # previous_package_id. Persist the new composite ID so later boots and
+      # the selector use the canonical identity.
+      if [ "$FRONTEND_PREFERENCE" != auto ] && [ "$SELECTED" != "$FRONTEND_PREFERENCE" ] &&
+         [ -x /usr/sbin/baseos-frontend-manager ]; then
+        if /usr/sbin/baseos-frontend-manager set-default "$SELECTED" >/dev/null 2>&1; then
+          log "migrated frontend_id from $FRONTEND_PREFERENCE to $SELECTED"
+          FRONTEND_PREFERENCE=$SELECTED
+        else
+          log "WARNING: could not persist renamed frontend identity $SELECTED"
+        fi
+      fi
     fi
     [ "$FRONTEND_ROOT" = "$scan_root_dir" ] || log "found frontend $SELECTED in nested directory $FRONTEND_ROOT"
     log "selected frontend profile $SELECTED (kind=$BASEOS_SCAN_KIND priority=$BASEOS_SCAN_PRIORITY)"

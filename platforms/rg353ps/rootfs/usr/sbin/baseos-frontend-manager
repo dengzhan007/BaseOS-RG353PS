@@ -90,8 +90,9 @@ case "$cmd" in
     find_catalog_entry "$2" || { echo "frontend profile not found: $2" >&2; exit 1; }
     write_default "$ENTRY_ID"
     ;;
-  uninstall)
+  uninstall|uninstall-package)
     [ "$#" -eq 2 ] || exit 2
+    remove_action=$cmd
     remove_id=$2
     build_catalog
     find_catalog_entry "$remove_id" || { echo "frontend profile not found: $remove_id" >&2; exit 1; }
@@ -112,35 +113,51 @@ case "$cmd" in
       echo "refusing an absent or symlinked profile directory" >&2
       exit 1
     }
-    [ -f "$ENTRY_CONFIG" ] && [ ! -L "$ENTRY_CONFIG" ] || {
-      echo "refusing an absent or symlinked profile config" >&2
-      exit 1
-    }
-    # Remove only the selected configuration. The common program payload
-    # remains while another valid profile still references this package.
-    rm -f -- "$ENTRY_CONFIG"
-    profiles_remain=no
-    for remaining_profile in "$expected_dir"/profiles/*.conf; do
-      [ -f "$remaining_profile" ] || continue
-      profiles_remain=yes
-      break
-    done
-    if [ "$profiles_remain" = no ]; then
-      rmdir "$expected_dir/profiles" 2>/dev/null || :
+    if [ "$remove_action" = uninstall ]; then
+      [ -f "$ENTRY_CONFIG" ] && [ ! -L "$ENTRY_CONFIG" ] || {
+        echo "refusing an absent or symlinked profile config" >&2
+        exit 1
+      }
+      # Remove only this profile; the shared program remains available to
+      # every other profile in the same package.
+      rm -f -- "$ENTRY_CONFIG"
+      profiles_remain=no
+      for remaining_profile in "$expected_dir"/profiles/*.conf; do
+        [ -f "$remaining_profile" ] || continue
+        profiles_remain=yes
+        break
+      done
+      if [ "$profiles_remain" = no ]; then
+        rmdir "$expected_dir/profiles" 2>/dev/null || :
+        rm -rf -- "$expected_dir"
+      fi
+      removed_label=PROFILE
+      removed_default_prefix=$ENTRY_ID
+    else
+      # Uninstall the complete frontend package, including all configurations
+      # and the shared executable payload. Profile data stays in instances/.
       rm -rf -- "$expected_dir"
+      removed_label=FRONTEND
+      removed_default_prefix=$ENTRY_PACKAGE--
     fi
     sync
     current_default=$(sed -n 's/^[[:space:]]*frontend_id=//p' "$CONFIG" 2>/dev/null | tail -n 1)
     build_catalog
-    if [ "$current_default" = "$ENTRY_ID" ]; then
-      next_default=$(awk -F '|' 'NR == 1 { print $1; exit }' "$CATALOG")
-      [ -n "$next_default" ] || next_default=auto
-      write_default "$next_default"
+    case "$current_default" in
+      "$removed_default_prefix"*)
+        next_default=$(awk -F '|' 'NR == 1 { print $1; exit }' "$CATALOG")
+        [ -n "$next_default" ] || next_default=auto
+        write_default "$next_default"
+        ;;
+    esac
+    if [ "$removed_label" = FRONTEND ]; then
+      printf '%s\n' "UNINSTALLED_FRONTEND:$ENTRY_PACKAGE"
+    else
+      printf '%s\n' "UNINSTALLED_PROFILE:$ENTRY_PACKAGE/$ENTRY_PROFILE"
     fi
-    printf '%s\n' "UNINSTALLED_PROFILE:$ENTRY_PACKAGE/$ENTRY_PROFILE"
     ;;
   *)
-    echo "usage: baseos-frontend-manager [catalog|set-default ID|uninstall ID]" >&2
+    echo "usage: baseos-frontend-manager [catalog|set-default ID|uninstall ID|uninstall-package ID]" >&2
     exit 2
     ;;
 esac

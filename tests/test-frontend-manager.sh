@@ -79,6 +79,33 @@ run_manager uninstall slot-rg353ps--640x480
 [ -f "$TF1/Games/game.rom" ] || fail "last-profile removal deleted shared ROM"
 [ -f "$TF1/Saves/game.srm" ] || fail "last-profile removal deleted shared save"
 
+# Full frontend uninstall removes every profile and the shared program package,
+# but keeps every instance directory and all common game/save data.
+FULL_PACKAGE=$TF1/Frontends/full-frontend
+mkdir -p "$FULL_PACKAGE/profiles" "$TF1/.baseos/instances/full-frontend--one/data"
+: > "$FULL_PACKAGE/launch.sh"
+cat > "$FULL_PACKAGE/baseos-frontend.conf" <<'EOF'
+package_api=1
+display_name=Full uninstall test
+priority=10
+EOF
+cat > "$FULL_PACKAGE/profiles/one.conf" <<'EOF'
+profile_api=1
+display_name=One
+EOF
+cat > "$FULL_PACKAGE/profiles/two.conf" <<'EOF'
+profile_api=1
+display_name=Two
+EOF
+printf 'preserve full package instance\n' > "$TF1/.baseos/instances/full-frontend--one/data/marker"
+run_manager set-default full-frontend--one
+run_manager uninstall-package full-frontend--one
+[ ! -e "$FULL_PACKAGE" ] || fail "full frontend uninstall left its package directory"
+[ -f "$TF1/.baseos/instances/full-frontend--one/data/marker" ] || fail "full frontend uninstall deleted instance data"
+[ "$(sed -n 's/^frontend_id=//p' "$CONFIG")" = auto ] || fail "full frontend uninstall did not reset the removed default"
+[ -f "$TF1/Games/game.rom" ] || fail "full frontend uninstall deleted shared ROM"
+[ -f "$TF1/Saves/game.srm" ] || fail "full frontend uninstall deleted shared save"
+
 # A profile config symlink must never be followed for destructive operations.
 mkdir -p "$TF1/Frontends/unsafe-package/profiles"
 : > "$TF1/Frontends/unsafe-package/launch.sh"
@@ -95,4 +122,4 @@ fi
 [ -f "$TMP/external-profile.conf" ] || fail "symlink uninstall deleted its external target"
 [ -L "$TF1/Frontends/unsafe-package/profiles/external.conf" ] || fail "symlink guard unexpectedly removed the link"
 
-echo "PASS: frontend manager catalog, defaults, safe uninstall and symlink guard"
+echo "PASS: frontend manager catalog, profile/full uninstall, data retention and symlink guard"

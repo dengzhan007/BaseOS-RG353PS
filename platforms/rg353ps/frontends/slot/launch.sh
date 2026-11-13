@@ -1,12 +1,12 @@
 #!/bin/sh
 # BaseOS RG353PS launcher for the SDL2/KMSDRM Slot build.
 #
-# Managed package mode:
-#   Frontends/<package-id>/{launch.sh,System or payload/System,profiles/}
-#   Each package/profile gets a private .userdata bind mount while Games/ and
-#   Saves/ remain on the shared DATA root.
+# Managed package:
+#   Frontends/<package-id>/{launch.sh,payload/,profiles/}
+# Each configuration profile receives its own SLOT_ROOT/.userdata, while
+# Games/ and Saves/ are bind-mounted from the common DATA root.
 #
-# Legacy mode retains the historical card-root layout.
+# Legacy card-root installation keeps its original layout.
 # baseos: volume-owned
 # baseos: power-owned
 set -eu
@@ -15,29 +15,79 @@ SDCARD="${BASEOS_CARD_ROOT:-${BASEOS_FRONTEND_ROOT:-/mnt/SDCARD}}"
 PACKAGE_DIR="${BASEOS_PACKAGE_DIR:-}"
 INSTANCE_DIR="${BASEOS_INSTANCE_DIR:-}"
 PROFILE_ID="${BASEOS_PROFILE_ID:-}"
+SLOT_ROOT=$SDCARD
+AGS_ROOT=$SDCARD
+SYSTEM=$SDCARD/System
+LOGDIR=$SDCARD/Logs
+SLOT_PAYLOAD_MOUNTED=no
+SLOT_GAMES_MOUNTED=no
+SLOT_SAVES_MOUNTED=no
+SLOT_USERDATA_MOUNTED=no
+SLOT_PID=
+RUNTIME_SLOT="/tmp/baseos-slot-$${PROFILE_ID:-legacy}"
+
 if [ -n "$PACKAGE_DIR" ]; then
-  if [ -d "$PACKAGE_DIR/payload/System" ]; then
-    SYSTEM="$PACKAGE_DIR/payload/System"
-    AGS_ROOT="$PACKAGE_DIR/payload"
-  elif [ -d "$PACKAGE_DIR/System" ]; then
-    SYSTEM="$PACKAGE_DIR/System"
-    AGS_ROOT="$PACKAGE_DIR"
+  if [ -d "$PACKAGE_DIR/payload" ]; then
+    SLOT_PAYLOAD_SOURCE=$PACKAGE_DIR/payload
   else
-    echo "Slot package has no System directory: $PACKAGE_DIR" >&2
-    exit 127
+    SLOT_PAYLOAD_SOURCE=$PACKAGE_DIR
   fi
-else
-  SYSTEM="$SDCARD/System"
-  AGS_ROOT="$SDCARD"
+  SLOT_ROOT="${INSTANCE_DIR}/slot-root"
+  AGS_ROOT=$SLOT_ROOT
+  LOGDIR="$INSTANCE_DIR/logs"
+  SYSTEM="$SLOT_ROOT/System"
+  mkdir -p "$SLOT_ROOT" "$SDCARD/Games" "$SDCARD/Saves" "$LOGDIR" || :
+  if ! mount --bind "$SLOT_PAYLOAD_SOURCE" "$SLOT_ROOT"; then
+    echo "Could not expose package payload at $SLOT_ROOT" >> "$LOGDIR/slot-session.log"
+    exit 1
+  fi
+  SLOT_PAYLOAD_MOUNTED=yes
+
+  # Mount shared user content over the package's canonical content paths.
+  # These directories are created inside the package payload only as empty
+  # mount targets; actual ROMs and saves remain in the common DATA folders.
+  mkdir -p "$SLOT_ROOT/Games" "$SLOT_ROOT/Saves" "$SLOT_ROOT/.userdata" || {
+    echo "Could not prepare Slot shared-resource mount points" >> "$LOGDIR/slot-session.log"
+    exit 1
+  }
+  if ! mount --bind "$SDCARD/Games" "$SLOT_ROOT/Games"; then
+    echo "Could not bind shared Games directory" >> "$LOGDIR/slot-session.log"
+    exit 1
+  fi
+  SLOT_GAMES_MOUNTED=yes
+  if ! mount --bind "$SDCARD/Saves" "$SLOT_ROOT/Saves"; then
+    echo "Could not bind shared Saves directory" >> "$LOGDIR/slot-session.log"
+    exit 1
+  fi
+  SLOT_SAVES_MOUNTED=yes
+
+  SLOT_USERDATA_DIR="$INSTANCE_DIR/userdata/slot"
+  SLOT_USERDATA_TARGET="$SLOT_ROOT/.userdata"
+  mkdir -p "$SLOT_USERDATA_DIR" || {
+    echo "Could not create profile userdata directory" >> "$LOGDIR/slot-session.log"
+    exit 1
+  }
+  SEED_MARKER="$INSTANCE_DIR/config/slot-userdata-seeded"
+  if [ ! -e "$SEED_MARKER" ]; then
+    # Preserve data from the existing root-level Slot install. If no previous
+    # install exists, start with an empty profile rather than sharing defaults.
+    if [ -d "$SDCARD/.userdata" ]; then
+      cp -a "$SDCARD/.userdata/." "$SLOT_USERDATA_DIR/" 2>/dev/null || {
+        echo "Could not seed profile userdata from legacy .userdata" >> "$LOGDIR/slot-session.log"
+        exit 1
+      }
+    fi
+    : > "$SEED_MARKER"
+  fi
+  if ! mount --bind "$SLOT_USERDATA_DIR" "$SLOT_USERDATA_TARGET"; then
+    echo "Could not bind profile userdata at $SLOT_USERDATA_TARGET" >> "$LOGDIR/slot-session.log"
+    exit 1
+  fi
+  SLOT_USERDATA_MOUNTED=yes
 fi
 
-if [ -n "$PACKAGE_DIR" ] && [ -n "$INSTANCE_DIR" ]; then
-  LOGDIR="$INSTANCE_DIR/logs"
-else
-  LOGDIR="$SDCARD/Logs"
-fi
 mkdir -p "$LOGDIR" "$SDCARD/Games" "$SDCARD/Saves" 2>/dev/null || :
-export SLOT_ROOT="$SDCARD"
+export SLOT_ROOT
 export AGS_ROOT
 export AGS_NET_MODULE=rtw88_8821cs
 export BASEOS_TARGET=rg353ps
@@ -56,9 +106,7 @@ if [ ! -f "$SYSTEM/slot" ]; then
   exit 127
 fi
 
-# On exFAT, executable mode bits are not a reliable property of extracted
-# files. Stage the executable on tmpfs before running it.
-RUNTIME_SLOT="/tmp/baseos-slot-$${PROFILE_ID:-legacy}"
+# exFAT does not preserve executable bits reliably. Stage the binary on tmpfs.
 if ! cp "$SYSTEM/slot" "$RUNTIME_SLOT"; then
   echo "Could not stage Slot binary to $RUNTIME_SLOT" >> "$LOGDIR/slot.log"
   exit 126
@@ -68,21 +116,28 @@ chmod 0755 "$RUNTIME_SLOT" || {
   exit 126
 }
 
-SLOT_USERDATA_MOUNTED=no
-SLOT_USERDATA_TARGET=
-SLOT_USERDATA_DIR=
-SLOT_PID=
 cleanup_slot_profile() {
   if [ -n "$SLOT_PID" ]; then
     kill "$SLOT_PID" 2>/dev/null || :
     wait "$SLOT_PID" 2>/dev/null || :
     SLOT_PID=
   fi
-  if [ "$SLOT_USERDATA_MOUNTED" = yes ] && [ -n "$SLOT_USERDATA_TARGET" ]; then
-    umount "$SLOT_USERDATA_TARGET" 2>/dev/null || {
-      echo "WARNING: could not unmount profile userdata at $SLOT_USERDATA_TARGET" >> "$LOGDIR/slot-session.log"
-    }
+  # Unmount nested paths before the package payload mount.
+  if [ "$SLOT_USERDATA_MOUNTED" = yes ]; then
+    umount "$SLOT_ROOT/.userdata" 2>/dev/null || echo "WARNING: could not unmount profile userdata" >> "$LOGDIR/slot-session.log"
     SLOT_USERDATA_MOUNTED=no
+  fi
+  if [ "$SLOT_SAVES_MOUNTED" = yes ]; then
+    umount "$SLOT_ROOT/Saves" 2>/dev/null || echo "WARNING: could not unmount shared Saves" >> "$LOGDIR/slot-session.log"
+    SLOT_SAVES_MOUNTED=no
+  fi
+  if [ "$SLOT_GAMES_MOUNTED" = yes ]; then
+    umount "$SLOT_ROOT/Games" 2>/dev/null || echo "WARNING: could not unmount shared Games" >> "$LOGDIR/slot-session.log"
+    SLOT_GAMES_MOUNTED=no
+  fi
+  if [ "$SLOT_PAYLOAD_MOUNTED" = yes ]; then
+    umount "$SLOT_ROOT" 2>/dev/null || echo "WARNING: could not unmount package payload" >> "$LOGDIR/slot-session.log"
+    SLOT_PAYLOAD_MOUNTED=no
   fi
 }
 trap cleanup_slot_profile EXIT
@@ -90,41 +145,9 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-if [ -n "$PACKAGE_DIR" ] && [ -n "$INSTANCE_DIR" ]; then
-  SLOT_USERDATA_DIR="$INSTANCE_DIR/userdata/slot"
-  SLOT_USERDATA_TARGET="$SDCARD/.userdata"
-  mkdir -p "$SLOT_USERDATA_DIR" "$SLOT_USERDATA_TARGET" 2>/dev/null || {
-    echo "Could not create profile userdata directories" >> "$LOGDIR/slot-session.log"
-    exit 1
-  }
-
-  # Each new profile starts from a copy of any legacy .userdata tree exactly
-  # once. Later writes go to the profile's own directory and cannot cross-talk.
-  SEED_MARKER="$INSTANCE_DIR/config/slot-userdata-seeded"
-  if [ ! -e "$SEED_MARKER" ]; then
-    if [ -d "$SLOT_USERDATA_TARGET" ]; then
-      cp -a "$SLOT_USERDATA_TARGET/." "$SLOT_USERDATA_DIR/" 2>/dev/null || {
-        echo "Could not seed profile userdata from legacy .userdata" >> "$LOGDIR/slot-session.log"
-        exit 1
-      }
-    fi
-    : > "$SEED_MARKER"
-  fi
-
-  if grep -q " $SLOT_USERDATA_TARGET " /proc/mounts 2>/dev/null; then
-    echo "Another profile userdata mount is still active at $SLOT_USERDATA_TARGET" >> "$LOGDIR/slot-session.log"
-    exit 1
-  fi
-  if ! mount --bind "$SLOT_USERDATA_DIR" "$SLOT_USERDATA_TARGET"; then
-    echo "Could not bind profile userdata to $SLOT_USERDATA_TARGET" >> "$LOGDIR/slot-session.log"
-    exit 1
-  fi
-  SLOT_USERDATA_MOUNTED=yes
-fi
-
-# The root path stays on the shared card for Games/ and Saves/. The profile
-# userdata bind above isolates Slot's own settings, lists, favorites and cache.
-"$RUNTIME_SLOT" --init-root "$SDCARD" >> "$LOGDIR/slot-session.log" 2>&1 || {
+# Initialize on the profile root: System comes from the package, ROMs/saves
+# are shared mounts, and .userdata belongs to this selected configuration.
+"$RUNTIME_SLOT" --init-root "$SLOT_ROOT" >> "$LOGDIR/slot-session.log" 2>&1 || {
   echo "Slot root initialization failed at $(date)" >> "$LOGDIR/slot-session.log"
   exit 1
 }
@@ -142,5 +165,5 @@ if [ -n "$PACKAGE_DIR" ]; then
   exit "$SLOT_STATUS"
 fi
 
-# Preserve the legacy exec contract: BaseOS supervises the Slot process itself.
+# Preserve the old root-level exec path for legacy installations.
 exec "$RUNTIME_SLOT" >> "$LOGDIR/slot.log" 2>&1

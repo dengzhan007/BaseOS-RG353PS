@@ -36,6 +36,8 @@ baseos_frontend_load_package() {
   bfl_profile_id=${bfl_profile_file%.conf}
   baseos_frontend_valid_id "$bfl_package_id" || return 1
   baseos_frontend_valid_id "$bfl_profile_id" || return 1
+  # The composite package--profile ID must be unambiguous when parsing defaults.
+  case "$bfl_package_id:$bfl_profile_id" in *--*) return 1 ;; esac
   [ "${#bfl_package_id}" -le 22 ] || return 1
   [ "${#bfl_profile_id}" -le 22 ] || return 1
   [ -f "$bfl_dir/baseos-frontend.conf" ] || return 1

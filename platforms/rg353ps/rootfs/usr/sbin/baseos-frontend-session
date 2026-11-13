@@ -218,6 +218,12 @@ if is_mounted "$TF1"; then
   mkdir -p "$TF1/Games" 2>/dev/null || :
 fi
 
+# force_diagnostic is an explicit troubleshooting override and therefore
+# takes precedence over the optional frontend selector.
+if [ "$(setting force_diagnostic no)" = "yes" ]; then
+  diagnostic
+fi
+
 # A boot-time L1/R1 request opens the BaseOS selector after both user volumes
 # are mounted and after Function-triggered USB storage has had priority.
 if [ -e /run/baseos-frontend-select.boot-request ]; then
@@ -236,12 +242,8 @@ if [ -e /run/baseos-frontend-select.boot-request ]; then
 fi
 
 # Legacy `frontend=...` and `allow_external_frontend_adapters=...` keys are
-# intentionally not used. force_diagnostic=yes remains the explicit
-# troubleshooting override. Adapter scripts must only come from trusted cards.
-if [ "$(setting force_diagnostic no)" = "yes" ]; then
-  diagnostic
-fi
-
+# intentionally not used; frontend_id is either auto, a legacy adapter ID,
+# or the package--profile identity of a managed frontend instance.
 FRONTEND_PREFERENCE=$(setting frontend_id auto)
 if [ -s /run/baseos-frontend-selection ]; then
   read -r requested_frontend < /run/baseos-frontend-selection || requested_frontend=

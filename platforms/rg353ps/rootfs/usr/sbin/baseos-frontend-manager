@@ -108,14 +108,24 @@ case "$cmd" in
       echo "frontend package directory is missing or is a symlink" >&2
       exit 1
     }
-    # Package removal includes every profile, but deliberately keeps profile
-    # instances and shared Games/Saves/cores/assets.
-    rm -rf -- "$expected_dir"
+    # Remove only the selected configuration. The common program payload
+    # remains while another valid profile still references this package.
+    rm -f -- "$ENTRY_CONFIG"
+    profiles_remain=no
+    for remaining_profile in "$expected_dir"/profiles/*.conf; do
+      [ -f "$remaining_profile" ] || continue
+      profiles_remain=yes
+      break
+    done
+    if [ "$profiles_remain" = no ]; then
+      rmdir "$expected_dir/profiles" 2>/dev/null || :
+      rm -rf -- "$expected_dir"
+    fi
     sync
     current_default=$(sed -n 's/^[[:space:]]*frontend_id=//p' "$CONFIG" 2>/dev/null | tail -n 1)
-    case "$current_default" in "$ENTRY_PACKAGE"--*) write_default auto ;; esac
+    [ "$current_default" = "$ENTRY_ID" ] && write_default auto || :
     build_catalog
-    printf '%s\n' "UNINSTALLED:$ENTRY_PACKAGE"
+    printf '%s\n' "UNINSTALLED_PROFILE:$ENTRY_PACKAGE/$ENTRY_PROFILE"
     ;;
   *)
     echo "usage: baseos-frontend-manager [catalog|set-default ID|uninstall ID]" >&2

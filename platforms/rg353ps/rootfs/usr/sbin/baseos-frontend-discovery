@@ -170,6 +170,13 @@ baseos_frontend_consider_package() {
     [ "$bcp_old_profile" = "$BASEOS_PROFILE_ID" ] || return 0
     baseos_frontend_read_value "$bcp_dir/baseos-frontend.conf" previous_package_id ""
     [ "$BASEOS_VALUE" = "$bcp_old_package" ] || return 0
+    # Prefer the exact old profile ID when it was carried forward. If the new
+    # package intentionally ships fewer profiles, allow discovery to fall back
+    # to the package's highest-priority available profile instead of diagnostics.
+    if [ -f "$bcp_dir/profiles/$bcp_old_profile.conf" ] &&
+       [ "$bcp_old_profile" != "$BASEOS_PROFILE_ID" ]; then
+      return 0
+    fi
   elif [ "$bcp_preference" != auto ]; then
     [ "$BASEOS_ADAPTER_ID" = "$bcp_preference" ] || return 0
   fi

@@ -168,20 +168,24 @@ selector:
 
 - **A** launches the highlighted profile once.
 - **Start** saves the highlighted profile as `frontend_id` and launches it.
-- **Y** opens an uninstall confirmation.
+- **Y** opens a confirmation to remove only the selected profile/configuration.
 - **B** cancels and continues with the configured default frontend.
 
-Uninstall is package-scoped: confirming removal deletes the selected
-`Frontends/<package_id>/` directory, including all profiles and the shared
-program payload. It does not delete `.baseos/instances/`, `Games/`, shared
-saves, or other shared data. The instance data is intentionally retained for
-possible reinstall. If the removed package supplied the default profile,
-BaseOS changes `frontend_id` back to `auto`.
+Uninstall is profile-scoped: confirming removal deletes only the selected
+`profiles/<profile-id>.conf`. If other profiles remain, the common program
+payload stays installed and those profiles remain selectable. If the removed
+profile was the last one, BaseOS also removes the now-unused package directory.
+In both cases it preserves `.baseos/instances/<package-id>--<profile-id>/`,
+`Games/`, shared saves, cores and all other shared data. Reinstalling the same
+package/profile IDs can therefore reuse their previous settings. If the removed
+profile was the configured default, BaseOS changes `frontend_id` back to
+`auto`.
 
-The selector manages the new `Frontends/<package-id>/` package format.
-Legacy `.baseos/frontends/<adapter-id>/` adapters remain supported for
-automatic and pinned startup, but are not removable through this package
-uninstaller.
+The selector manages the new `Frontends/<package-id>/` package format,
+including multiple profiles within one package. A profile is an independent
+user configuration, not a second copy of the executable. Legacy
+`.baseos/frontends/<adapter-id>/` adapters remain supported for automatic and
+pinned startup, but are not removable through this managed-profile uninstaller.
 
 ### Shared Games directory
 

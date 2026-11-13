@@ -64,7 +64,6 @@ power_owner=system
 | `priority` | integer 0–9999 | `100` | Higher values win when multiple adapters are installed on the same card |
 | `volume_owner` | `system`, `frontend` | `system` | Selects who owns volume-key behavior while the frontend runs |
 | `power_owner` | `system`, `frontend` | `system` | Selects who owns the power key while the frontend runs |
-| `previous_package_id` | valid package ID | none | Optional prior package ID used once to migrate a pinned default after a package-folder rename |
 
 When priorities are equal, the first adapter in lexical directory order wins.
 The hidden canonical path is considered before the visible alias. TF2 still

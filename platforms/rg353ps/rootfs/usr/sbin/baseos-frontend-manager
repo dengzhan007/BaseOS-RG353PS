@@ -132,24 +132,26 @@ case "$cmd" in
         rm -rf -- "$expected_dir"
       fi
       removed_label=PROFILE
-      removed_default_prefix=$ENTRY_ID
     else
       # Uninstall the complete frontend package, including all configurations
       # and the shared executable payload. Profile data stays in instances/.
       rm -rf -- "$expected_dir"
       removed_label=FRONTEND
-      removed_default_prefix=$ENTRY_PACKAGE--
     fi
     sync
     current_default=$(sed -n 's/^[[:space:]]*frontend_id=//p' "$CONFIG" 2>/dev/null | tail -n 1)
     build_catalog
-    case "$current_default" in
-      "$removed_default_prefix"*)
-        next_default=$(awk -F '|' 'NR == 1 { print $1; exit }' "$CATALOG")
-        [ -n "$next_default" ] || next_default=auto
-        write_default "$next_default"
-        ;;
-    esac
+    remove_default=no
+    if [ "$removed_label" = PROFILE ]; then
+      [ "$current_default" = "$ENTRY_ID" ] && remove_default=yes
+    else
+      case "$current_default" in "$ENTRY_PACKAGE"--*) remove_default=yes ;; esac
+    fi
+    if [ "$remove_default" = yes ]; then
+      next_default=$(awk -F '|' 'NR == 1 { print $1; exit }' "$CATALOG")
+      [ -n "$next_default" ] || next_default=auto
+      write_default "$next_default"
+    fi
     if [ "$removed_label" = FRONTEND ]; then
       printf '%s\n' "UNINSTALLED_FRONTEND:$ENTRY_PACKAGE"
     else

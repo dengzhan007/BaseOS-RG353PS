@@ -22,6 +22,8 @@ SLOT_PAYLOAD_MOUNTED=no
 SLOT_GAMES_MOUNTED=no
 SLOT_SAVES_MOUNTED=no
 SLOT_USERDATA_MOUNTED=no
+SLOT_CORE_LIB_MOUNTED=no
+SLOT_CORE_BIND_TARGETS=
 SLOT_PID=
 RUNTIME_SLOT="/tmp/baseos-slot-$${PROFILE_ID:-legacy}"
 
@@ -39,6 +41,14 @@ cleanup_slot_profile() {
   if [ "$SLOT_USERDATA_MOUNTED" = yes ]; then
     umount "$SLOT_ROOT/.userdata" 2>/dev/null || echo "WARNING: could not unmount profile userdata" >> "$LOGDIR/slot-session.log"
     SLOT_USERDATA_MOUNTED=no
+  fi
+  for core_target in $SLOT_CORE_BIND_TARGETS; do
+    umount "$core_target" 2>/dev/null || echo "WARNING: could not unmount shared core $core_target" >> "$LOGDIR/slot-session.log"
+  done
+  SLOT_CORE_BIND_TARGETS=
+  if [ "$SLOT_CORE_LIB_MOUNTED" = yes ]; then
+    umount "$SLOT_ROOT/System/lib" 2>/dev/null || echo "WARNING: could not unmount shared core libraries" >> "$LOGDIR/slot-session.log"
+    SLOT_CORE_LIB_MOUNTED=no
   fi
   if [ "$SLOT_SAVES_MOUNTED" = yes ]; then
     umount "$SLOT_ROOT/Saves" 2>/dev/null || echo "WARNING: could not unmount shared Saves" >> "$LOGDIR/slot-session.log"
@@ -97,6 +107,34 @@ if [ -n "$PACKAGE_DIR" ]; then
     exit 1
   fi
   SLOT_SAVES_MOUNTED=yes
+
+  # Existing LUCKLUCK-SLOT installs keep emulator cores in the DATA-root
+  # System/ directory. Prefer the future BaseOS shared core namespace when it
+  # is populated; otherwise bind the already-installed core pack into this
+  # profile root. Each profile therefore sees one shared copy of each core.
+  SLOT_CORE_SOURCE="$SDCARD/.baseos/shared/cores/slot-rg353ps"
+  [ -d "$SLOT_CORE_SOURCE" ] || SLOT_CORE_SOURCE="$SDCARD/System"
+  if [ -d "$SLOT_CORE_SOURCE/lib" ]; then
+    mkdir -p "$SLOT_ROOT/System/lib"
+    if mount --bind "$SLOT_CORE_SOURCE/lib" "$SLOT_ROOT/System/lib"; then
+      SLOT_CORE_LIB_MOUNTED=yes
+    else
+      echo "Could not bind shared core dependency directory" >> "$LOGDIR/slot-session.log"
+      exit 1
+    fi
+  fi
+  for core_name in mgba gpsp fceumm supafaust fbneo genesis_plus_gx pcsx_rearmed pce_fast; do
+    core_source="$SLOT_CORE_SOURCE/${core_name}_libretro.so"
+    [ -f "$core_source" ] || continue
+    core_target="$SLOT_ROOT/System/${core_name}_libretro.so"
+    [ -e "$core_target" ] || : > "$core_target"
+    if mount --bind "$core_source" "$core_target"; then
+      SLOT_CORE_BIND_TARGETS="$core_target $SLOT_CORE_BIND_TARGETS"
+    else
+      echo "Could not bind shared emulator core: $core_name" >> "$LOGDIR/slot-session.log"
+      exit 1
+    fi
+  done
 
   SLOT_USERDATA_DIR="$INSTANCE_DIR/userdata/slot"
   SLOT_USERDATA_TARGET="$SLOT_ROOT/.userdata"

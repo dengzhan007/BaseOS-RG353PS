@@ -8,13 +8,15 @@ launching.
 
 ## Installation and discovery
 
-Install a frontend package on the root of a user-data card. Do not install
-frontend files on the small `BASEOS_BOOT` partition.
+For new installations, use the managed package layout under
+`Frontends/<package-id>/` described below. Extract the archive with its one
+top-level directory intact; do not place frontend files on the small
+`BASEOS_BOOT` partition.
 
-At boot, BaseOS checks TF2 first. If TF2 has no usable adapter, it checks the
-TF1 `BASEOS` user-data partition. On each card it checks the card root and one
-wrapper-directory level, so archives extracted into a single containing folder
-remain discoverable.
+Legacy adapters remain supported at their historical paths. At boot, BaseOS
+checks TF2 first and then TF1. Legacy discovery continues to check the card
+root and one wrapper-directory level; managed packages are discovered directly
+under each card's `Frontends/` directory.
 
 A generic adapter is discovered at either path:
 
@@ -193,9 +195,11 @@ to use the same internal system labels.
 
 ## Launch contract
 
-BaseOS runs `launch.sh` using `/bin/sh`, with the selected frontend card as
-the current working directory. Scripts do not need the executable bit, which
-is important for exFAT cards and Windows extraction tools.
+BaseOS runs `launch.sh` using `/bin/sh`. For a managed package, its package
+directory is the current working directory; for a legacy adapter, the selected
+card or wrapper directory remains the current working directory. Scripts do
+not need the executable bit, which is important for exFAT cards and Windows
+extraction tools.
 
 BaseOS exports:
 
@@ -203,18 +207,31 @@ BaseOS exports:
 |---|---|
 | `PLATFORM` | Device platform identifier (`rg353ps`) |
 | `BASEOS_FRONTEND_ID` | Selected adapter ID |
-| `BASEOS_FRONTEND_ROOT` | Card or wrapper directory containing the frontend |
-| `BASEOS_DATA_DIR` | Persistent adapter-private data directory |
-| `BASEOS_USERDATA_DIR` | Persistent adapter-private user-data directory |
+| `BASEOS_FRONTEND_ROOT` | Selected card root (kept compatible with legacy launchers) |
+| `BASEOS_PACKAGE_DIR` | Managed package directory; empty for legacy adapters |
+| `BASEOS_PACKAGE_ID` | Stable package identity |
+| `BASEOS_PROFILE_ID` | Selected configuration profile identity |
+| `BASEOS_PROFILE_CONFIG` | Persistent per-profile config, seeded once from package defaults |
+| `BASEOS_PROFILE_DEFAULTS` | Read-only profile defaults shipped by the package |
+| `BASEOS_INSTANCE_ID` | Combined package/profile identity |
+| `BASEOS_INSTANCE_DIR` | Per-profile persistent instance directory |
+| `BASEOS_CARD_ROOT` | TF1 user-data root |
+| `BASEOS_GAMES_DIR` | Canonical shared game root (`Games/`) |
+| `BASEOS_DATA_DIR` | Persistent adapter/profile-private data directory |
+| `BASEOS_USERDATA_DIR` | Persistent adapter/profile-private user-data directory |
 | `BASEOS_BOOT` | Mounted boot partition |
 | `BASEOS_SYSTEM_ROOT` | System root (`/`) |
 | `BASEOS_LAUNCHER` | Adapter launch-script path |
 | `BASEOS_SLEEP` | RG353PS suspend helper (`/usr/sbin/rg353ps-sleep`) |
 
-The two private directories are created under
+Legacy adapters receive private directories under
 `<frontend-root>/.baseos/data` and `<frontend-root>/.baseos/userdata`.
-The adapter may use its own existing storage layout instead, but should not
-write persistent settings into the read-only system root.
+Managed package profiles receive independent directories under
+`/mnt/SDCARD/.baseos/instances/<package-id>--<profile-id>/`. Their
+`config/profile.conf` is copied from package defaults only on first use, so
+user settings survive package updates and uninstall/reinstall. A launch script
+should use these exported paths rather than writing persistent settings into
+the read-only system root.
 
 On RG353PS, `BASEOS_SLEEP` is the supported suspend entry point. A frontend
 that declares `power_owner=frontend` should invoke this helper on an explicit
@@ -310,9 +327,11 @@ and update lifecycle.
 ## Storage and multi-card behavior
 
 BaseOS exposes the selected frontend card as `/mnt/sdcard` for compatibility.
-It does not impose a universal ROM directory, save directory or multi-card
-layout. A frontend may use its own card, TF1, TF2, or multiple game roots,
-provided its adapter configures and documents those paths.
+Managed packages use `/mnt/SDCARD/Games/` as the canonical shared ROM library;
+the frontend still owns its system names, scanning rules and internal paths.
+The old `Roms/` directory is renamed to `Games/` only when `Games/` is
+absent. If both exist, BaseOS preserves both and does not merge them
+automatically. Legacy adapters may continue using their historical layout.
 
 The system user-data partition is mounted at `/mnt/SDCARD`. Keep frontend
 packages and game data on user-data partitions, not on `BASEOS_BOOT`.

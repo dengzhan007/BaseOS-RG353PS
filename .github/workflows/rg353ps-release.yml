@@ -31,6 +31,7 @@ on:
       - "platforms/rg353ps/kernel/**"
       - "platforms/rg353ps/rootfs/**"
       - "platforms/rg353ps/src/**"
+      - "platforms/rg353ps/frontends/**"
       - "tests/**"
       - "tools/common.sh"
       - "tools/make-bootlogo.sh"
@@ -48,6 +49,7 @@ on:
       - "platforms/rg353ps/kernel/**"
       - "platforms/rg353ps/rootfs/**"
       - "platforms/rg353ps/src/**"
+      - "platforms/rg353ps/frontends/**"
       - "tests/**"
       - "tools/common.sh"
       - "VERSION"
@@ -113,6 +115,7 @@ jobs:
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-mtp
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-manager
+          sh -n platforms/rg353ps/frontends/slot/launch.sh
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-audio-init
           sh tests/test-frontend-adapters.sh
           sh tests/test-frontend-packages.sh

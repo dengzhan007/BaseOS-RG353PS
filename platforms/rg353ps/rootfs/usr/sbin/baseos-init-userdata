@@ -112,10 +112,10 @@ ensure_card_config() {
   cat > "$USERDATA/baseos.conf" 2>/dev/null <<'EOF'
 # BaseOS RG353PS settings you can change without rebuilding.
 #
-# This file sits next to Games/ on the card and is read before the copy inside
-# the system image, so editing it here overrides the defaults. Keys that are not
-# present here keep their built-in values - frontend selection, in particular,
-# is automatic and needs nothing here.
+# This file sits next to Games/ and Frontends/ on the card and is read before
+# the copy inside the system image, so editing it here overrides defaults.
+# Managed frontend profiles are selected by package-id--profile-id; the
+# L1/R1 boot selector can save the default for you.
 #
 # Delete this file and reboot to get it back with the defaults.
 
@@ -139,8 +139,8 @@ debug=no
 # only when collecting USB reconnect/recovery diagnostics.
 usb_diagnostics=no
 
-# Uncomment to change the frontend order. The default is shown.
-# frontends_order=nextui,slot,custom,baseos
+# Pin a managed frontend profile (optional). Leave unset for auto selection.
+# frontend_id=slot-rg353ps--640-native
 
 # Uncomment if the PC shows an unknown device instead of a network adapter:
 # newer Windows no longer ships the RNDIS driver, NCM is the one it binds.

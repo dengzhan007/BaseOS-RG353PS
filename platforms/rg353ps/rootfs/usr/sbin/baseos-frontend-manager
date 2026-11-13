@@ -123,8 +123,12 @@ case "$cmd" in
     fi
     sync
     current_default=$(sed -n 's/^[[:space:]]*frontend_id=//p' "$CONFIG" 2>/dev/null | tail -n 1)
-    [ "$current_default" = "$ENTRY_ID" ] && write_default auto || :
     build_catalog
+    if [ "$current_default" = "$ENTRY_ID" ]; then
+      next_default=$(awk -F '|' 'NR == 1 { print $1; exit }' "$CATALOG")
+      [ -n "$next_default" ] || next_default=auto
+      write_default "$next_default"
+    fi
     printf '%s\n' "UNINSTALLED_PROFILE:$ENTRY_PACKAGE/$ENTRY_PROFILE"
     ;;
   *)

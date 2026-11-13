@@ -167,7 +167,6 @@ baseos_frontend_consider_package() {
       valid_old_package=yes
     fi
     [ "$valid_old_package" = yes ] || return 0
-    [ "$bcp_old_profile" = "$BASEOS_PROFILE_ID" ] || return 0
     baseos_frontend_read_value "$bcp_dir/baseos-frontend.conf" previous_package_id ""
     [ "$BASEOS_VALUE" = "$bcp_old_package" ] || return 0
     # Prefer the exact old profile ID when it was carried forward. If the new

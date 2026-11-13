@@ -9,9 +9,10 @@ launching.
 ## Installation and discovery
 
 For new installations, use the managed package layout under
-`Frontends/<package-id>/` described below. Extract the archive with its one
-top-level directory intact; do not place frontend files on the small
-`BASEOS_BOOT` partition.
+`Frontends/<package-id>/` described below. Managed package/profile discovery
+requires RG353PS BaseOS **1.2.10 or newer**; older BaseOS builds understand
+legacy adapters only. Extract the archive with its one top-level directory
+intact; do not place frontend files on the small `BASEOS_BOOT` partition.
 
 Legacy adapters remain supported at their historical paths. At boot, BaseOS
 checks TF2 first and then TF1. Legacy discovery continues to check the card
@@ -166,8 +167,14 @@ Hold **L1 or R1 while powering on** to open the BaseOS frontend selector.
 Function-triggered USB storage keeps priority over the selector. In the
 selector:
 
-- **A** launches the highlighted profile once.
-- **Start** saves the highlighted profile as `frontend_id` and launches it.
+The selector makes the persistent default explicit: its top line shows
+`DEFAULT STARTUP`, and the matching profile row is marked `[DEFAULT]`.
+When `frontend_id=auto`, the top line says `AUTO (priority-based discovery)`.
+A temporary selection never changes this marker.
+
+- **A** launches the highlighted profile once; the saved default is unchanged.
+- **Start** saves the highlighted profile as `frontend_id`, refreshes the
+  default marker, and launches it.
 - **Y** opens a confirmation to remove only the selected profile/configuration.
 - **X** opens a confirmation to uninstall the entire frontend package.
 - **B** cancels and continues with the configured default frontend.
@@ -239,7 +246,7 @@ frontends that add this feature must persist it below
 `BASEOS_USERDATA_DIR` or another profile-owned path, never in the shared
 package payload.
 
-### Per-category asset-sharing extension (design only; not active in this test)
+### Per-category asset-sharing extension (reserved design; runtime not implemented)
 
 The API reserves per-profile policy keys in the persistent
 `BASEOS_PROFILE_CONFIG` file:
@@ -262,10 +269,10 @@ only the categories it actually consumes. Program binaries, package resources,
 ROMs and battery saves are not moved by this policy.
 
 This is a design reservation, not an implemented runtime feature in the
-1.2.10 test build. In particular, the current Slot package still reads its
-artwork and media from its established card-root paths; it does not yet apply
-the `asset_*` keys or merge shared/private overlays with package defaults.
-Do not add these keys expecting the current test build to change asset
+current RG353PS package/profile runtime. In particular, the current Slot
+package still reads its artwork and media from its established package/card
+paths; it does not yet apply the `asset_*` keys or merge shared/private
+overlays with package defaults. Adding these keys does not change asset
 visibility. The adapter implementation and migration tests must land before
 this extension is considered supported.
 

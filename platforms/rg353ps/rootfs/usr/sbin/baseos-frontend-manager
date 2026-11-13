@@ -65,7 +65,8 @@ write_default() {
   esac
   mkdir -p "$TF1" 2>/dev/null || :
   [ -f "$CONFIG" ] || : > "$CONFIG"
-  default_tmp=$CONFIG.tmp.$
+  default_tmp=$CONFIG.tmp
+  rm -f "$default_tmp"
   awk -v value="$default_id" '
     BEGIN { written=0 }
     /^[[:space:]]*frontend_id=/ {

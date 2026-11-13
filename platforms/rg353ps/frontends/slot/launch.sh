@@ -22,7 +22,10 @@ SLOT_PAYLOAD_MOUNTED=no
 SLOT_GAMES_MOUNTED=no
 SLOT_SAVES_MOUNTED=no
 SLOT_USERDATA_MOUNTED=no
+SLOT_STATE_MOUNTED=no
+SLOT_STATES_MOUNTED=no
 SLOT_CORE_LIB_MOUNTED=no
+SLOT_SYSTEM_BIND_TARGETS=
 SLOT_CORE_BIND_TARGETS=
 SLOT_PID=
 RUNTIME_SLOT="/tmp/baseos-slot-$${PROFILE_ID:-legacy}"
@@ -41,6 +44,18 @@ cleanup_slot_profile() {
   if [ "$SLOT_USERDATA_MOUNTED" = yes ]; then
     umount "$SLOT_ROOT/.userdata" 2>/dev/null || echo "WARNING: could not unmount profile userdata" >> "$LOGDIR/slot-session.log"
     SLOT_USERDATA_MOUNTED=no
+  fi
+  if [ "$SLOT_STATE_MOUNTED" = yes ]; then
+    umount "$SLOT_ROOT/System/slot.state" 2>/dev/null || echo "WARNING: could not unmount profile slot.state" >> "$LOGDIR/slot-session.log"
+    SLOT_STATE_MOUNTED=no
+  fi
+  for system_target in $SLOT_SYSTEM_BIND_TARGETS; do
+    umount "$system_target" 2>/dev/null || echo "WARNING: could not unmount profile system state $system_target" >> "$LOGDIR/slot-session.log"
+  done
+  SLOT_SYSTEM_BIND_TARGETS=
+  if [ "$SLOT_STATES_MOUNTED" = yes ]; then
+    umount "$SLOT_ROOT/States" 2>/dev/null || echo "WARNING: could not unmount profile save states" >> "$LOGDIR/slot-session.log"
+    SLOT_STATES_MOUNTED=no
   fi
   for core_target in $SLOT_CORE_BIND_TARGETS; do
     umount "$core_target" 2>/dev/null || echo "WARNING: could not unmount shared core $core_target" >> "$LOGDIR/slot-session.log"
@@ -107,6 +122,69 @@ if [ -n "$PACKAGE_DIR" ]; then
     exit 1
   fi
   SLOT_SAVES_MOUNTED=yes
+
+  # Profile state must not live in the shared package payload. Slot stores
+  # favourites and frontend preferences in System/slot.state, while emulator
+  # state snapshots live under States/. Keep both private to this profile;
+  # battery saves under Saves/ remain shared as requested.
+  PROFILE_SYSTEM_DIR="$INSTANCE_DIR/system"
+  PROFILE_STATE_FILE="$PROFILE_SYSTEM_DIR/slot.state"
+  mkdir -p "$PROFILE_SYSTEM_DIR" "$INSTANCE_DIR/config" "$SLOT_ROOT/System" || {
+    echo "Could not prepare profile system state" >> "$LOGDIR/slot-session.log"
+    exit 1
+  }
+  if [ ! -f "$PROFILE_STATE_FILE" ]; then
+    # Migrate settings from a previous card-root Slot installation first;
+    # otherwise retain a state file that was written into the package by an
+    # earlier multi-frontend test build.
+    if [ -f "$SDCARD/System/slot.state" ] && [ ! -L "$SDCARD/System/slot.state" ]; then
+      cp -p "$SDCARD/System/slot.state" "$PROFILE_STATE_FILE" || {
+        echo "Could not migrate legacy Slot state" >> "$LOGDIR/slot-session.log"
+        exit 1
+      }
+    elif [ -f "$SLOT_ROOT/System/slot.state" ] && [ ! -L "$SLOT_ROOT/System/slot.state" ]; then
+      cp -p "$SLOT_ROOT/System/slot.state" "$PROFILE_STATE_FILE" || {
+        echo "Could not seed profile Slot state" >> "$LOGDIR/slot-session.log"
+        exit 1
+      }
+    else
+      : > "$PROFILE_STATE_FILE"
+    fi
+  fi
+  [ -e "$SLOT_ROOT/System/slot.state" ] || : > "$SLOT_ROOT/System/slot.state"
+  if ! mount --bind "$PROFILE_STATE_FILE" "$SLOT_ROOT/System/slot.state"; then
+    echo "Could not bind profile Slot state" >> "$LOGDIR/slot-session.log"
+    exit 1
+  fi
+  SLOT_STATE_MOUNTED=yes
+
+  # Save states are rewind/resume snapshots, not the shared battery saves
+  # under Saves/. Keep snapshots in each profile's instance directory.
+  PROFILE_STATES_DIR="$INSTANCE_DIR/states"
+  mkdir -p "$PROFILE_STATES_DIR" "$SLOT_ROOT/States" || {
+    echo "Could not prepare profile save-state directory" >> "$LOGDIR/slot-session.log"
+    exit 1
+  }
+  STATES_SEED_MARKER="$INSTANCE_DIR/config/slot-states-seeded"
+  if [ ! -e "$STATES_SEED_MARKER" ]; then
+    if [ -d "$SDCARD/States" ]; then
+      cp -a "$SDCARD/States/." "$PROFILE_STATES_DIR/" 2>/dev/null || {
+        echo "Could not migrate legacy save states" >> "$LOGDIR/slot-session.log"
+        exit 1
+      }
+    elif [ -d "$SLOT_ROOT/States" ]; then
+      cp -a "$SLOT_ROOT/States/." "$PROFILE_STATES_DIR/" 2>/dev/null || {
+        echo "Could not seed profile save states" >> "$LOGDIR/slot-session.log"
+        exit 1
+      }
+    fi
+    : > "$STATES_SEED_MARKER"
+  fi
+  if ! mount --bind "$PROFILE_STATES_DIR" "$SLOT_ROOT/States"; then
+    echo "Could not bind profile save-state directory" >> "$LOGDIR/slot-session.log"
+    exit 1
+  fi
+  SLOT_STATES_MOUNTED=yes
 
   # Existing LUCKLUCK-SLOT installs keep emulator cores in the DATA-root
   # System/ directory. Prefer the future BaseOS shared core namespace when it

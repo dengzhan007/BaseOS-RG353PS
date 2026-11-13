@@ -86,7 +86,11 @@ baseos_frontend_load_package() {
   BASEOS_PROFILE_ID=$bfl_profile_id
   BASEOS_PROFILE_CONFIG=$bfl_profile
   BASEOS_PACKAGE_DIR=$bfl_dir
-  BASEOS_FRONTEND_NAME="$bfl_package_name / $bfl_profile_name"
+  if [ "$bfl_package_name" = "$bfl_profile_name" ]; then
+    BASEOS_FRONTEND_NAME=$bfl_package_name
+  else
+    BASEOS_FRONTEND_NAME="$bfl_package_name / $bfl_profile_name"
+  fi
   return 0
 }
 
@@ -154,7 +158,19 @@ baseos_frontend_record_candidate() {
 baseos_frontend_consider_package() {
   bcp_root=$1 bcp_dir=$2 bcp_profile=$3 bcp_preference=$4
   baseos_frontend_load_package "$bcp_root" "$bcp_dir" "$bcp_profile" || return 0
-  [ "$bcp_preference" = auto ] || [ "$BASEOS_ADAPTER_ID" = "$bcp_preference" ] || return 0
+  if [ "$bcp_preference" != auto ] && [ "$BASEOS_ADAPTER_ID" != "$bcp_preference" ]; then
+    # A package may declare one previous package ID when its folder/identity
+    # is renamed. Preserve the selected profile across that one-time migration.
+    case "$bcp_preference" in *--*) bcp_old_package=${bcp_preference%%--*}; bcp_old_profile=${bcp_preference#*--} ;; *) return 0 ;; esac
+    valid_old_package=no
+    baseos_frontend_valid_id "$bcp_old_package" && [ "${#bcp_old_package}" -le 22 ] && valid_old_package=yes
+    [ "$valid_old_package" = yes ] || return 0
+    [ "$bcp_old_profile" = "$BASEOS_PROFILE_ID" ] || return 0
+    baseos_frontend_read_value "$bcp_dir/baseos-frontend.conf" previous_package_id ""
+    [ "$BASEOS_VALUE" = "$bcp_old_package" ] || return 0
+  elif [ "$bcp_preference" != auto ]; then
+    [ "$BASEOS_ADAPTER_ID" = "$bcp_preference" ] || return 0
+  fi
   baseos_frontend_record_candidate "$BASEOS_ADAPTER_ID" "$bcp_root" "$BASEOS_ADAPTER_DIR" "$BASEOS_ADAPTER_LAUNCHER" package
 }
 

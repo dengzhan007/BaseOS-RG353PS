@@ -34,6 +34,7 @@ build_catalog() {
     done
   done
   mv -f "$catalog_tmp" "$CATALOG"
+  migrate_default_package_alias
 }
 
 find_catalog_entry() {
@@ -64,7 +65,7 @@ write_default() {
   esac
   mkdir -p "$TF1" 2>/dev/null || :
   [ -f "$CONFIG" ] || : > "$CONFIG"
-  default_tmp=$CONFIG.tmp.$$
+  default_tmp=$CONFIG.tmp.$
   awk -v value="$default_id" '
     BEGIN { written=0 }
     /^[[:space:]]*frontend_id=/ {
@@ -77,6 +78,26 @@ write_default() {
   ' "$CONFIG" > "$default_tmp" || { rm -f "$default_tmp"; return 1; }
   mv -f "$default_tmp" "$CONFIG" || { rm -f "$default_tmp"; return 1; }
   sync
+}
+
+migrate_default_package_alias() {
+  [ -r "$CONFIG" ] || return 0
+  current_default=$(sed -n 's/^[[:space:]]*frontend_id=//p' "$CONFIG" 2>/dev/null | tail -n 1)
+  case "$current_default" in *--*) ;; *) return 0 ;; esac
+  old_package=${current_default%%--*}
+  old_profile=${current_default#*--}
+  valid_package_id "$old_package" || return 0
+  valid_profile_id "$old_profile" || return 0
+  [ -r "$CATALOG" ] || return 0
+  while IFS='|' read -r candidate_id candidate_name candidate_package candidate_profile candidate_root candidate_dir candidate_config candidate_priority; do
+    [ "$candidate_profile" = "$old_profile" ] || continue
+    baseos_frontend_read_value "$candidate_dir/baseos-frontend.conf" previous_package_id ""
+    [ "$BASEOS_VALUE" = "$old_package" ] || continue
+    write_default "$candidate_id" || return 1
+    echo "MIGRATED_DEFAULT:$current_default:$candidate_id"
+    return 0
+  done < "$CATALOG"
+  return 0
 }
 
 cmd=${1:-catalog}

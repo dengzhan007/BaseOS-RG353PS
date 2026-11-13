@@ -3,10 +3,9 @@
 #
 # Managed package:
 #   Frontends/<package-id>/{launch.sh,payload/,profiles/}
-# Each configuration profile receives its own SLOT_ROOT/.userdata, while
-# Games/ and Saves/ are bind-mounted from the common DATA root.
-#
-# Legacy card-root installation keeps its original layout.
+# Each profile gets an isolated SLOT_ROOT/.userdata; Games/ and Saves/ are
+# bind-mounted from the common DATA root and therefore stay shared.
+# Legacy card-root installations retain their original layout.
 # baseos: volume-owned
 # baseos: power-owned
 set -eu
@@ -27,25 +26,63 @@ SLOT_PID=
 RUNTIME_SLOT="/tmp/baseos-slot-$${PROFILE_ID:-legacy}"
 
 if [ -n "$PACKAGE_DIR" ]; then
+  LOGDIR="$INSTANCE_DIR/logs"
+  mkdir -p "$LOGDIR" 2>/dev/null || :
+fi
+
+cleanup_slot_profile() {
+  if [ -n "$SLOT_PID" ]; then
+    kill "$SLOT_PID" 2>/dev/null || :
+    wait "$SLOT_PID" 2>/dev/null || :
+    SLOT_PID=
+  fi
+  if [ "$SLOT_USERDATA_MOUNTED" = yes ]; then
+    umount "$SLOT_ROOT/.userdata" 2>/dev/null || echo "WARNING: could not unmount profile userdata" >> "$LOGDIR/slot-session.log"
+    SLOT_USERDATA_MOUNTED=no
+  fi
+  if [ "$SLOT_SAVES_MOUNTED" = yes ]; then
+    umount "$SLOT_ROOT/Saves" 2>/dev/null || echo "WARNING: could not unmount shared Saves" >> "$LOGDIR/slot-session.log"
+    SLOT_SAVES_MOUNTED=no
+  fi
+  if [ "$SLOT_GAMES_MOUNTED" = yes ]; then
+    umount "$SLOT_ROOT/Games" 2>/dev/null || echo "WARNING: could not unmount shared Games" >> "$LOGDIR/slot-session.log"
+    SLOT_GAMES_MOUNTED=no
+  fi
+  if [ "$SLOT_PAYLOAD_MOUNTED" = yes ]; then
+    umount "$SLOT_ROOT" 2>/dev/null || echo "WARNING: could not unmount package payload" >> "$LOGDIR/slot-session.log"
+    SLOT_PAYLOAD_MOUNTED=no
+  fi
+}
+trap cleanup_slot_profile EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if [ -n "$PACKAGE_DIR" ]; then
+  [ -n "$INSTANCE_DIR" ] || {
+    echo "Managed Slot package has no profile instance directory" >> "$LOGDIR/slot-session.log"
+    exit 1
+  }
   if [ -d "$PACKAGE_DIR/payload" ]; then
     SLOT_PAYLOAD_SOURCE=$PACKAGE_DIR/payload
   else
     SLOT_PAYLOAD_SOURCE=$PACKAGE_DIR
   fi
-  SLOT_ROOT="${INSTANCE_DIR}/slot-root"
+  SLOT_ROOT="$INSTANCE_DIR/slot-root"
   AGS_ROOT=$SLOT_ROOT
-  LOGDIR="$INSTANCE_DIR/logs"
   SYSTEM="$SLOT_ROOT/System"
-  mkdir -p "$SLOT_ROOT" "$SDCARD/Games" "$SDCARD/Saves" "$LOGDIR" || :
+  mkdir -p "$SLOT_ROOT" "$SDCARD/Games" "$SDCARD/Saves" || {
+    echo "Could not create managed Slot mount roots" >> "$LOGDIR/slot-session.log"
+    exit 1
+  }
   if ! mount --bind "$SLOT_PAYLOAD_SOURCE" "$SLOT_ROOT"; then
     echo "Could not expose package payload at $SLOT_ROOT" >> "$LOGDIR/slot-session.log"
     exit 1
   fi
   SLOT_PAYLOAD_MOUNTED=yes
 
-  # Mount shared user content over the package's canonical content paths.
-  # These directories are created inside the package payload only as empty
-  # mount targets; actual ROMs and saves remain in the common DATA folders.
+  # These empty directories are mount targets inside the package root. ROMs
+  # and saves are never copied into the frontend package.
   mkdir -p "$SLOT_ROOT/Games" "$SLOT_ROOT/Saves" "$SLOT_ROOT/.userdata" || {
     echo "Could not prepare Slot shared-resource mount points" >> "$LOGDIR/slot-session.log"
     exit 1
@@ -69,8 +106,7 @@ if [ -n "$PACKAGE_DIR" ]; then
   }
   SEED_MARKER="$INSTANCE_DIR/config/slot-userdata-seeded"
   if [ ! -e "$SEED_MARKER" ]; then
-    # Preserve data from the existing root-level Slot install. If no previous
-    # install exists, start with an empty profile rather than sharing defaults.
+    # One-time migration from an older root-level Slot installation.
     if [ -d "$SDCARD/.userdata" ]; then
       cp -a "$SDCARD/.userdata/." "$SLOT_USERDATA_DIR/" 2>/dev/null || {
         echo "Could not seed profile userdata from legacy .userdata" >> "$LOGDIR/slot-session.log"
@@ -116,37 +152,6 @@ chmod 0755 "$RUNTIME_SLOT" || {
   exit 126
 }
 
-cleanup_slot_profile() {
-  if [ -n "$SLOT_PID" ]; then
-    kill "$SLOT_PID" 2>/dev/null || :
-    wait "$SLOT_PID" 2>/dev/null || :
-    SLOT_PID=
-  fi
-  # Unmount nested paths before the package payload mount.
-  if [ "$SLOT_USERDATA_MOUNTED" = yes ]; then
-    umount "$SLOT_ROOT/.userdata" 2>/dev/null || echo "WARNING: could not unmount profile userdata" >> "$LOGDIR/slot-session.log"
-    SLOT_USERDATA_MOUNTED=no
-  fi
-  if [ "$SLOT_SAVES_MOUNTED" = yes ]; then
-    umount "$SLOT_ROOT/Saves" 2>/dev/null || echo "WARNING: could not unmount shared Saves" >> "$LOGDIR/slot-session.log"
-    SLOT_SAVES_MOUNTED=no
-  fi
-  if [ "$SLOT_GAMES_MOUNTED" = yes ]; then
-    umount "$SLOT_ROOT/Games" 2>/dev/null || echo "WARNING: could not unmount shared Games" >> "$LOGDIR/slot-session.log"
-    SLOT_GAMES_MOUNTED=no
-  fi
-  if [ "$SLOT_PAYLOAD_MOUNTED" = yes ]; then
-    umount "$SLOT_ROOT" 2>/dev/null || echo "WARNING: could not unmount package payload" >> "$LOGDIR/slot-session.log"
-    SLOT_PAYLOAD_MOUNTED=no
-  fi
-}
-trap cleanup_slot_profile EXIT
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
-
-# Initialize on the profile root: System comes from the package, ROMs/saves
-# are shared mounts, and .userdata belongs to this selected configuration.
 "$RUNTIME_SLOT" --init-root "$SLOT_ROOT" >> "$LOGDIR/slot-session.log" 2>&1 || {
   echo "Slot root initialization failed at $(date)" >> "$LOGDIR/slot-session.log"
   exit 1

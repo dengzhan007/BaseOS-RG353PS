@@ -70,6 +70,127 @@ The card-side `/mnt/SDCARD/baseos.conf` may set `frontend_id=<adapter-id>`
 to pin one adapter. The default `frontend_id=auto` selects the highest-priority
 valid adapter. The legacy `frontends_order` setting is no longer used.
 
+## Managed frontend packages and configuration profiles (package API 1)
+
+New installations should use a managed package directory rather than placing
+files in the DATA root:
+
+```text
+/mnt/SDCARD/
+├── Games/                         # shared ROM library
+└── Frontends/
+    └── slot-rg353ps/               # package_id: slot-rg353ps
+        ├── baseos-frontend.conf
+        ├── launch.sh
+        ├── payload/                # package-owned executable/resources
+        └── profiles/
+            ├── 640-native.conf     # profile_id: 640-native
+            └── 640x480.conf       # profile_id: 640x480
+```
+
+Install by extracting the archive so its one top-level package directory is
+directly inside `Frontends/`. Do not split the archive or copy individual
+files into the DATA root. BaseOS discovers packages in `TF2/Frontends/` and
+then `TF1/Frontends/`; TF2 wins if the same package/profile ID is present on
+both cards.
+
+The package directory name is its stable `package_id`. Each file name inside
+`profiles/` (without `.conf`) is a separate `profile_id`. Both IDs use 1–22
+ASCII letters, digits, dots, underscores or hyphens and cannot start with a
+dot, hyphen or underscore. The combined runtime ID is:
+
+```text
+<package_id>--<profile_id>
+slot-rg353ps--640-native
+slot-rg353ps--640x480
+```
+
+This permits one program package to offer multiple configurations without
+duplicating the executable payload. Each profile gets a separate BaseOS
+instance directory at:
+
+```text
+/mnt/SDCARD/.baseos/instances/<package_id>--<profile_id>/
+```
+
+The package manifest is plain data, never sourced:
+
+```ini
+package_api=1
+display_name=Slot
+priority=100
+volume_owner=frontend
+power_owner=frontend
+```
+
+Each profile file is also plain data:
+
+```ini
+profile_api=1
+display_name=640 Native
+priority=100
+```
+
+Required keys are `package_api=1` and `profile_api=1`. Optional profile
+values `priority`, `volume_owner` and `power_owner` override the package
+defaults. Invalid IDs, unsupported API versions, invalid ownership values,
+missing `launch.sh` or missing profile files are rejected.
+
+The selected profile is exposed to the launch script through:
+
+| Variable | Meaning |
+|---|---|
+| `BASEOS_FRONTEND_ID` | Combined package/profile ID |
+| `BASEOS_PACKAGE_ID` | Package identity |
+| `BASEOS_PROFILE_ID` | Configuration profile identity |
+| `BASEOS_PACKAGE_DIR` | Package directory |
+| `BASEOS_PROFILE_CONFIG` | Selected profile's default config file |
+| `BASEOS_INSTANCE_ID` | Combined instance ID |
+| `BASEOS_INSTANCE_DIR` | Per-profile persistent instance directory |
+| `BASEOS_DATA_DIR` | Per-profile private data directory |
+| `BASEOS_USERDATA_DIR` | Per-profile private user-data directory |
+| `BASEOS_CARD_ROOT` | TF1 user-data root |
+| `BASEOS_GAMES_DIR` | Canonical shared game directory (`Games/`) |
+
+`BASEOS_FRONTEND_ROOT` continues to mean the selected card root for backward
+compatibility. New package launchers should use `BASEOS_PACKAGE_DIR` for
+program files and `BASEOS_CARD_ROOT` / `BASEOS_GAMES_DIR` for shared card
+content. Read the selected profile file as configuration data; do not source
+it as shell code.
+
+### Boot selector and uninstall
+
+Hold **L1 or R1 while powering on** to open the BaseOS frontend selector.
+Function-triggered USB storage keeps priority over the selector. In the
+selector:
+
+- **A** launches the highlighted profile once.
+- **Start** saves the highlighted profile as `frontend_id` and launches it.
+- **Y** opens an uninstall confirmation.
+- **B** cancels and continues with the configured default frontend.
+
+Uninstall is package-scoped: confirming removal deletes the selected
+`Frontends/<package_id>/` directory, including all profiles and the shared
+program payload. It does not delete `.baseos/instances/`, `Games/`, shared
+saves, or other shared data. The instance data is intentionally retained for
+possible reinstall. If the removed package supplied the default profile,
+BaseOS changes `frontend_id` back to `auto`.
+
+The selector manages the new `Frontends/<package-id>/` package format.
+Legacy `.baseos/frontends/<adapter-id>/` adapters remain supported for
+automatic and pinned startup, but are not removable through this package
+uninstaller.
+
+### Shared Games directory
+
+The canonical ROM directory is `/mnt/SDCARD/Games/`. The old `Roms/`
+directory is renamed to `Games/` at startup only when `Games/` does not
+already exist. If both exist, BaseOS preserves both and does not attempt an
+automatic merge; merge their contents manually before removing the old
+directory. Frontend-specific system names and internal ROM paths are mapped
+by the package's adapter configuration; BaseOS does not require each frontend
+to use the same internal system labels.
+
 ## Launch contract
 
 BaseOS runs `launch.sh` using `/bin/sh`, with the selected frontend card as

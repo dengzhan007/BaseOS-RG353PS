@@ -158,6 +158,9 @@ baseos_frontend_scan_root "$TF1" "slot-rg353ps--640-native" || fail "legacy pinn
 cat > "$CONFIG" <<'EOF'
 frontend_id=slot-rg353ps--640-native-alt
 EOF
+. "$DISCOVERY"
+baseos_frontend_scan_root "$TF1" "slot-rg353ps--640-native-alt" || fail "normal boot could not fall back from a removed legacy default profile"
+[ "$BASEOS_SCAN_ID" = "LUCKLUCK-SLOT--640-native" ] || fail "normal-boot fallback selected the wrong profile"
 run_manager catalog
 grep -F -q 'frontend_id=LUCKLUCK-SLOT--640-native' "$CONFIG" || fail "missing legacy profile did not fall back to the default profile"
 [ -d "$TF1/.baseos/instances/slot-rg353ps--640-native" ] || fail "old matching profile instance was not preserved"

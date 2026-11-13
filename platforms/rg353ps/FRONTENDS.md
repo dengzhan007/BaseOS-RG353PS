@@ -64,6 +64,7 @@ power_owner=system
 | `priority` | integer 0–9999 | `100` | Higher values win when multiple adapters are installed on the same card |
 | `volume_owner` | `system`, `frontend` | `system` | Selects who owns volume-key behavior while the frontend runs |
 | `power_owner` | `system`, `frontend` | `system` | Selects who owns the power key while the frontend runs |
+| `previous_package_id` | valid package ID | none | Optional prior package ID used once to migrate a pinned default after a package-folder rename |
 
 When priorities are equal, the first adapter in lexical directory order wins.
 The hidden canonical path is considered before the visible alias. TF2 still
@@ -82,7 +83,7 @@ files in the DATA root:
 /mnt/SDCARD/
 ├── Games/                         # shared ROM library
 └── Frontends/
-    └── slot-rg353ps/               # package_id: slot-rg353ps
+    └── LUCKLUCK-SLOT/              # package_id: LUCKLUCK-SLOT
         ├── baseos-frontend.conf
         ├── launch.sh
         ├── payload/                # package-owned executable/resources
@@ -103,8 +104,8 @@ dot, hyphen or underscore. The combined runtime ID is:
 
 ```text
 <package_id>--<profile_id>
-slot-rg353ps--640-native
-slot-rg353ps--my-config
+LUCKLUCK-SLOT--640-native
+LUCKLUCK-SLOT--my-config
 ```
 
 This permits one program package to offer multiple configurations without
@@ -115,11 +116,16 @@ instance directory at:
 /mnt/SDCARD/.baseos/instances/<package_id>--<profile_id>/
 ```
 
-The package manifest is plain data, never sourced:
+The package manifest is plain data, never sourced. `previous_package_id` is an
+optional one-generation migration alias: when the saved `frontend_id` uses that
+old package ID and the same profile ID exists, BaseOS rewrites the saved default
+to the new composite ID. The RG353PS Slot package uses this to migrate from
+`slot-rg353ps` to `LUCKLUCK-SLOT`.
 
 ```ini
 package_api=1
-display_name=Slot
+display_name=LUCKLUCK-SLOT
+previous_package_id=slot-rg353ps
 priority=100
 volume_owner=frontend
 power_owner=frontend
@@ -129,7 +135,7 @@ Each profile file is also plain data:
 
 ```ini
 profile_api=1
-display_name=640 Native
+display_name=LUCKLUCK-SLOT
 priority=100
 ```
 
@@ -138,15 +144,20 @@ values `priority`, `volume_owner` and `power_owner` override the package
 defaults. Invalid IDs, unsupported API versions, invalid ownership values,
 missing `launch.sh` or missing profile files are rejected.
 
-A managed package may ship one profile or several. The RG353PS LUCKLUCK SLOT
+A managed package may ship one profile or several. The RG353PS LUCKLUCK-SLOT
 package ships only `640-native` by default; users who need another independent
 configuration create it themselves by copying the existing profile file inside
-`Frontends/slot-rg353ps/profiles/`, giving the copy a new valid filename
+`Frontends/LUCKLUCK-SLOT/profiles/`, giving the copy a new valid filename
 (for example `my-config.conf`) and changing its `display_name`. The filename
 without `.conf` becomes the new `profile_id`; do not duplicate or edit the
 shared `payload/` or `launch.sh`. BaseOS discovers the additional profile on
 the next boot. Each new ID creates its own instance-data directory, while the
-program and shared resources remain common.
+program and shared resources remain common. Set the copied profile's
+`display_name` to the user-facing label; if it equals the package `display_name`,
+the selector shows only `LUCKLUCK-SLOT`, otherwise it shows
+`LUCKLUCK-SLOT / <profile display name>`. The shipped `640-native` profile uses
+the same display name as the package, so the default selector label is exactly
+`LUCKLUCK-SLOT`.
 
 The selected profile is exposed to the launch script through:
 
@@ -198,7 +209,10 @@ Full frontend uninstall removes the complete
 program payload. Both removal operations preserve
 `.baseos/instances/<package-id>--<profile-id>/`, `Games/`, shared saves,
 cores and all other shared data. Reinstalling the same package/profile IDs can
-therefore reuse their previous settings. If a removed profile/package supplied
+therefore reuse their previous settings. When a package changes its ID and
+provides `previous_package_id`, the Slot launcher copies the matching legacy
+instance into the new identity once, preserving the old instance as a rollback
+copy. If a removed profile/package supplied
 the configured default, BaseOS selects another discovered managed profile as
 the new default; if none remain, it changes `frontend_id` back to `auto`.
 

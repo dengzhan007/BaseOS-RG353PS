@@ -31,7 +31,7 @@ else
   AGS_ROOT="$SDCARD"
 fi
 
-if [ -n "$INSTANCE_DIR" ]; then
+if [ -n "$PACKAGE_DIR" ] && [ -n "$INSTANCE_DIR" ]; then
   LOGDIR="$INSTANCE_DIR/logs"
 else
   LOGDIR="$SDCARD/Logs"

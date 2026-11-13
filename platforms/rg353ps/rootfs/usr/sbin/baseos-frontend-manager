@@ -108,6 +108,14 @@ case "$cmd" in
       echo "frontend package directory is missing or is a symlink" >&2
       exit 1
     }
+    [ -d "$expected_dir/profiles" ] && [ ! -L "$expected_dir/profiles" ] || {
+      echo "refusing an absent or symlinked profile directory" >&2
+      exit 1
+    }
+    [ -f "$ENTRY_CONFIG" ] && [ ! -L "$ENTRY_CONFIG" ] || {
+      echo "refusing an absent or symlinked profile config" >&2
+      exit 1
+    }
     # Remove only the selected configuration. The common program payload
     # remains while another valid profile still references this package.
     rm -f -- "$ENTRY_CONFIG"

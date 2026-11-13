@@ -123,40 +123,48 @@ if [ -n "$PACKAGE_DIR" ]; then
   fi
   SLOT_SAVES_MOUNTED=yes
 
-  # Profile state must not live in the shared package payload. Slot stores
-  # favourites and frontend preferences in System/slot.state, while emulator
-  # state snapshots live under States/. Keep both private to this profile;
-  # battery saves under Saves/ remain shared as requested.
+  # Per-profile application state must not live in the shared package payload.
+  # Slot stores favourites and frontend preferences in System/slot.state; the
+  # other files below hold visual/input configuration and the derived library
+  # cache. Bind each file to this profile's persistent System directory.
   PROFILE_SYSTEM_DIR="$INSTANCE_DIR/system"
-  PROFILE_STATE_FILE="$PROFILE_SYSTEM_DIR/slot.state"
   mkdir -p "$PROFILE_SYSTEM_DIR" "$INSTANCE_DIR/config" "$SLOT_ROOT/System" || {
     echo "Could not prepare profile system state" >> "$LOGDIR/slot-session.log"
     exit 1
   }
-  if [ ! -f "$PROFILE_STATE_FILE" ]; then
-    # Migrate settings from a previous card-root Slot installation first;
-    # otherwise retain a state file that was written into the package by an
-    # earlier multi-frontend test build.
-    if [ -f "$SDCARD/System/slot.state" ] && [ ! -L "$SDCARD/System/slot.state" ]; then
-      cp -p "$SDCARD/System/slot.state" "$PROFILE_STATE_FILE" || {
-        echo "Could not migrate legacy Slot state" >> "$LOGDIR/slot-session.log"
-        exit 1
-      }
-    elif [ -f "$SLOT_ROOT/System/slot.state" ] && [ ! -L "$SLOT_ROOT/System/slot.state" ]; then
-      cp -p "$SLOT_ROOT/System/slot.state" "$PROFILE_STATE_FILE" || {
-        echo "Could not seed profile Slot state" >> "$LOGDIR/slot-session.log"
-        exit 1
-      }
-    else
-      : > "$PROFILE_STATE_FILE"
+  mount_profile_system_file() {
+    state_name=$1
+    state_source="$PROFILE_SYSTEM_DIR/$state_name"
+    state_target="$SLOT_ROOT/System/$state_name"
+    if [ ! -f "$state_source" ]; then
+      # Seed each profile once from an old card-root installation when
+      # available; otherwise copy the package's default state file.
+      if [ -f "$SDCARD/System/$state_name" ] && [ ! -L "$SDCARD/System/$state_name" ]; then
+        cp -p "$SDCARD/System/$state_name" "$state_source" || {
+          echo "Could not migrate legacy Slot state: $state_name" >> "$LOGDIR/slot-session.log"
+          exit 1
+        }
+      elif [ -f "$state_target" ] && [ ! -L "$state_target" ]; then
+        cp -p "$state_target" "$state_source" || {
+          echo "Could not seed profile Slot state: $state_name" >> "$LOGDIR/slot-session.log"
+          exit 1
+        }
+      else
+        : > "$state_source"
+      fi
     fi
-  fi
-  [ -e "$SLOT_ROOT/System/slot.state" ] || : > "$SLOT_ROOT/System/slot.state"
-  if ! mount --bind "$PROFILE_STATE_FILE" "$SLOT_ROOT/System/slot.state"; then
-    echo "Could not bind profile Slot state" >> "$LOGDIR/slot-session.log"
-    exit 1
-  fi
-  SLOT_STATE_MOUNTED=yes
+    [ -e "$state_target" ] || : > "$state_target"
+    mount --bind "$state_source" "$state_target" || {
+      echo "Could not bind profile Slot state: $state_name" >> "$LOGDIR/slot-session.log"
+      exit 1
+    }
+    SLOT_SYSTEM_BIND_TARGETS="$state_target $SLOT_SYSTEM_BIND_TARGETS"
+  }
+  for state_name in slot.state theme.txt mask.txt overlay.txt shelf.txt cc.txt \
+                    display.txt audio.txt open.txt selected_core.ini library.cache \
+                    palette.v2 display.v2; do
+    mount_profile_system_file "$state_name"
+  done
 
   # Save states are rewind/resume snapshots, not the shared battery saves
   # under Saves/. Keep snapshots in each profile's instance directory.

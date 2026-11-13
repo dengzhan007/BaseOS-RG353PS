@@ -178,8 +178,9 @@ profile was the last one, BaseOS also removes the now-unused package directory.
 In both cases it preserves `.baseos/instances/<package-id>--<profile-id>/`,
 `Games/`, shared saves, cores and all other shared data. Reinstalling the same
 package/profile IDs can therefore reuse their previous settings. If the removed
-profile was the configured default, BaseOS changes `frontend_id` back to
-`auto`.
+profile was the configured default, BaseOS selects another discovered
+managed profile as the new default; if none remain, it changes `frontend_id`
+back to `auto`.
 
 The selector manages the new `Frontends/<package-id>/` package format,
 including multiple profiles within one package. A profile is an independent

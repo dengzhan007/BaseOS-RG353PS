@@ -95,7 +95,6 @@ migrate_default_package_alias() {
     baseos_frontend_read_value "$candidate_dir/baseos-frontend.conf" previous_package_id ""
     [ "$BASEOS_VALUE" = "$old_package" ] || continue
     write_default "$candidate_id" || return 1
-    echo "MIGRATED_DEFAULT:$current_default:$candidate_id"
     return 0
   done < "$CATALOG"
   return 0

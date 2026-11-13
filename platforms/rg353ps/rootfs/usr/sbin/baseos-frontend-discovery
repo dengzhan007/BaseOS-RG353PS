@@ -1,15 +1,94 @@
 #!/bin/sh
-# Generic BaseOS frontend adapter discovery helpers.
-# Sourced by baseos-frontend-session; all parsing uses shell builtins.
-# Resolve the CR byte once per session, not once per adapter manifest.
+# BaseOS frontend discovery: legacy adapters plus package/profile bundles.
+# Metadata is parsed as key=value data and is never sourced or evaluated.
 BASEOS_FRONTEND_CR=$(printf '\r')
+
 baseos_frontend_valid_id() {
   case "$1" in ''|.*|-*|_*|*[!A-Za-z0-9._-]*) return 1 ;; esac
   [ "${#1}" -le 48 ]
 }
 
-# Parse key=value data; never source or evaluate package-controlled metadata.
-# Missing manifests are accepted for compatibility with existing adapters.
+baseos_frontend_read_value() {
+  bfrv_file=$1 bfrv_key=$2 bfrv_default=$3
+  BASEOS_VALUE=$bfrv_default
+  [ -r "$bfrv_file" ] || return 0
+  while IFS= read -r bfrv_line || [ -n "$bfrv_line" ]; do
+    case "$bfrv_line" in *"$BASEOS_FRONTEND_CR") bfrv_line=${bfrv_line%"$BASEOS_FRONTEND_CR"} ;; esac
+    case "$bfrv_line" in "$bfrv_key"=*) BASEOS_VALUE=${bfrv_line#*=} ;; esac
+  done < "$bfrv_file"
+}
+
+baseos_frontend_valid_priority() {
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  [ "${#1}" -le 4 ] || return 1
+  [ "$1" -le 9999 ] 2>/dev/null
+}
+
+# Package layout:
+# Frontends/<package-id>/baseos-frontend.conf
+# Frontends/<package-id>/launch.sh
+# Frontends/<package-id>/profiles/<profile-id>.conf
+# The pair package-id--profile-id is the independently selectable instance ID.
+baseos_frontend_load_package() {
+  bfl_root=$1 bfl_dir=$2 bfl_profile=$3
+  bfl_package_id=${bfl_dir##*/}
+  bfl_profile_file=${bfl_profile##*/}
+  bfl_profile_id=${bfl_profile_file%.conf}
+  baseos_frontend_valid_id "$bfl_package_id" || return 1
+  baseos_frontend_valid_id "$bfl_profile_id" || return 1
+  [ "${#bfl_package_id}" -le 22 ] || return 1
+  [ "${#bfl_profile_id}" -le 22 ] || return 1
+  [ -f "$bfl_dir/baseos-frontend.conf" ] || return 1
+  [ -f "$bfl_dir/launch.sh" ] || return 1
+  [ -f "$bfl_profile" ] || return 1
+
+  bfl_manifest=$bfl_dir/baseos-frontend.conf
+  baseos_frontend_read_value "$bfl_manifest" package_api 1
+  [ "$BASEOS_VALUE" = 1 ] || return 1
+  baseos_frontend_read_value "$bfl_profile" profile_api 1
+  [ "$BASEOS_VALUE" = 1 ] || return 1
+
+  baseos_frontend_read_value "$bfl_manifest" display_name "$bfl_package_id"
+  bfl_package_name=$BASEOS_VALUE
+  baseos_frontend_read_value "$bfl_profile" display_name "$bfl_profile_id"
+  bfl_profile_name=$BASEOS_VALUE
+  case "$bfl_package_name$bfl_profile_name" in *'|'*|*'/'*) return 1 ;; esac
+
+  baseos_frontend_read_value "$bfl_manifest" priority 100
+  bfl_priority=$BASEOS_VALUE
+  baseos_frontend_read_value "$bfl_profile" priority "$bfl_priority"
+  bfl_priority=$BASEOS_VALUE
+  baseos_frontend_valid_priority "$bfl_priority" || return 1
+
+  baseos_frontend_read_value "$bfl_manifest" volume_owner system
+  bfl_volume_owner=$BASEOS_VALUE
+  baseos_frontend_read_value "$bfl_profile" volume_owner "$bfl_volume_owner"
+  bfl_volume_owner=$BASEOS_VALUE
+  baseos_frontend_read_value "$bfl_manifest" power_owner system
+  bfl_power_owner=$BASEOS_VALUE
+  baseos_frontend_read_value "$bfl_profile" power_owner "$bfl_power_owner"
+  bfl_power_owner=$BASEOS_VALUE
+  case "$bfl_volume_owner" in system|frontend) ;; *) return 1 ;; esac
+  case "$bfl_power_owner" in system|frontend) ;; *) return 1 ;; esac
+
+  bfl_id=$bfl_package_id--$bfl_profile_id
+  baseos_frontend_valid_id "$bfl_id" || return 1
+  BASEOS_ADAPTER_API=1
+  BASEOS_ADAPTER_PRIORITY=$bfl_priority
+  BASEOS_ADAPTER_VOLUME_OWNER=$bfl_volume_owner
+  BASEOS_ADAPTER_POWER_OWNER=$bfl_power_owner
+  BASEOS_ADAPTER_ID=$bfl_id
+  BASEOS_ADAPTER_DIR=$bfl_dir
+  BASEOS_ADAPTER_LAUNCHER=$bfl_dir/launch.sh
+  BASEOS_PACKAGE_ID=$bfl_package_id
+  BASEOS_PROFILE_ID=$bfl_profile_id
+  BASEOS_PROFILE_CONFIG=$bfl_profile
+  BASEOS_PACKAGE_DIR=$bfl_dir
+  BASEOS_FRONTEND_NAME="$bfl_package_name / $bfl_profile_name"
+  return 0
+}
+
+# Legacy adapter contract remains supported for existing cards.
 baseos_frontend_load_manifest() {
   bfa_dir=$1
   bfa_id=${bfa_dir##*/}
@@ -23,9 +102,8 @@ baseos_frontend_load_manifest() {
   bfa_manifest=$bfa_dir/manifest.conf
   if [ -e "$bfa_manifest" ]; then
     [ -r "$bfa_manifest" ] || return 1
-    bfa_cr=$BASEOS_FRONTEND_CR
     while IFS= read -r bfa_line || [ -n "$bfa_line" ]; do
-      case "$bfa_line" in *"$bfa_cr") bfa_line=${bfa_line%"$bfa_cr"} ;; esac
+      case "$bfa_line" in *"$BASEOS_FRONTEND_CR") bfa_line=${bfa_line%"$BASEOS_FRONTEND_CR"} ;; esac
       case "$bfa_line" in ''|\#*) continue ;; *=*) ;; *) continue ;; esac
       bfa_key=${bfa_line%%=*}
       bfa_value=${bfa_line#*=}
@@ -38,36 +116,73 @@ baseos_frontend_load_manifest() {
     done < "$bfa_manifest"
   fi
   [ "$BASEOS_ADAPTER_API" = 1 ] || return 1
-  case "$BASEOS_ADAPTER_PRIORITY" in ''|*[!0-9]*) return 1 ;; esac
-  [ "${#BASEOS_ADAPTER_PRIORITY}" -le 4 ] || return 1
-  [ "$BASEOS_ADAPTER_PRIORITY" -le 9999 ] 2>/dev/null || return 1
+  baseos_frontend_valid_priority "$BASEOS_ADAPTER_PRIORITY" || return 1
   case "$BASEOS_ADAPTER_VOLUME_OWNER" in system|frontend) ;; *) return 1 ;; esac
   case "$BASEOS_ADAPTER_POWER_OWNER" in system|frontend) ;; *) return 1 ;; esac
   BASEOS_ADAPTER_ID=$bfa_id
   BASEOS_ADAPTER_DIR=$bfa_dir
   BASEOS_ADAPTER_LAUNCHER=$bfa_launcher
+  BASEOS_PACKAGE_ID=
+  BASEOS_PROFILE_ID=
+  BASEOS_PROFILE_CONFIG=
+  BASEOS_PACKAGE_DIR=
+  BASEOS_FRONTEND_NAME=$bfa_id
   return 0
 }
 
-# Higher priority wins; equal priorities retain the first candidate.
+baseos_frontend_record_candidate() {
+  bfr_id=$1 bfr_root=$2 bfr_dir=$3 bfr_launcher=$4 bfr_kind=$5
+  if [ -z "${BASEOS_SCAN_ID:-}" ] || [ "$BASEOS_ADAPTER_PRIORITY" -gt "$BASEOS_SCAN_PRIORITY" ] 2>/dev/null; then
+    BASEOS_SCAN_ID=$bfr_id
+    BASEOS_SCAN_PRIORITY=$BASEOS_ADAPTER_PRIORITY
+    BASEOS_SCAN_ROOT=$bfr_root
+    BASEOS_SCAN_DIR=$bfr_dir
+    BASEOS_SCAN_LAUNCHER=$bfr_launcher
+    BASEOS_SCAN_VOLUME_OWNER=$BASEOS_ADAPTER_VOLUME_OWNER
+    BASEOS_SCAN_POWER_OWNER=$BASEOS_ADAPTER_POWER_OWNER
+    BASEOS_SCAN_KIND=$bfr_kind
+    BASEOS_SCAN_PACKAGE_ID=${BASEOS_PACKAGE_ID:-}
+    BASEOS_SCAN_PROFILE_ID=${BASEOS_PROFILE_ID:-}
+    BASEOS_SCAN_PROFILE_CONFIG=${BASEOS_PROFILE_CONFIG:-}
+    BASEOS_SCAN_PACKAGE_DIR=${BASEOS_PACKAGE_DIR:-}
+    BASEOS_SCAN_NAME=${BASEOS_FRONTEND_NAME:-$bfr_id}
+  fi
+}
+
+baseos_frontend_consider_package() {
+  bcp_root=$1 bcp_dir=$2 bcp_profile=$3 bcp_preference=$4
+  baseos_frontend_load_package "$bcp_root" "$bcp_dir" "$bcp_profile" || return 0
+  [ "$bcp_preference" = auto ] || [ "$BASEOS_ADAPTER_ID" = "$bcp_preference" ] || return 0
+  baseos_frontend_record_candidate "$BASEOS_ADAPTER_ID" "$bcp_root" "$BASEOS_ADAPTER_DIR" "$BASEOS_ADAPTER_LAUNCHER" package
+}
+
 baseos_frontend_consider_adapter() {
   bfc_dir=$1 bfc_root=$2 bfc_preference=$3
   baseos_frontend_load_manifest "$bfc_dir" || return 0
   [ "$bfc_preference" = auto ] || [ "$BASEOS_ADAPTER_ID" = "$bfc_preference" ] || return 0
-  if [ -z "${BASEOS_SCAN_ID:-}" ] || [ "$BASEOS_ADAPTER_PRIORITY" -gt "$BASEOS_SCAN_PRIORITY" ] 2>/dev/null; then
-    BASEOS_SCAN_ID=$BASEOS_ADAPTER_ID
-    BASEOS_SCAN_PRIORITY=$BASEOS_ADAPTER_PRIORITY
-    BASEOS_SCAN_ROOT=$bfc_root
-    BASEOS_SCAN_DIR=$BASEOS_ADAPTER_DIR
-    BASEOS_SCAN_LAUNCHER=$BASEOS_ADAPTER_LAUNCHER
-    BASEOS_SCAN_VOLUME_OWNER=$BASEOS_ADAPTER_VOLUME_OWNER
-    BASEOS_SCAN_POWER_OWNER=$BASEOS_ADAPTER_POWER_OWNER
-  fi
-  return 0
+  baseos_frontend_record_candidate "$BASEOS_ADAPTER_ID" "$bfc_root" "$BASEOS_ADAPTER_DIR" "$BASEOS_ADAPTER_LAUNCHER" legacy
+}
+
+baseos_frontend_scan_packages() {
+  bsp_root=$1 bsp_preference=$2
+  bsp_parent=$bsp_root/Frontends
+  [ -d "$bsp_parent" ] || return 0
+  for bsp_dir in "$bsp_parent"/*; do
+    [ -d "$bsp_dir" ] || continue
+    [ -f "$bsp_dir/baseos-frontend.conf" ] || continue
+    [ -d "$bsp_dir/profiles" ] || continue
+    for bsp_profile in "$bsp_dir"/profiles/*.conf; do
+      [ -f "$bsp_profile" ] || continue
+      baseos_frontend_consider_package "$bsp_root" "$bsp_dir" "$bsp_profile" "$bsp_preference"
+    done
+  done
 }
 
 baseos_frontend_scan_container() {
   bsc_root=$1 bsc_preference=$2
+  # New packages are considered first; equal priority therefore prefers the
+  # explicitly managed package format over a legacy adapter.
+  baseos_frontend_scan_packages "$bsc_root" "$bsc_preference"
   for bsc_parent in "$bsc_root/.baseos/frontends" "$bsc_root/baseos/frontends"; do
     [ -d "$bsc_parent" ] || continue
     for bsc_dir in "$bsc_parent"/*; do
@@ -82,6 +197,8 @@ baseos_frontend_scan_root() {
   bfs_root=$1 bfs_preference=$2
   BASEOS_SCAN_ID= BASEOS_SCAN_PRIORITY=0 BASEOS_SCAN_ROOT= BASEOS_SCAN_DIR= BASEOS_SCAN_LAUNCHER=
   BASEOS_SCAN_VOLUME_OWNER=system BASEOS_SCAN_POWER_OWNER=system
+  BASEOS_SCAN_KIND=legacy BASEOS_SCAN_PACKAGE_ID= BASEOS_SCAN_PROFILE_ID=
+  BASEOS_SCAN_PROFILE_CONFIG= BASEOS_SCAN_PACKAGE_DIR= BASEOS_SCAN_NAME=
   baseos_frontend_scan_container "$bfs_root" "$bfs_preference"
   for bfs_nested in "$bfs_root"/*; do
     [ -d "$bfs_nested" ] || continue
@@ -90,14 +207,24 @@ baseos_frontend_scan_root() {
   [ -n "$BASEOS_SCAN_ID" ]
 }
 
-# Return success when adapter files or directory entries changed after a cache.
-# This is only metadata testing: no manifest is opened and no subprocess runs.
+# Detect changes to either package/profile trees or legacy adapters.
 baseos_frontend_tree_changed_since() {
   bft_root=$1
   bft_cache=$2
   [ -f "$bft_cache" ] || return 0
   for bft_container in "$bft_root" "$bft_root"/*; do
     [ -d "$bft_container" ] || continue
+    bft_packages=$bft_container/Frontends
+    if [ -d "$bft_packages" ]; then
+      [ "$bft_packages" -nt "$bft_cache" ] && return 0
+      for bft_package in "$bft_packages"/*; do
+        [ -d "$bft_package" ] || continue
+        [ "$bft_package" -nt "$bft_cache" ] && return 0
+        for bft_file in "$bft_package/baseos-frontend.conf" "$bft_package/launch.sh" "$bft_package/profiles" "$bft_package"/profiles/*.conf; do
+          [ -e "$bft_file" ] && [ "$bft_file" -nt "$bft_cache" ] && return 0
+        done
+      done
+    fi
     for bft_parent in "$bft_container/.baseos/frontends" "$bft_container/baseos/frontends"; do
       [ -d "$bft_parent" ] || continue
       [ "$bft_parent" -nt "$bft_cache" ] && return 0

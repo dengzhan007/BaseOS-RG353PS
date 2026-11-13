@@ -33,6 +33,52 @@ RUNTIME_SLOT="/tmp/baseos-slot-$${PROFILE_ID:-legacy}"
 if [ -n "$PACKAGE_DIR" ]; then
   LOGDIR="$INSTANCE_DIR/logs"
   mkdir -p "$LOGDIR" 2>/dev/null || :
+
+  # The managed package ID changes from slot-rg353ps to LUCKLUCK-SLOT when
+  # the distribution folder is renamed. Preserve every existing profile's
+  # settings and save states by copying its old instance once. Keep the old
+  # directory as a rollback copy; never delete user data during migration.
+  if [ "${BASEOS_PACKAGE_ID:-}" = "LUCKLUCK-SLOT" ] &&
+     [ -n "$PROFILE_ID" ] && [ -d "$INSTANCE_DIR" ] && [ ! -L "$INSTANCE_DIR" ]; then
+    LEGACY_INSTANCE_DIR="$SDCARD/.baseos/instances/slot-rg353ps--$PROFILE_ID"
+    MIGRATION_MARKER="$INSTANCE_DIR/config/migrated-from-slot-rg353ps"
+    if [ -d "$LEGACY_INSTANCE_DIR" ] && [ ! -L "$LEGACY_INSTANCE_DIR" ] &&
+       [ ! -e "$MIGRATION_MARKER" ]; then
+      mkdir -p "$INSTANCE_DIR/config"
+      EXISTING_PROFILE_FILE="$INSTANCE_DIR/config/profile.conf"
+      SAVED_PROFILE_FILE=
+      if [ -f "$EXISTING_PROFILE_FILE" ]; then
+        SAVED_PROFILE_FILE="$INSTANCE_DIR/config/profile.conf.migration-save.$"
+        cp -p "$EXISTING_PROFILE_FILE" "$SAVED_PROFILE_FILE" || {
+          echo "Could not preserve new profile metadata before package migration" >> "$LOGDIR/slot-session.log"
+          exit 1
+        }
+      fi
+      EXISTING_NEW_DATA=$(find "$INSTANCE_DIR" -type f \
+        ! -path "$EXISTING_PROFILE_FILE" \
+        ! -path "$MIGRATION_MARKER" -print -quit 2>/dev/null || :)
+      if [ -z "$EXISTING_NEW_DATA" ]; then
+        cp -a "$LEGACY_INSTANCE_DIR/." "$INSTANCE_DIR/" 2>/dev/null || {
+          echo "Could not migrate legacy Slot instance data from $LEGACY_INSTANCE_DIR" >> "$LOGDIR/slot-session.log"
+          [ -z "$SAVED_PROFILE_FILE" ] || mv -f "$SAVED_PROFILE_FILE" "$EXISTING_PROFILE_FILE"
+          exit 1
+        }
+        if [ -n "$SAVED_PROFILE_FILE" ]; then
+          mv -f "$SAVED_PROFILE_FILE" "$EXISTING_PROFILE_FILE" || {
+            echo "Could not restore current profile metadata after instance migration" >> "$LOGDIR/slot-session.log"
+            exit 1
+          }
+        fi
+        : > "$MIGRATION_MARKER"
+        sync
+        echo "Migrated Slot profile data from legacy package identity: $PROFILE_ID" >> "$LOGDIR/slot-session.log"
+      else
+        [ -z "$SAVED_PROFILE_FILE" ] || rm -f "$SAVED_PROFILE_FILE"
+        : > "$MIGRATION_MARKER"
+        echo "Skipped legacy Slot data migration because the new profile instance already contains data: $PROFILE_ID" >> "$LOGDIR/slot-session.log"
+      fi
+    fi
+  fi
 fi
 
 cleanup_slot_profile() {

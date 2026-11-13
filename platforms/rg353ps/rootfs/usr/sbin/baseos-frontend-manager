@@ -1,0 +1,124 @@
+#!/bin/sh
+set -eu
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH
+. /usr/sbin/baseos-frontend-discovery
+
+TF1=/mnt/SDCARD
+TF2=/mnt/TF2
+CATALOG=/run/baseos-frontend-catalog
+CONFIG=$TF1/baseos.conf
+
+valid_package_id() { baseos_frontend_valid_id "$1" && [ "${#1}" -le 22 ]; }
+valid_profile_id() { baseos_frontend_valid_id "$1" && [ "${#1}" -le 22 ]; }
+
+build_catalog() {
+  catalog_tmp=$CATALOG.$$
+  : > "$catalog_tmp"
+  for catalog_root in "$TF2" "$TF1"; do
+    [ -d "$catalog_root/Frontends" ] || continue
+    for catalog_package in "$catalog_root"/Frontends/*; do
+      [ -d "$catalog_package" ] || continue
+      [ -f "$catalog_package/baseos-frontend.conf" ] || continue
+      [ -d "$catalog_package/profiles" ] || continue
+      for catalog_profile in "$catalog_package"/profiles/*.conf; do
+        [ -f "$catalog_profile" ] || continue
+        baseos_frontend_load_package "$catalog_root" "$catalog_package" "$catalog_profile" || continue
+        catalog_id=$BASEOS_ADAPTER_ID
+        if grep -F -q "$catalog_id|" "$catalog_tmp"; then continue; fi
+        printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
+          "$catalog_id" "$BASEOS_FRONTEND_NAME" "$BASEOS_PACKAGE_ID" \
+          "$BASEOS_PROFILE_ID" "$catalog_root" "$BASEOS_PACKAGE_DIR" \
+          "$BASEOS_PROFILE_CONFIG" "$BASEOS_ADAPTER_PRIORITY" >> "$catalog_tmp"
+      done
+    done
+  done
+  mv -f "$catalog_tmp" "$CATALOG"
+}
+
+find_catalog_entry() {
+  find_id=$1
+  ENTRY_ID= ENTRY_NAME= ENTRY_PACKAGE= ENTRY_PROFILE=
+  ENTRY_ROOT= ENTRY_DIR= ENTRY_CONFIG= ENTRY_PRIORITY=
+  [ -r "$CATALOG" ] || return 1
+  while IFS='|' read -r entry_id entry_name entry_package entry_profile entry_root entry_dir entry_config entry_priority; do
+    [ "$entry_id" = "$find_id" ] || continue
+    ENTRY_ID=$entry_id ENTRY_NAME=$entry_name ENTRY_PACKAGE=$entry_package
+    ENTRY_PROFILE=$entry_profile ENTRY_ROOT=$entry_root ENTRY_DIR=$entry_dir
+    ENTRY_CONFIG=$entry_config ENTRY_PRIORITY=$entry_priority
+    return 0
+  done < "$CATALOG"
+  return 1
+}
+
+write_default() {
+  default_id=$1
+  case "$default_id" in
+    auto) ;;
+    *--*)
+      valid_package_id "${default_id%%--*}" || return 1
+      default_profile=${default_id#*--}
+      valid_profile_id "$default_profile" || return 1
+      ;;
+    *) return 1 ;;
+  esac
+  mkdir -p "$TF1" 2>/dev/null || :
+  [ -f "$CONFIG" ] || : > "$CONFIG"
+  default_tmp=$CONFIG.tmp.$$
+  awk -v value="$default_id" '
+    BEGIN { written=0 }
+    /^[[:space:]]*frontend_id=/ {
+      if (!written) print "frontend_id=" value
+      written=1
+      next
+    }
+    { print }
+    END { if (!written) print "frontend_id=" value }
+  ' "$CONFIG" > "$default_tmp" || { rm -f "$default_tmp"; return 1; }
+  mv -f "$default_tmp" "$CONFIG" || { rm -f "$default_tmp"; return 1; }
+  sync
+}
+
+cmd=${1:-catalog}
+case "$cmd" in
+  catalog)
+    build_catalog
+    ;;
+  set-default)
+    [ "$#" -eq 2 ] || exit 2
+    build_catalog
+    find_catalog_entry "$2" || { echo "frontend profile not found: $2" >&2; exit 1; }
+    write_default "$ENTRY_ID"
+    ;;
+  uninstall)
+    [ "$#" -eq 2 ] || exit 2
+    remove_id=$2
+    build_catalog
+    find_catalog_entry "$remove_id" || { echo "frontend profile not found: $remove_id" >&2; exit 1; }
+    valid_package_id "$ENTRY_PACKAGE" || exit 1
+    valid_profile_id "$ENTRY_PROFILE" || exit 1
+    case "$ENTRY_ROOT" in "$TF1"|"$TF2") ;; *) echo "refusing unexpected frontend root" >&2; exit 1 ;; esac
+    expected_dir=$ENTRY_ROOT/Frontends/$ENTRY_PACKAGE
+    [ "$ENTRY_DIR" = "$expected_dir" ] || { echo "refusing unexpected package path" >&2; exit 1; }
+    [ "$ENTRY_CONFIG" = "$expected_dir/profiles/$ENTRY_PROFILE.conf" ] || {
+      echo "refusing unexpected profile path" >&2
+      exit 1
+    }
+    [ -d "$expected_dir" ] && [ ! -L "$expected_dir" ] || {
+      echo "frontend package directory is missing or is a symlink" >&2
+      exit 1
+    }
+    # Package removal includes every profile, but deliberately keeps profile
+    # instances and shared Games/Saves/cores/assets.
+    rm -rf -- "$expected_dir"
+    sync
+    current_default=$(sed -n 's/^[[:space:]]*frontend_id=//p' "$CONFIG" 2>/dev/null | tail -n 1)
+    case "$current_default" in "$ENTRY_PACKAGE"--*) write_default auto ;; esac
+    build_catalog
+    printf '%s\n' "UNINSTALLED:$ENTRY_PACKAGE"
+    ;;
+  *)
+    echo "usage: baseos-frontend-manager [catalog|set-default ID|uninstall ID]" >&2
+    exit 2
+    ;;
+esac

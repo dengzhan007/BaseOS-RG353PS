@@ -158,6 +158,8 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     gcc -std=c11 -O2 -Wall -Wextra -Werror -static \
       -o "$R/usr/sbin/rg353ps-control-center" /src/rg353ps-control-center.c
     gcc -std=c11 -O2 -Wall -Wextra -Werror -static \
+      -o "$R/usr/sbin/rg353ps-frontend-selector" /src/rg353ps-frontend-selector.c
+    gcc -std=c11 -O2 -Wall -Wextra -Werror -static \
       -o "$R/usr/sbin/rg353ps-hotkeyd" /src/rg353ps-hotkeyd.c
     # gptslot is the only thing that may move boot/rootfs between their two
     # halves; an update is not possible without it. It lives in the shared
@@ -196,6 +198,15 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       echo "interactive control UI was not built" >&2
       exit 1
     }
+    test -x "$R/usr/sbin/rg353ps-frontend-selector" || {
+      echo "frontend selector UI was not built" >&2
+      exit 1
+    }
+    test -f "$R/usr/sbin/baseos-frontend-manager" || {
+      echo "frontend package manager is missing" >&2
+      exit 1
+    }
+    sh -n "$R/usr/sbin/baseos-frontend-manager"
     test -x "$R/usr/bin/v4l2-ctl" || {
       echo "v4l2-ctl was not installed into target rootfs" >&2
       exit 1
@@ -292,6 +303,8 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     chmod 0755 "$R/usr/sbin/baseos-init-userdata"
     chmod 0755 "$R/usr/sbin/baseos-usb-storage"
     chmod 0755 "$R/usr/sbin/baseos-frontend-session"
+    chmod 0755 "$R/usr/sbin/baseos-frontend-manager"
+    chmod 0755 "$R/usr/sbin/rg353ps-frontend-selector"
     chmod 0755 "$R/usr/sbin/baseos-boot-mark"
     chmod 0755 "$R/usr/sbin/baseos-boot-report"
     chmod 0755 "$R/usr/sbin/baseos-prefetch-gl"

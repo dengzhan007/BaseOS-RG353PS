@@ -213,7 +213,7 @@ The managed Slot adapter applies the following ownership boundaries:
 | Battery saves (`.sav`) | `Saves/` | Shared by all frontends and profiles |
 | Emulator cores | DATA-root `System/` or the BaseOS shared-core directory | Shared |
 | Slot user data | Per-profile `.userdata/` | Private to the selected profile |
-| Favorites and Slot preferences | Per-profile `System/slot.state` | Private to the selected profile |
+| Favorites, time zone and Slot preferences | Per-profile `.userdata/slot.state` | Private to the selected profile |
 | Display/theme and other mutable Slot settings | Per-profile `System/*.txt` state files | Private to the selected profile |
 | Save-state snapshots / resume states | Per-profile `States/` | Private to the selected profile |
 
@@ -223,6 +223,14 @@ sessions. Battery saves under `Saves/` remain shared; save-state snapshots
 under `States/` are intentionally separate. Removing a profile does not
 remove its instance data, so reinstalling the same package/profile identity
 can reuse it.
+
+ 
+Slot's main state record and library cache are stored below the profile's
+directory-mounted `.userdata/` root. This is intentional: Slot writes those
+files with a temporary-file-plus-rename sequence. A single-file bind mount at
+`System/slot.state` or `System/library.cache` cannot safely receive that
+atomic replacement. Previous card layouts under `System/` remain readable as
+migration fallbacks; new writes go to `.userdata/`.
 
 The current RG353PS Slot source does not implement a recently-played list.
 The API ownership rule for recent-play history is nevertheless profile-private:

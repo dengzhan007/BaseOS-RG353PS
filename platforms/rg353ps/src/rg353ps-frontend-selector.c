@@ -29,6 +29,7 @@
 #define ROOT_LEN 32
 #define PATH_LEN 320
 #define CATALOG_PATH "/run/baseos-frontend-catalog"
+#define CONFIG_PATH "/mnt/SDCARD/baseos.conf"
 #define SELECTION_PATH "/run/baseos-frontend-selection"
 #define MANAGER_PATH "/usr/sbin/baseos-frontend-manager"
 
@@ -59,6 +60,7 @@ static int confirming_uninstall;
 static int uninstall_package_action;
 static volatile sig_atomic_t running = 1;
 static char status_line[160] = "Choose a frontend profile.";
+static char current_default_id[ID_LEN] = "auto";
 static struct termios saved_termios;
 static int termios_saved;
 static int stdin_active;
@@ -75,6 +77,50 @@ static int copy_field(char *dst, size_t cap, const char *src)
     if (n == 0 || n >= cap) return 0;
     memcpy(dst, src, n + 1);
     return 1;
+}
+
+static void load_current_default(void)
+{
+    FILE *fp;
+    char line[256];
+
+    (void)snprintf(current_default_id, sizeof(current_default_id), "auto");
+    fp = fopen(CONFIG_PATH, "r");
+    if (fp == NULL) return;
+
+    /* Match baseos-frontend-session's setting(): the last frontend_id wins. */
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        size_t len = strlen(line);
+        if (len > 0 && line[len - 1] == '\n') line[--len] = '\0';
+        if (len > 0 && line[len - 1] == '\r') line[--len] = '\0';
+        if (strncmp(line, "frontend_id=", 12) == 0) {
+            const char *value = line + 12;
+            size_t value_len = strlen(value);
+            if (value_len > 0 && value_len < sizeof(current_default_id))
+                memcpy(current_default_id, value, value_len + 1);
+        }
+    }
+    (void)fclose(fp);
+}
+
+static int entry_is_default(const struct frontend_entry *entry)
+{
+    return strcmp(current_default_id, "auto") != 0 &&
+           strcmp(entry->id, current_default_id) == 0;
+}
+
+static const char *current_default_label(void)
+{
+    static char missing_label[ID_LEN + 32];
+
+    if (strcmp(current_default_id, "auto") == 0)
+        return "AUTO (priority-based discovery)";
+    for (int i = 0; i < entry_count; ++i)
+        if (entry_is_default(&entries[i])) return entries[i].label;
+
+    (void)snprintf(missing_label, sizeof(missing_label),
+                   "%s (not listed here)", current_default_id);
+    return missing_label;
 }
 
 static int load_catalog(void)
@@ -245,7 +291,8 @@ static void render(void)
     }
 
     render_header("BaseOS  |  Frontend selector");
-    (void)printf("\n  Select a frontend profile. Profiles from one package use separate settings.\n\n");
+    (void)printf("\n  Select a frontend profile. Profiles from one package use separate settings.\n");
+    (void)printf("  \033[1;33mDEFAULT STARTUP: %-60.60s\033[0m\n\n", current_default_label());
     if (entry_count == 0) {
         (void)printf("  No managed Frontends packages were found.\n");
         (void)printf("  Extract a package into /mnt/SDCARD/Frontends/<package-id>/.\n");
@@ -253,10 +300,18 @@ static void render(void)
     } else {
         (void)printf("  INSTALLED PROFILES\n");
         for (int i = scroll_offset; i < entry_count && i < scroll_offset + 10; ++i) {
-            if (i == selected_item)
+            if (entry_is_default(&entries[i])) {
+                if (i == selected_item)
+                    (void)printf("  \033[1;32m>\033[0m \033[1;33m[DEFAULT]\033[0m %-62.62s\n",
+                                 entries[i].label);
+                else
+                    (void)printf("    \033[1;33m[DEFAULT]\033[0m %-62.62s\n",
+                                 entries[i].label);
+            } else if (i == selected_item) {
                 (void)printf("  \033[1;32m> %-72.72s\033[0m\n", entries[i].label);
-            else
+            } else {
                 (void)printf("    %-72.72s\n", entries[i].label);
+            }
             (void)printf("      package=%-24.24s profile=%-18.18s source=%s\n",
                          entries[i].package_id, entries[i].profile_id,
                          strcmp(entries[i].root, "/mnt/TF2") == 0 ? "TF2" : "TF1");
@@ -285,6 +340,7 @@ static void choose_launch(int set_default)
             render();
             return;
         }
+        load_current_default();
     }
     if (!write_selection(entries[selected_item].id)) {
         (void)snprintf(status_line, sizeof(status_line), "Could not write the one-time selection.");
@@ -319,6 +375,7 @@ static void uninstall_selected(void)
     }
     confirming_uninstall = 0;
     uninstall_package_action = 0;
+    load_current_default();
     (void)load_catalog();
     render();
 }
@@ -417,6 +474,7 @@ int main(void)
     (void)signal(SIGTERM, stop_running);
     (void)signal(SIGHUP, stop_running);
     (void)unlink(SELECTION_PATH);
+    load_current_default();
     (void)load_catalog();
     discover_inputs();
 

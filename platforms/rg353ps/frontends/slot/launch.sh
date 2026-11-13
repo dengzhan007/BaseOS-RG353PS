@@ -46,9 +46,17 @@ if [ -n "$PACKAGE_DIR" ]; then
        [ ! -e "$MIGRATION_MARKER" ]; then
       mkdir -p "$INSTANCE_DIR/config"
       EXISTING_PROFILE_FILE="$INSTANCE_DIR/config/profile.conf"
+      SAVED_PROFILE_FILE="$INSTANCE_DIR/config/profile.conf.migration-save"
+      if [ -f "$SAVED_PROFILE_FILE" ] && [ -f "$EXISTING_PROFILE_FILE" ]; then
+        mv -f "$SAVED_PROFILE_FILE" "$EXISTING_PROFILE_FILE" || {
+          echo "Could not recover profile metadata from an interrupted package migration" >> "$LOGDIR/slot-session.log"
+          exit 1
+        }
+      fi
       SAVED_PROFILE_FILE=
       if [ -f "$EXISTING_PROFILE_FILE" ]; then
-        SAVED_PROFILE_FILE="$INSTANCE_DIR/config/profile.conf.migration-save.$"
+        SAVED_PROFILE_FILE="$INSTANCE_DIR/config/profile.conf.migration-save"
+        rm -f "$SAVED_PROFILE_FILE"
         cp -p "$EXISTING_PROFILE_FILE" "$SAVED_PROFILE_FILE" || {
           echo "Could not preserve new profile metadata before package migration" >> "$LOGDIR/slot-session.log"
           exit 1

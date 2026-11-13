@@ -116,11 +116,11 @@ instance directory at:
 /mnt/SDCARD/.baseos/instances/<package_id>--<profile_id>/
 ```
 
-The package manifest is plain data, never sourced. `previous_package_id` is an
-optional one-generation migration alias: when the saved `frontend_id` uses that
-old package ID and the same profile ID exists, BaseOS rewrites the saved default
-to the new composite ID. The RG353PS Slot package uses this to migrate from
-`slot-rg353ps` to `LUCKLUCK-SLOT`.
+The package manifest is plain data, never sourced. `previous_package_id` is an optional package-manifest key (not a legacy
+adapter-manifest key). It is a one-generation migration alias: when the saved
+`frontend_id` uses that old package ID and the same profile ID exists, BaseOS
+rewrites the saved default to the new composite ID. The RG353PS Slot package
+uses this to migrate from `slot-rg353ps` to `LUCKLUCK-SLOT`.
 
 ```ini
 package_api=1

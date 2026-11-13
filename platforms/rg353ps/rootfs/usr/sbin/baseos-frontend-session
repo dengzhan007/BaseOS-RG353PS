@@ -215,7 +215,7 @@ if is_mounted "$TF1"; then
   elif [ -d "$TF1/Roms" ] && [ -d "$TF1/Games" ]; then
     log "both Roms/ and Games/ exist; preserving both without automatic merge"
   fi
-  mkdir -p "$TF1/Games" 2>/dev/null || :
+  mkdir -p "$TF1/Games" "$TF1/Frontends" 2>/dev/null || :
 fi
 
 # force_diagnostic is an explicit troubleshooting override and therefore

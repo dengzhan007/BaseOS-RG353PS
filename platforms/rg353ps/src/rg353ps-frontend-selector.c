@@ -483,7 +483,7 @@ int main(void)
      * Clear the console on every selector exit (launch, cancel or signal)
      * so shutdown never reveals a stale selector frame.
      */
-    (void)printf("\033[0m\033[2J\033[H\033[?25h");
+    (void)printf("\033[0m\033[2J\033[H\033[?25l");
     fflush(stdout);
     for (int i = 0; i < input_count; ++i)
         if (inputs[i].fd >= 0) (void)close(inputs[i].fd);

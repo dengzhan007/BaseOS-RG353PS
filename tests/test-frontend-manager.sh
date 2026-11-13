@@ -79,4 +79,20 @@ run_manager uninstall slot-rg353ps--640x480
 [ -f "$TF1/Games/game.rom" ] || fail "last-profile removal deleted shared ROM"
 [ -f "$TF1/Saves/game.srm" ] || fail "last-profile removal deleted shared save"
 
-echo "PASS: frontend manager catalog, defaults and profile uninstall"
+# A profile config symlink must never be followed for destructive operations.
+mkdir -p "$TF1/Frontends/unsafe-package/profiles"
+: > "$TF1/Frontends/unsafe-package/launch.sh"
+cat > "$TF1/Frontends/unsafe-package/baseos-frontend.conf" <<'EOF'
+package_api=1
+display_name=Unsafe test
+priority=1
+EOF
+printf 'profile_api=1\ndisplay_name=External target\n' > "$TMP/external-profile.conf"
+ln -s "$TMP/external-profile.conf" "$TF1/Frontends/unsafe-package/profiles/external.conf"
+if run_manager uninstall unsafe-package--external; then
+  fail "manager accepted a symlinked profile uninstall target"
+fi
+[ -f "$TMP/external-profile.conf" ] || fail "symlink uninstall deleted its external target"
+[ -L "$TF1/Frontends/unsafe-package/profiles/external.conf" ] || fail "symlink guard unexpectedly removed the link"
+
+echo "PASS: frontend manager catalog, defaults, safe uninstall and symlink guard"

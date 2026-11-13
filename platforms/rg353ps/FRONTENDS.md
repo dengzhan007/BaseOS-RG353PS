@@ -87,8 +87,7 @@ files in the DATA root:
         ├── launch.sh
         ├── payload/                # package-owned executable/resources
         └── profiles/
-            ├── 640-native.conf     # profile_id: 640-native
-            └── 640x480.conf       # profile_id: 640x480
+            └── 640-native.conf     # the single default Slot profile
 ```
 
 Install by extracting the archive so its one top-level package directory is
@@ -105,7 +104,7 @@ dot, hyphen or underscore. The combined runtime ID is:
 ```text
 <package_id>--<profile_id>
 slot-rg353ps--640-native
-slot-rg353ps--640x480
+slot-rg353ps--my-config
 ```
 
 This permits one program package to offer multiple configurations without
@@ -138,6 +137,16 @@ Required keys are `package_api=1` and `profile_api=1`. Optional profile
 values `priority`, `volume_owner` and `power_owner` override the package
 defaults. Invalid IDs, unsupported API versions, invalid ownership values,
 missing `launch.sh` or missing profile files are rejected.
+
+A managed package may ship one profile or several. The RG353PS LUCKLUCK SLOT
+package ships only `640-native` by default; users who need another independent
+configuration create it themselves by copying the existing profile file inside
+`Frontends/slot-rg353ps/profiles/`, giving the copy a new valid filename
+(for example `my-config.conf`) and changing its `display_name`. The filename
+without `.conf` becomes the new `profile_id`; do not duplicate or edit the
+shared `payload/` or `launch.sh`. BaseOS discovers the additional profile on
+the next boot. Each new ID creates its own instance-data directory, while the
+program and shared resources remain common.
 
 The selected profile is exposed to the launch script through:
 

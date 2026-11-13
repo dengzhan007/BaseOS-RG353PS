@@ -476,7 +476,14 @@ int main(void)
     }
 
     if (termios_saved) (void)tcsetattr(STDIN_FILENO, TCSANOW, &saved_termios);
-    (void)printf("\033[0m\033[?25h\n");
+    /*
+     * The selector runs on the Linux text console. When SDL/KMSDRM takes
+     * over, that console's last cell buffer can remain underneath the
+     * frontend and reappear during reboot while the graphics owner exits.
+     * Clear the console on every selector exit (launch, cancel or signal)
+     * so shutdown never reveals a stale selector frame.
+     */
+    (void)printf("\033[0m\033[2J\033[H\033[?25h");
     fflush(stdout);
     for (int i = 0; i < input_count; ++i)
         if (inputs[i].fd >= 0) (void)close(inputs[i].fd);

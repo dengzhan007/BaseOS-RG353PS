@@ -113,7 +113,13 @@ if [ -n "$PACKAGE_DIR" ]; then
   # is populated; otherwise bind the already-installed core pack into this
   # profile root. Each profile therefore sees one shared copy of each core.
   SLOT_CORE_SOURCE="$SDCARD/.baseos/shared/cores/slot-rg353ps"
-  [ -d "$SLOT_CORE_SOURCE" ] || SLOT_CORE_SOURCE="$SDCARD/System"
+  SLOT_CORE_PACK_FOUND=no
+  for candidate_core in "$SLOT_CORE_SOURCE"/*_libretro.so; do
+    [ -f "$candidate_core" ] || continue
+    SLOT_CORE_PACK_FOUND=yes
+    break
+  done
+  [ "$SLOT_CORE_PACK_FOUND" = yes ] || SLOT_CORE_SOURCE="$SDCARD/System"
   if [ -d "$SLOT_CORE_SOURCE/lib" ]; then
     mkdir -p "$SLOT_ROOT/System/lib"
     if mount --bind "$SLOT_CORE_SOURCE/lib" "$SLOT_ROOT/System/lib"; then

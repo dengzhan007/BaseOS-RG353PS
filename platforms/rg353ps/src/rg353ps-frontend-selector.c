@@ -230,8 +230,10 @@ static void render(void)
             (void)printf("    Package: %-62.62s\n", entry->package_id);
             (void)printf("    Profile: %-62.62s\n", entry->profile_id);
             (void)printf("    Profiles in this package: %-46d\n", count_package_profiles(entry->package_id));
-            (void)printf("\n  The entire package and all its profiles will be removed.\n");
-            (void)printf("  Per-profile settings/data and shared Games/Saves will be kept.\n");
+            (void)printf("\n  Only this profile configuration will be removed.\n");
+            (void)printf("  The shared program stays while other profiles remain.\n");
+            (void)printf("  Its instance data and shared Games/Saves will be kept.\n");
+            (void)printf("  If this is the last profile, the package payload is removed too.\n");
         }
         (void)printf("\n  A: confirm uninstall     B: cancel\n");
         fflush(stdout);
@@ -301,7 +303,7 @@ static void uninstall_selected(void)
         return;
     }
     (void)snprintf(status_line, sizeof(status_line),
-                   "Uninstalled %s. Profile data and shared content were preserved.", package);
+                   "Removed profile %s. Package and shared data were preserved when still used.", package);
     confirming_uninstall = 0;
     (void)load_catalog();
     render();

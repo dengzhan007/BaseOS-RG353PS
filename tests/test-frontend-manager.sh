@@ -59,7 +59,9 @@ grep -F -q 'debug=no' "$CONFIG" || fail "unrelated debug setting was lost"
 grep -F -q 'usb_diagnostics=no' "$CONFIG" || fail "unrelated USB setting was lost"
 grep -F -q '# Preserve unrelated card settings.' "$CONFIG" || fail "user comment was lost"
 
-# Removing one profile must leave the common package payload and other profile.
+# Removing the current default profile must leave the package and select
+# the remaining profile as the new default.
+run_manager set-default slot-rg353ps--640-native
 run_manager uninstall slot-rg353ps--640-native
 [ -d "$PACKAGE" ] || fail "package was deleted while another profile remained"
 [ -f "$PACKAGE/profiles/640x480.conf" ] || fail "other profile was removed"
@@ -67,7 +69,7 @@ run_manager uninstall slot-rg353ps--640-native
 [ -f "$TF1/.baseos/instances/slot-rg353ps--640-native/data/marker" ] || fail "profile instance data was deleted"
 [ -f "$TF1/Games/game.rom" ] || fail "shared ROM was deleted"
 [ -f "$TF1/Saves/game.srm" ] || fail "shared save was deleted"
-grep -F -q 'frontend_id=slot-rg353ps--640x480' "$CONFIG" || fail "other profile default was changed"
+grep -F -q 'frontend_id=slot-rg353ps--640x480' "$CONFIG" || fail "remaining profile was not selected as new default"
 
 # Removing the last profile removes the package but still retains all user data.
 run_manager uninstall slot-rg353ps--640x480

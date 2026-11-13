@@ -43,9 +43,9 @@ baseos_frontend_load_package() {
   [ -f "$bfl_profile" ] || return 1
 
   bfl_manifest=$bfl_dir/baseos-frontend.conf
-  baseos_frontend_read_value "$bfl_manifest" package_api 1
+  baseos_frontend_read_value "$bfl_manifest" package_api ""
   [ "$BASEOS_VALUE" = 1 ] || return 1
-  baseos_frontend_read_value "$bfl_profile" profile_api 1
+  baseos_frontend_read_value "$bfl_profile" profile_api ""
   [ "$BASEOS_VALUE" = 1 ] || return 1
 
   baseos_frontend_read_value "$bfl_manifest" display_name "$bfl_package_id"

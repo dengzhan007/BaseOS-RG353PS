@@ -117,8 +117,10 @@ jobs:
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-manager
           sh -n platforms/rg353ps/frontends/slot/launch.sh
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-audio-init
+          sh -n tests/test-frontend-manager.sh
           sh tests/test-frontend-adapters.sh
           sh tests/test-frontend-packages.sh
+          sh tests/test-frontend-manager.sh
           sh tests/test-rg353ps-usb-mtp.sh
           sh tests/test-rg353ps-update-splash.sh
 

@@ -202,6 +202,64 @@ directory. Frontend-specific system names and internal ROM paths are mapped
 by the package's adapter configuration; BaseOS does not require each frontend
 to use the same internal system labels.
 
+
+### Runtime data ownership in the RG353PS Slot package
+
+The managed Slot adapter applies the following ownership boundaries:
+
+| Data | Location while Slot runs | Ownership |
+|---|---|---|
+| ROM library | `Games/` | Shared by all frontends and profiles |
+| Battery saves (`.sav`) | `Saves/` | Shared by all frontends and profiles |
+| Emulator cores | DATA-root `System/` or the BaseOS shared-core directory | Shared |
+| Slot user data | Per-profile `.userdata/` | Private to the selected profile |
+| Favorites and Slot preferences | Per-profile `System/slot.state` | Private to the selected profile |
+| Display/theme and other mutable Slot settings | Per-profile `System/*.txt` state files | Private to the selected profile |
+| Save-state snapshots / resume states | Per-profile `States/` | Private to the selected profile |
+
+The launcher seeds profile-owned state once from an existing card-root Slot
+installation when present, then bind-mounts the profile copy for subsequent
+sessions. Battery saves under `Saves/` remain shared; save-state snapshots
+under `States/` are intentionally separate. Removing a profile does not
+remove its instance data, so reinstalling the same package/profile identity
+can reuse it.
+
+The current RG353PS Slot source does not implement a recently-played list.
+The API ownership rule for recent-play history is nevertheless profile-private:
+frontends that add this feature must persist it below
+`BASEOS_USERDATA_DIR` or another profile-owned path, never in the shared
+package payload.
+
+### Per-category asset-sharing extension (design only; not active in this test)
+
+The API reserves per-profile policy keys in the persistent
+`BASEOS_PROFILE_CONFIG` file:
+
+```ini
+asset_cartridge_art=shared
+asset_overlays=separate
+asset_wallpapers=shared
+asset_bootlogos=separate
+asset_music=shared
+asset_fonts=shared
+asset_bios=separate
+```
+
+Accepted values are `shared` and `separate`. The intended roots are
+`/mnt/SDCARD/.baseos/shared/assets/<category>/` for shared assets and
+`/mnt/SDCARD/.baseos/instances/<package-id>--<profile-id>/assets/<category>/`
+for profile-private assets. Categories are independent; a frontend may support
+only the categories it actually consumes. Program binaries, package resources,
+ROMs and battery saves are not moved by this policy.
+
+This is a design reservation, not an implemented runtime feature in the
+1.2.10 test build. In particular, the current Slot package still reads its
+artwork and media from its established card-root paths; it does not yet apply
+the `asset_*` keys or merge shared/private overlays with package defaults.
+Do not add these keys expecting the current test build to change asset
+visibility. The adapter implementation and migration tests must land before
+this extension is considered supported.
+
 ## Launch contract
 
 BaseOS runs `launch.sh` using `/bin/sh`. For a managed package, its package

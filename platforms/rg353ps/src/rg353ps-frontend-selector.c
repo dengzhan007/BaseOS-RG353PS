@@ -1,8 +1,8 @@
 /*
  * RG353PS frontend selector for BaseOS package/profile installations.
- * A = launch once, START = save as default and launch, Y = uninstall package.
- * Uninstall removes the selected package (all its profiles), never instance
- * data or shared game resources.
+ * A = launch once, START = save default, Y = remove one profile, X = remove
+ * the entire package. Both removal modes preserve all per-profile instance
+ * data and shared game resources.
  */
 #define _DEFAULT_SOURCE
 #include <dirent.h>
@@ -56,6 +56,7 @@ static int input_count;
 static int selected_item;
 static int scroll_offset;
 static int confirming_uninstall;
+static int uninstall_package_action;
 static volatile sig_atomic_t running = 1;
 static char status_line[160] = "Choose a frontend profile.";
 static struct termios saved_termios;
@@ -222,20 +223,23 @@ static void render(void)
     adjust_scroll();
     if (confirming_uninstall) {
         struct frontend_entry *entry = entry_count > 0 ? &entries[selected_item] : NULL;
-        render_header("BaseOS  |  Confirm frontend uninstall");
+        render_header("BaseOS  |  Confirm removal");
         if (entry == NULL) {
             (void)printf("\n  No frontend package is selected.\n");
         } else {
-            (void)printf("\n  You are about to uninstall this package:\n\n");
-            (void)printf("    Package: %-62.62s\n", entry->package_id);
-            (void)printf("    Profile: %-62.62s\n", entry->profile_id);
-            (void)printf("    Profiles in this package: %-46d\n", count_package_profiles(entry->package_id));
-            (void)printf("\n  Only this profile configuration will be removed.\n");
-            (void)printf("  The shared program stays while other profiles remain.\n");
-            (void)printf("  Its instance data and shared Games/Saves will be kept.\n");
-            (void)printf("  If this is the last profile, the package payload is removed too.\n");
+            (void)printf("\n  Package: %-62.62s\n", entry->package_id);
+            (void)printf("  Selected profile: %-53.53s\n", entry->profile_id);
+            (void)printf("  Profiles in this package: %-46d\n", count_package_profiles(entry->package_id));
+            if (uninstall_package_action) {
+                (void)printf("\n  REMOVE THE ENTIRE FRONTEND PACKAGE.\n");
+                (void)printf("  All profiles and the shared program payload will be deleted.\n");
+            } else {
+                (void)printf("\n  Remove only the selected profile/configuration.\n");
+                (void)printf("  The shared program remains if other profiles still exist.\n");
+            }
+            (void)printf("  All instance settings/data, Games/, Saves/ and shared cores stay.\n");
         }
-        (void)printf("\n  A: confirm uninstall     B: cancel\n");
+        (void)printf("\n  A: confirm removal     B: cancel\n");
         fflush(stdout);
         return;
     }
@@ -258,8 +262,9 @@ static void render(void)
                          strcmp(entries[i].root, "/mnt/TF2") == 0 ? "TF2" : "TF1");
         }
         (void)printf("\n  Selected ID: %s\n", entries[selected_item].id);
-        (void)printf("  A: launch once    START: set default + launch    Y: uninstall package\n");
-        (void)printf("  B: cancel and use the existing default frontend\n");
+        (void)printf("  A: launch once    START: set default + launch\n");
+        (void)printf("  Y: remove selected profile    X: uninstall entire frontend\n");
+        (void)printf("  B: cancel and use the configured/default frontend\n");
         if (entry_count > 10)
             (void)printf("  Showing %d-%d of %d profiles\n", scroll_offset + 1,
                          scroll_offset + 10 < entry_count ? scroll_offset + 10 : entry_count,
@@ -293,18 +298,27 @@ static void uninstall_selected(void)
 {
     int rc;
     char package[PACKAGE_LEN];
+    char profile[PROFILE_LEN];
+    int remove_package = uninstall_package_action;
     if (entry_count <= 0) return;
     (void)snprintf(package, sizeof(package), "%s", entries[selected_item].package_id);
-    rc = run_manager("uninstall", entries[selected_item].id);
+    (void)snprintf(profile, sizeof(profile), "%s", entries[selected_item].profile_id);
+    rc = run_manager(remove_package ? "uninstall-package" : "uninstall", entries[selected_item].id);
     if (rc != 0) {
         (void)snprintf(status_line, sizeof(status_line), "Uninstall failed (manager exit %d).", rc);
         confirming_uninstall = 0;
         render();
         return;
     }
-    (void)snprintf(status_line, sizeof(status_line),
-                   "Removed profile %s. Package and shared data were preserved when still used.", package);
+    if (remove_package) {
+        (void)snprintf(status_line, sizeof(status_line),
+                       "Uninstalled frontend %s. Profile instance data and shared content were kept.", package);
+    } else {
+        (void)snprintf(status_line, sizeof(status_line),
+                       "Removed profile %s/%s. Shared program/data were preserved.", package, profile);
+    }
     confirming_uninstall = 0;
+    uninstall_package_action = 0;
     (void)load_catalog();
     render();
 }
@@ -316,7 +330,8 @@ static void handle_key(unsigned int code, int value)
         if (code == BTN_EAST) uninstall_selected();
         else if (code == BTN_SOUTH) {
             confirming_uninstall = 0;
-            (void)snprintf(status_line, sizeof(status_line), "Uninstall cancelled.");
+            uninstall_package_action = 0;
+            (void)snprintf(status_line, sizeof(status_line), "Removal cancelled.");
             render();
         }
         return;
@@ -337,8 +352,16 @@ static void handle_key(unsigned int code, int value)
     case BTN_START:
         choose_launch(1);
         break;
-    case BTN_WEST:
+    case BTN_WEST: /* Y: remove this profile only. */
         if (entry_count > 0) {
+            uninstall_package_action = 0;
+            confirming_uninstall = 1;
+            render();
+        }
+        break;
+    case BTN_NORTH: /* X: remove the entire frontend package. */
+        if (entry_count > 0) {
+            uninstall_package_action = 1;
             confirming_uninstall = 1;
             render();
         }
@@ -382,6 +405,7 @@ static void handle_terminal_byte(unsigned char ch, int *escape_state)
     else if (ch == 'a' || ch == 'A' || ch == '\n' || ch == '\r') handle_key(BTN_EAST, 1);
     else if (ch == 'd' || ch == 'D') handle_key(BTN_START, 1);
     else if (ch == 'u' || ch == 'U' || ch == 'y' || ch == 'Y') handle_key(BTN_WEST, 1);
+    else if (ch == 'x' || ch == 'X') handle_key(BTN_NORTH, 1);
     else if (ch == 'b' || ch == 'B' || ch == 'q' || ch == 'Q') handle_key(BTN_SOUTH, 1);
 }
 

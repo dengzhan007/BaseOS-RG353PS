@@ -22,6 +22,8 @@
 #define MAX_INPUTS 64
 #define PATH_LEN 256
 #define NAME_LEN 128
+#define USB_REQUEST_PATH "/run/baseos-usb-storage.request"
+#define USB_PAUSED_PATH "/run/baseos-frontend-paused"
 
 enum input_role { ROLE_OTHER = 0, ROLE_GAME, ROLE_FUNCTION, ROLE_STICK, ROLE_VOLUME, ROLE_POWER };
 enum screen_id { SCREEN_HOME = 0, SCREEN_CONTROLS, SCREEN_AUDIO, SCREEN_WIFI, SCREEN_SYSTEM, SCREEN_HELP };
@@ -46,6 +48,7 @@ static int joy_y_direction;
 static char last_event[160] = "Waiting for controller input...";
 static struct termios saved_termios;
 static int termios_saved;
+static int return_to_selector;
 
 static const char *menu_items[] = {
     "Controller / live input monitor",
@@ -53,9 +56,16 @@ static const char *menu_items[] = {
     "Wi-Fi status",
     "System and power information",
     "Control mapping help",
-    "USB mass-storage mode (connect data cable)"
+    "Frontend selector",
+    "USB mass-storage mode (connect data cable)",
+    "Return to frontend selector"
 };
 #define MENU_COUNT ((int)(sizeof(menu_items) / sizeof(menu_items[0])))
+
+static int visible_menu_count(void)
+{
+    return return_to_selector ? MENU_COUNT : MENU_COUNT - 1;
+}
 
 static void stop_running(int sig)
 {
@@ -198,7 +208,7 @@ static void render_home(void)
     printf("  D-pad UP/DOWN or left stick selects; A (right / BTN_EAST) opens.\n");
     printf("  B (bottom / BTN_SOUTH) returns. FUNCTION toggles the live input monitor.\n\n");
     printf("  \033[1;33mMENU\033[0m\n");
-    for (int i = 0; i < MENU_COUNT; ++i) {
+    for (int i = 0; i < visible_menu_count(); ++i) {
         if (i == selected_item) printf("  \033[1;32m > %-70.70s\033[0m\n", menu_items[i]);
         else printf("    %-70.70s\n", menu_items[i]);
     }
@@ -209,7 +219,10 @@ static void render_home(void)
     printf("  Volume +/- keys adjust RK817 playback level.\n");
     printf("  Short Power press shows system information.\n");
     printf("  Hold Power for 2 seconds to shut down cleanly.\n");
-    printf("  USB storage: select the last item, then connect the PC data cable.\n");
+    printf("  Frontend selector: select its menu item to choose or enable a frontend.\n");
+    printf("  USB storage: select its menu item, then connect the PC data cable.\\n");
+    if (return_to_selector)
+        printf("  Return to frontend selector: select the final menu item.\n");
 }
 
 static void render_controls(void)
@@ -322,12 +335,129 @@ static void render(void)
 
 static void navigate_menu(int delta)
 {
+    int count = visible_menu_count();
     selected_item += delta;
-    if (selected_item < 0) selected_item = MENU_COUNT - 1;
-    if (selected_item >= MENU_COUNT) selected_item = 0;
+    if (selected_item < 0) selected_item = count - 1;
+    if (selected_item >= count) selected_item = 0;
     if (current_screen == SCREEN_HOME) render();
 }
 
+static void open_frontend_selector(void)
+{
+    pid_t child;
+    int status = 0;
+
+    (void)unlink("/run/baseos-frontend-selection");
+    child = fork();
+    if (child < 0) {
+        (void)snprintf(last_event, sizeof(last_event), "Could not start frontend selector");
+        render();
+        return;
+    }
+    if (child == 0) {
+        pid_t manager;
+        int manager_status = 0;
+        (void)setenv("BASEOS_SELECTOR_RETURN_TO_DIAGNOSTICS", "1", 1);
+        manager = fork();
+        if (manager < 0) _exit(127);
+        if (manager == 0) {
+            execl("/usr/sbin/baseos-frontend-manager", "baseos-frontend-manager",
+                  "catalog", (char *)NULL);
+            _exit(127);
+        }
+        while (waitpid(manager, &manager_status, 0) < 0) {
+            if (errno != EINTR) _exit(127);
+        }
+        if (!WIFEXITED(manager_status) || WEXITSTATUS(manager_status) != 0)
+            _exit(1);
+        execl("/usr/sbin/rg353ps-frontend-selector", "rg353ps-frontend-selector", (char *)NULL);
+        _exit(127);
+    }
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno != EINTR) {
+            (void)snprintf(last_event, sizeof(last_event), "Frontend selector wait failed");
+            render();
+            return;
+        }
+    }
+    if (access("/run/baseos-frontend-selection", F_OK) == 0) {
+        running = 0;
+        return;
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        (void)snprintf(last_event, sizeof(last_event), "Frontend selector failed; returned to diagnostics");
+    else
+        (void)snprintf(last_event, sizeof(last_event), "Returned from frontend selector");
+    render();
+}
+
+static void request_usb_storage(void) {
+    const char *supervised = getenv("BASEOS_DIAGNOSTIC_SUPERVISED");
+    int direct_pause = return_to_selector &&
+                       (supervised == NULL || strcmp(supervised, "1") != 0);
+    pid_t child;
+    int status = 0, child_done = 0, request_seen = 0;
+
+    child = fork();
+    if (child < 0) {
+        (void)snprintf(last_event, sizeof(last_event), "Could not request USB storage mode");
+        render();
+        return;
+    }
+    if (child == 0) {
+        (void)chdir("/");
+        execl("/usr/sbin/baseos-usb-storage", "baseos-usb-storage", (char *)NULL);
+        _exit(127);
+    }
+    if (!direct_pause) {
+        (void)snprintf(last_event, sizeof(last_event),
+                       "USB storage requested; waiting for safe frontend shutdown");
+        render();
+        return;
+    }
+    /* Selector-launched diagnostics have no session-supervisor pause loop.
+     * Own the same request/pause handshake here; leave the exported volume
+     * as the working directory before acknowledging that it is safe to unmount. */
+    (void)chdir("/");
+    (void)snprintf(last_event, sizeof(last_event),
+                   "USB storage requested; preparing diagnostic pause");
+    render();
+    for (int i = 0; i < 150; ++i) {
+        pid_t waited = waitpid(child, &status, WNOHANG);
+        if (waited == child) { child_done = 1; break; }
+        if (waited < 0 && errno != EINTR) { child_done = 1; status = 127 << 8; break; }
+        if (access(USB_REQUEST_PATH, F_OK) == 0) { request_seen = 1; break; }
+        (void)usleep(100000);
+    }
+    if (request_seen) {
+        int pause_fd = open(USB_PAUSED_PATH, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+        if (pause_fd < 0) {
+            (void)kill(child, SIGTERM);
+            while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+            (void)snprintf(last_event, sizeof(last_event),
+                           "USB storage aborted: could not acknowledge diagnostic pause");
+        } else {
+            (void)close(pause_fd);
+            while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+            (void)unlink(USB_PAUSED_PATH);
+            (void)unlink(USB_REQUEST_PATH);
+            if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+                (void)snprintf(last_event, sizeof(last_event),
+                               "USB storage session finished; diagnostics resumed");
+            else
+                (void)snprintf(last_event, sizeof(last_event),
+                               "USB storage failed; inspect /mnt/boot/rg353ps-usb-storage.log");
+        }
+    } else {
+        if (!child_done) {
+            (void)kill(child, SIGTERM);
+            while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+        }
+        (void)snprintf(last_event, sizeof(last_event),
+                       "USB storage did not reach the pause handshake; local storage was not exported");
+    }
+    render();
+}
 static void select_menu_item(void)
 {
     switch (selected_item) {
@@ -336,19 +466,15 @@ static void select_menu_item(void)
     case 2: current_screen = SCREEN_WIFI; break;
     case 3: current_screen = SCREEN_SYSTEM; break;
     case 4: current_screen = SCREEN_HELP; break;
-    case 5: {
-        pid_t child = fork();
-        if (child == 0) {
-            execl("/usr/sbin/baseos-usb-storage", "baseos-usb-storage", (char *)NULL);
-            _exit(127);
-        }
-        if (child < 0)
-            (void)snprintf(last_event, sizeof(last_event), "Could not request USB storage mode");
-        else
-            (void)snprintf(last_event, sizeof(last_event), "USB storage requested; waiting for safe frontend shutdown");
-        render();
+    case 5:
+        open_frontend_selector();
         return;
-    }
+    case 6:
+        request_usb_storage();
+        return;
+    case 7:
+        running = 0;
+        return;
     default: current_screen = SCREEN_HOME; break;
     }
     render();
@@ -512,6 +638,9 @@ int main(void)
     (void)signal(SIGINT, stop_running);
     (void)signal(SIGTERM, stop_running);
     (void)signal(SIGHUP, stop_running);
+    return_to_selector = getenv("BASEOS_RETURN_TO_SELECTOR") != NULL &&
+                         strcmp(getenv("BASEOS_RETURN_TO_SELECTOR"), "1") == 0;
+    if (selected_item >= visible_menu_count()) selected_item = 0;
     discover_inputs();
 
     if (isatty(STDIN_FILENO) && tcgetattr(STDIN_FILENO, &saved_termios) == 0) {

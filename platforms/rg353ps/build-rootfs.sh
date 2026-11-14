@@ -206,7 +206,12 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       echo "frontend package manager is missing" >&2
       exit 1
     }
+    test -f "$R/usr/sbin/baseos-frontend-compat" || {
+      echo "legacy frontend compatibility helper is missing" >&2
+      exit 1
+    }
     sh -n "$R/usr/sbin/baseos-frontend-manager"
+    sh -n "$R/usr/sbin/baseos-frontend-compat"
     test -x "$R/usr/bin/v4l2-ctl" || {
       echo "v4l2-ctl was not installed into target rootfs" >&2
       exit 1
@@ -290,7 +295,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     }
     # Update machinery. gptslot is the only writer of the slot flip, and
     # baseos-release is what a payload is validated against.
-    for upd_tool in usr/sbin/gptslot usr/sbin/baseos-update usr/share/baseos/log.sh; do
+    for upd_tool in usr/sbin/gptslot usr/sbin/baseos-update usr/sbin/baseos-frontend-paths usr/share/baseos/log.sh; do
       test -e "$R/$upd_tool" || {
         echo "update component is missing from target rootfs: $upd_tool" >&2
         exit 1
@@ -303,7 +308,9 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     chmod 0755 "$R/usr/sbin/baseos-init-userdata"
     chmod 0755 "$R/usr/sbin/baseos-usb-storage"
     chmod 0755 "$R/usr/sbin/baseos-frontend-session"
+    chmod 0755 "$R/usr/sbin/baseos-frontend-paths"
     chmod 0755 "$R/usr/sbin/baseos-frontend-manager"
+    chmod 0755 "$R/usr/sbin/baseos-frontend-compat"
     chmod 0755 "$R/usr/sbin/rg353ps-frontend-selector"
     chmod 0755 "$R/usr/sbin/baseos-boot-mark"
     chmod 0755 "$R/usr/sbin/baseos-boot-report"

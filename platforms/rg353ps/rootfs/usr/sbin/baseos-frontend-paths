@@ -1,0 +1,537 @@
+#!/bin/sh
+# BaseOS-owned path maps for frontends that expect card-root directory names.
+# Maps are generated once under .baseos/frontend-paths and remain user-editable.
+set -eu
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH
+
+log() {
+  printf '%s\n' "baseos-frontend-paths: $*" 2>/dev/null > /dev/kmsg || :
+}
+
+valid_id() {
+  case "$1" in
+    ''|.*|-*|_*|*[!A-Za-z0-9._-]*|*'--'*) return 1 ;;
+    *) [ "${#1}" -le 48 ] ;;
+  esac
+}
+
+valid_target() {
+  case "$1" in
+    Roms|ROMs|roms|Games|Saves|saves|Bios|BIOS|bios|Cheats|cheats|Overlays|overlays|Shaders|shaders|.system|SYSTEM|System|Tools|tools|Emus|emus|.userdata|userdata)
+      return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+valid_core_target() {
+  case "$1" in
+    .system/rg353ps/cores|.system/h700/cores|.system/cores|SYSTEM/rg353ps/cores|SYSTEM/h700/cores|SYSTEM/cores|System/rg353ps/cores|System/h700/cores|System/cores)
+      return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+safe_baseos_path() {
+  sbp_root=$1
+  [ ! -L "$sbp_root/.baseos" ] || return 1
+  [ ! -L "$sbp_root/.baseos/frontend-paths" ] || return 1
+}
+
+placeholder_tree() {
+  pt_dir=$1
+  [ -d "$pt_dir" ] && [ ! -L "$pt_dir" ] || return 1
+  for pt_item in "$pt_dir"/* "$pt_dir"/.[!.]* "$pt_dir"/..?*; do
+    [ -e "$pt_item" ] || [ -L "$pt_item" ] || continue
+    [ ! -L "$pt_item" ] || return 1
+    if [ -d "$pt_item" ]; then
+      placeholder_tree "$pt_item" || return 1
+    else
+      [ -f "$pt_item" ] && [ "${pt_item##*/}" = .keep ] || return 1
+    fi
+  done
+  return 0
+}
+
+remove_placeholder_tree() {
+  rpt_dir=$1
+  for rpt_item in "$rpt_dir"/* "$rpt_dir"/.[!.]* "$rpt_dir"/..?*; do
+    [ -e "$rpt_item" ] || [ -L "$rpt_item" ] || continue
+    [ ! -L "$rpt_item" ] || return 1
+    if [ -d "$rpt_item" ]; then
+      remove_placeholder_tree "$rpt_item" || return 1
+      rmdir "$rpt_item" || return 1
+    else
+      [ "${rpt_item##*/}" = .keep ] || return 1
+      rm -f -- "$rpt_item" || return 1
+    fi
+  done
+  return 0
+}
+
+has_core_files() {
+  hcf_dir=$1
+  for hcf_file in "$hcf_dir"/*_libretro.so; do
+    [ -f "$hcf_file" ] && [ ! -L "$hcf_file" ] && return 0
+  done
+  return 1
+}
+
+core_platform() {
+  # The library is keyed to the hardware running this BaseOS image, not the
+  # folder spelling used by an upstream frontend (some bundles say h700).
+  valid_core_target "$1" || return 1
+  printf '%s' rg353ps
+}
+
+copy_core_set() {
+  ccs_root=$1 ccs_source=$2 ccs_dest=$3
+  safe_dir "$ccs_source" || return 0
+  case "$ccs_source" in
+    "$ccs_root"/*)
+      ccs_relative=${ccs_source#"$ccs_root"/}
+      safe_relative_path "$ccs_root" "$ccs_relative" || return 0
+      ;;
+    *) return 0 ;;
+  esac
+  has_core_files "$ccs_source" || return 0
+  [ ! -L "$ccs_dest" ] || return 1
+  mkdir -p "$ccs_dest" || return 1
+  for ccs_file in "$ccs_source"/*_libretro.so; do
+    [ -f "$ccs_file" ] && [ ! -L "$ccs_file" ] || continue
+    ccs_name=${ccs_file##*/}
+    ccs_target=$ccs_dest/$ccs_name
+    [ ! -e "$ccs_target" ] && [ ! -L "$ccs_target" ] || continue
+    ccs_tmp=$ccs_dest/.$ccs_name.baseos-tmp
+    [ ! -L "$ccs_tmp" ] || continue
+    rm -f -- "$ccs_tmp"
+    if cp -p "$ccs_file" "$ccs_tmp"; then
+      if [ ! -e "$ccs_target" ] && [ ! -L "$ccs_target" ]; then
+        mv "$ccs_tmp" "$ccs_target" || rm -f -- "$ccs_tmp"
+      else
+        rm -f -- "$ccs_tmp"
+      fi
+    else
+      rm -f -- "$ccs_tmp"
+    fi
+  done
+  has_core_files "$ccs_dest"
+}
+
+seed_shared_cores() {
+  ssc_root=$1 ssc_program=$2 ssc_core_rel=$3 ssc_platform=$4
+  ssc_shared=$ssc_root/.baseos/shared/cores/$ssc_platform
+  [ ! -L "$ssc_root/.baseos/shared" ] &&
+    [ ! -L "$ssc_root/.baseos/shared/cores" ] &&
+    [ ! -L "$ssc_shared" ] || {
+      log "refusing symlinked shared-core library path"
+      return 1
+    }
+  mkdir -p "$ssc_shared" || return 1
+  # The active frontend is authoritative first. Then collect additional
+  # platform cores from other installed bundles on the same device card.
+  copy_core_set "$ssc_root" "$ssc_program/$ssc_core_rel" "$ssc_shared" || :
+  for ssc_frontend in "$ssc_root/Frontends"/*; do
+    [ -d "$ssc_frontend" ] && [ ! -L "$ssc_frontend" ] || continue
+    for ssc_system in .system SYSTEM System; do
+      for ssc_platform_dir in rg353ps h700 cores; do
+        if [ "$ssc_platform_dir" = cores ]; then
+          ssc_candidate=$ssc_frontend/$ssc_system/cores
+        else
+          ssc_candidate=$ssc_frontend/$ssc_system/$ssc_platform_dir/cores
+        fi
+        copy_core_set "$ssc_root" "$ssc_candidate" "$ssc_shared" || :
+      done
+    done
+  done
+  has_core_files "$ssc_shared"
+}
+safe_relative_path() {
+  srp_root=$1 srp_rel=$2
+  case "$srp_rel" in
+    ''|/*|*'..'*|*'|'*|*[!A-Za-z0-9._/-]*) return 1 ;;
+  esac
+  case "$srp_rel" in */|*//*) return 1 ;; esac
+  srp_walk=$srp_root
+  old_ifs=$IFS
+  IFS=/
+  set -- $srp_rel
+  IFS=$old_ifs
+  for srp_part do
+    [ -n "$srp_part" ] && [ "$srp_part" != . ] && [ "$srp_part" != .. ] || return 1
+    srp_walk=$srp_walk/$srp_part
+    [ ! -L "$srp_walk" ] || return 1
+  done
+  return 0
+}
+
+read_map_value() {
+  rmv_file=$1 rmv_key=$2 rmv_default=$3
+  rmv_result=$rmv_default
+  [ -r "$rmv_file" ] || { printf '%s' "$rmv_result"; return 0; }
+  while IFS= read -r rmv_line || [ -n "$rmv_line" ]; do
+    case "$rmv_line" in
+      "$rmv_key"=*) rmv_result=${rmv_line#*=} ;;
+    esac
+  done < "$rmv_file"
+  printf '%s' "$rmv_result"
+}
+
+safe_dir() {
+  [ -d "$1" ] && [ ! -L "$1" ]
+}
+
+scan_map() {
+  sm_root=$1 sm_id=$2 sm_program=$3
+  valid_id "$sm_id" || { echo "invalid frontend path-map ID: $sm_id" >&2; return 1; }
+  safe_dir "$sm_root" || { echo "invalid card root: $sm_root" >&2; return 1; }
+  safe_dir "$sm_program" || { echo "invalid frontend program root: $sm_program" >&2; return 1; }
+  safe_baseos_path "$sm_root" || { echo "refusing symlinked BaseOS path-map directory" >&2; return 1; }
+
+  sm_dir=$sm_root/.baseos/frontend-paths
+  sm_map=$sm_dir/$sm_id.conf
+  [ ! -L "$sm_map" ] || { echo "refusing symlinked path map: $sm_map" >&2; return 1; }
+  [ -f "$sm_map" ] && return 0
+
+  sm_games=Games
+  if [ -d "$sm_program/Roms" ] || [ -d "$sm_program/ROMs" ] || [ -d "$sm_program/roms" ] ||
+     [ -d "$sm_program/.system" ] || [ -d "$sm_program/SYSTEM" ] ||
+     [ -d "$sm_program/Tools" ] || [ -d "$sm_program/Emus" ]; then
+    sm_games=Roms
+    [ -d "$sm_program/ROMs" ] && sm_games=ROMs
+    [ -d "$sm_program/roms" ] && sm_games=roms
+  fi
+
+  sm_system=
+  for sm_candidate in .system SYSTEM System; do
+    if [ -d "$sm_program/$sm_candidate" ]; then
+      sm_system=$sm_candidate
+      break
+    fi
+  done
+  sm_tools=
+  [ -d "$sm_program/Tools" ] && sm_tools=Tools
+  [ -d "$sm_program/tools" ] && sm_tools=tools
+  sm_emus=
+  [ -d "$sm_program/Emus" ] && sm_emus=Emus
+  [ -d "$sm_program/emus" ] && sm_emus=emus
+  sm_saves=Saves
+  [ -d "$sm_program/saves" ] && sm_saves=saves
+  sm_bios=Bios
+  [ -d "$sm_program/BIOS" ] && sm_bios=BIOS
+  sm_cheats=Cheats
+  [ -d "$sm_program/cheats" ] && sm_cheats=cheats
+  sm_overlays=Overlays
+  [ -d "$sm_program/overlays" ] && sm_overlays=overlays
+  sm_shaders=Shaders
+  [ -d "$sm_program/shaders" ] && sm_shaders=shaders
+
+  sm_cores=
+  # Select only a platform directory actually present in this frontend bundle.
+  # The cores/ child itself may be empty or absent because BaseOS supplies the
+  # shared core pack at runtime.
+  if [ -n "$sm_system" ] && [ -d "$sm_program/$sm_system/rg353ps" ]; then
+    sm_cores=$sm_system/rg353ps/cores
+  elif [ -n "$sm_system" ] && [ -d "$sm_program/$sm_system/h700" ]; then
+    sm_cores=$sm_system/h700/cores
+  elif [ -n "$sm_system" ] && [ -d "$sm_program/$sm_system/cores" ]; then
+    sm_cores=$sm_system/cores
+  elif [ -n "$sm_system" ]; then
+    # RG353PS is this BaseOS target. Declare the directory even when a
+    # frontend does not bundle its own cores; BaseOS can provide the shared set.
+    sm_cores=$sm_system/rg353ps/cores
+  fi
+
+  mkdir -p "$sm_dir"
+  sm_tmp=$sm_map.tmp
+  [ ! -L "$sm_tmp" ] || { echo "refusing symlinked path-map temp file" >&2; return 1; }
+  {
+    printf '%s\n' 'paths_api=1'
+    printf 'frontend_id=%s\n' "$sm_id"
+    printf 'games_target=%s\n' "$sm_games"
+    printf 'saves_target=%s\n' "$sm_saves"
+    printf 'bios_target=%s\n' "$sm_bios"
+    printf 'cheats_target=%s\n' "$sm_cheats"
+    printf 'overlays_target=%s\n' "$sm_overlays"
+    printf 'shaders_target=%s\n' "$sm_shaders"
+    [ -z "$sm_system" ] || printf 'system_target=%s\n' "$sm_system"
+    [ -z "$sm_tools" ] || printf 'tools_target=%s\n' "$sm_tools"
+    [ -z "$sm_emus" ] || printf 'emus_target=%s\n' "$sm_emus"
+    [ -z "$sm_cores" ] || printf 'cores_target=%s\n' "$sm_cores"
+    printf '%s\n' '# BaseOS creates temporary card-root aliases from these paths while this frontend runs.'
+    printf '%s\n' '# Edit target values to change the frontend-facing directory names; rescans preserve this file.'
+  } > "$sm_tmp"
+  if [ -f "$sm_map" ]; then
+    rm -f "$sm_tmp"
+  else
+    mv -f "$sm_tmp" "$sm_map"
+  fi
+  log "generated path map $sm_map"
+}
+
+state_file() {
+  printf '%s' "$1/.baseos/frontend-paths/active"
+}
+
+cleanup_aliases() {
+  ca_root=$1
+  safe_dir "$ca_root" || return 1
+  safe_baseos_path "$ca_root" || return 1
+  ca_dir=$ca_root/.baseos/frontend-paths
+  ca_state=$(state_file "$ca_root")
+  [ -f "$ca_state" ] && [ ! -L "$ca_state" ] || return 0
+  ca_failed=no
+  while IFS='|' read -r ca_type ca_name ca_source; do
+    [ -n "$ca_type" ] || continue
+    # Accept the original two-column alias state for cards that were updated
+    # while a previous frontend session still had a map active.
+    if [ -z "$ca_source" ]; then
+      ca_source=$ca_name
+      ca_name=$ca_type
+      ca_type=A
+    fi
+    case "$ca_type" in
+      A)
+        valid_target "$ca_name" || continue
+        ca_path=$ca_root/$ca_name
+        if [ -L "$ca_path" ] && [ "$(readlink "$ca_path" 2>/dev/null || :)" = "$ca_source" ]; then
+          rm -f -- "$ca_path"
+          log "removed temporary alias $ca_path"
+        fi
+        ;;
+      M)
+        case "$ca_name" in "$ca_root"/*) ;; *) continue ;; esac
+        if grep -F -q " $ca_name " /proc/mounts; then
+          umount "$ca_name" 2>/dev/null || {
+            log "WARNING: could not unmount shared-core view $ca_name"
+            ca_failed=yes
+            continue
+          }
+          log "unmounted shared-core view $ca_name"
+        fi
+        ;;
+      B)
+        # Bind-mounted card-root aliases are used on filesystems such as the
+        # standard Linux exFAT driver that do not implement symbolic links.
+        case "$ca_name" in "$ca_root"/*) ;; *) continue ;; esac
+        if grep -F -q " $ca_name " /proc/mounts; then
+          umount "$ca_name" 2>/dev/null || {
+            log "WARNING: could not unmount frontend path alias $ca_name"
+            ca_failed=yes
+            continue
+          }
+          log "unmounted frontend path alias $ca_name"
+        fi
+        # The mountpoint directory was created by add_alias. Once unmounted,
+        # remove it only when empty; never remove user data.
+        if [ -d "$ca_name" ] && [ ! -L "$ca_name" ]; then
+          rmdir "$ca_name" 2>/dev/null || :
+        fi
+        ;;
+    esac
+  done < "$ca_state"
+  if [ "$ca_failed" = yes ]; then
+    return 1
+  fi
+  rm -f -- "$ca_state"
+  return 0
+}
+
+add_alias() {
+  aa_root=$1 aa_name=$2 aa_source=$3 aa_state=$4
+  valid_target "$aa_name" || return 1
+  [ -d "$aa_source" ] && [ ! -L "$aa_source" ] || return 0
+  aa_path=$aa_root/$aa_name
+  [ "$aa_path" != "$aa_source" ] || return 0
+  if [ -L "$aa_path" ]; then
+    [ "$(readlink "$aa_path" 2>/dev/null || :)" = "$aa_source" ] && return 0
+    log "path alias conflict: $aa_path is already a different symlink"
+    return 0
+  fi
+  if [ -e "$aa_path" ]; then
+    if [ -d "$aa_path" ] && placeholder_tree "$aa_path"; then
+      remove_placeholder_tree "$aa_path" || {
+        log "path alias conflict: could not remove placeholder tree $aa_path"
+        return 0
+      }
+      rmdir "$aa_path" 2>/dev/null || :
+    else
+      log "path alias conflict: preserving existing $aa_path"
+      return 0
+    fi
+  fi
+  # Try a symlink first on filesystems that support it. Persist cleanup
+  # intent before activation so power loss cannot strand a created symlink.
+  # The user-data partition is commonly exFAT, whose standard Linux driver has
+  # no symlink operation; in that case use a transient bind mount instead.
+  printf 'A|%s|%s\n' "$aa_name" "$aa_source" >> "$aa_state"
+  sync
+  if ln -s "$aa_source" "$aa_path"; then
+    log "mapped $aa_path -> $aa_source"
+    return 0
+  fi
+  sed '$d' "$aa_state" > "$aa_state.tmp" && mv -f "$aa_state.tmp" "$aa_state" || return 1
+
+  if [ -e "$aa_path" ] || [ -L "$aa_path" ]; then
+    log "path alias fallback blocked by existing destination $aa_path"
+    return 0
+  fi
+  mkdir "$aa_path" || return 1
+  printf 'B|%s|%s\n' "$aa_path" "$aa_source" >> "$aa_state" || {
+    rmdir "$aa_path" 2>/dev/null || :
+    return 1
+  }
+  sync
+  if mount --bind "$aa_source" "$aa_path"; then
+    log "bind-mounted $aa_path -> $aa_source"
+    return 0
+  fi
+  sed '$d' "$aa_state" > "$aa_state.tmp" && mv -f "$aa_state.tmp" "$aa_state"
+  rmdir "$aa_path" 2>/dev/null || :
+  log "WARNING: could not create symlink or bind-mounted alias $aa_path"
+  return 1
+}
+
+add_core_mount() {
+  acm_program=$1 acm_rel=$2 acm_source=$3 acm_state=$4
+  valid_core_target "$acm_rel" || return 1
+  [ -d "$acm_source" ] && [ ! -L "$acm_source" ] || return 0
+  has_core_files "$acm_source" || return 0
+  safe_relative_path "$acm_program" "$acm_rel" || {
+    log "refusing unsafe shared-core mount target $acm_program/$acm_rel"
+    return 1
+  }
+  acm_target=$acm_program/$acm_rel
+  mkdir -p "${acm_target%/*}" "$acm_target" || return 1
+  [ ! -L "$acm_target" ] || return 1
+  printf 'M|%s|%s\n' "$acm_target" "$acm_source" >> "$acm_state"
+  sync
+  if mount --bind "$acm_source" "$acm_target"; then
+    log "shared BaseOS core library mounted at $acm_target (frontend files remain underneath)"
+    return 0
+  fi
+  # Remove the intent row if the bind did not happen.
+  sed '$d' "$acm_state" > "$acm_state.tmp" && mv -f "$acm_state.tmp" "$acm_state"
+  log "WARNING: could not bind shared cores to $acm_target"
+  return 1
+}
+
+find_shared_cores() {
+  fsc_root=$1 fsc_platform=$2
+  for fsc_dir in "$fsc_root/.baseos/shared/cores/$fsc_platform"; do
+    [ -d "$fsc_dir" ] && [ ! -L "$fsc_dir" ] || continue
+    if has_core_files "$fsc_dir"; then
+      printf '%s' "$fsc_dir"
+      return 0
+    fi
+  done
+  if [ "$fsc_platform" = rg353ps ]; then
+    for fsc_dir in "$fsc_root/.baseos/shared/cores/slot-rg353ps" \
+                   "$fsc_root/System/rg353ps/cores" "$fsc_root/System"; do
+      [ -d "$fsc_dir" ] && [ ! -L "$fsc_dir" ] || continue
+      if has_core_files "$fsc_dir"; then
+        printf '%s' "$fsc_dir"
+        return 0
+      fi
+    done
+  fi
+  return 1
+}
+
+apply_map() {
+  ap_root=$1 ap_program=$2 ap_map=$3 ap_userdata=${4:-}
+  safe_dir "$ap_root" || return 1
+  safe_dir "$ap_program" || return 1
+  [ -f "$ap_map" ] && [ ! -L "$ap_map" ] || return 1
+  safe_baseos_path "$ap_root" || return 1
+  case "$ap_program" in "$ap_root"|"$ap_root"/*) ;; *) echo "frontend program path is outside its selected card" >&2; return 1 ;; esac
+  cleanup_aliases "$ap_root" || return 1
+
+  mkdir -p "$ap_root/.baseos/frontend-paths" "$ap_root/Games" "$ap_root/Saves" \
+    "$ap_root/Bios" "$ap_root/Cheats" "$ap_root/Overlays" "$ap_root/Shaders" || return 1
+  ap_state=$(state_file "$ap_root")
+  [ ! -L "$ap_state" ] || { echo "refusing symlinked active path-map state" >&2; return 1; }
+  : > "$ap_state"
+
+  ap_games=$(read_map_value "$ap_map" games_target Games)
+  ap_saves=$(read_map_value "$ap_map" saves_target Saves)
+  ap_bios=$(read_map_value "$ap_map" bios_target Bios)
+  ap_cheats=$(read_map_value "$ap_map" cheats_target Cheats)
+  ap_overlays=$(read_map_value "$ap_map" overlays_target Overlays)
+  ap_shaders=$(read_map_value "$ap_map" shaders_target Shaders)
+  ap_system=$(read_map_value "$ap_map" system_target "")
+  ap_tools=$(read_map_value "$ap_map" tools_target "")
+  ap_emus=$(read_map_value "$ap_map" emus_target "")
+  ap_cores=$(read_map_value "$ap_map" cores_target "")
+  ap_userdata=$(read_map_value "$ap_map" userdata_target .userdata)
+  [ -z "$ap_cores" ] || valid_core_target "$ap_cores" || {
+    echo "invalid shared-core target in frontend path map: $ap_cores" >&2
+    rm -f "$ap_state"
+    return 1
+  }
+  for ap_name in "$ap_games" "$ap_saves" "$ap_bios" "$ap_cheats" "$ap_overlays" "$ap_shaders" "$ap_system" "$ap_tools" "$ap_emus" "$ap_userdata"; do
+    [ -z "$ap_name" ] || valid_target "$ap_name" || {
+      echo "invalid frontend path-map target: $ap_name" >&2
+      rm -f "$ap_state"
+      return 1
+    }
+  done
+
+  add_alias "$ap_root" "$ap_games" "$ap_root/Games" "$ap_state"
+  # Games is canonical. When explicitly selected as the frontend-facing
+  # target, still expose common legacy spellings such as NextUI's Roms/.
+  if [ "$ap_games" = Games ]; then
+    add_alias "$ap_root" Roms "$ap_root/Games" "$ap_state"
+    add_alias "$ap_root" ROMs "$ap_root/Games" "$ap_state"
+    add_alias "$ap_root" roms "$ap_root/Games" "$ap_state"
+  fi
+  add_alias "$ap_root" "$ap_saves" "$ap_root/Saves" "$ap_state"
+  add_alias "$ap_root" "$ap_bios" "$ap_root/Bios" "$ap_state"
+  add_alias "$ap_root" "$ap_cheats" "$ap_root/Cheats" "$ap_state"
+  add_alias "$ap_root" "$ap_overlays" "$ap_root/Overlays" "$ap_state"
+  add_alias "$ap_root" "$ap_shaders" "$ap_root/Shaders" "$ap_state"
+  [ -z "$ap_system" ] || add_alias "$ap_root" "$ap_system" "$ap_program/$ap_system" "$ap_state"
+  [ -z "$ap_tools" ] || add_alias "$ap_root" "$ap_tools" "$ap_program/$ap_tools" "$ap_state"
+  [ -z "$ap_emus" ] || add_alias "$ap_root" "$ap_emus" "$ap_program/$ap_emus" "$ap_state"
+  [ -z "$ap_userdata" ] || [ -z "$4" ] || add_alias "$ap_root" "$ap_userdata" "$4" "$ap_state"
+  if [ -n "$ap_cores" ]; then
+    ap_core_platform=$(core_platform "$ap_cores" || :)
+    if [ -n "$ap_core_platform" ]; then
+      seed_shared_cores "$ap_root" "$ap_program" "$ap_cores" "$ap_core_platform" || :
+      ap_core_source=$(find_shared_cores "$ap_root" "$ap_core_platform" || :)
+    else
+      ap_core_source=
+    fi
+    if [ -n "$ap_core_source" ]; then
+      add_core_mount "$ap_program" "$ap_cores" "$ap_core_source" "$ap_state" || :
+    else
+      log "no shared core binaries found for platform ${ap_core_platform:-unknown}; leaving frontend core directory unchanged"
+    fi
+  fi
+  [ -s "$ap_state" ] || rm -f "$ap_state"
+  sync
+  return 0
+}
+
+usage() {
+  echo "usage: baseos-frontend-paths scan CARD_ROOT FRONTEND_ID PROGRAM_ROOT | apply CARD_ROOT PROGRAM_ROOT MAP_FILE [USERDATA_DIR] | cleanup CARD_ROOT" >&2
+}
+
+case "${1:-}" in
+  scan)
+    [ "$#" -eq 4 ] || { usage; exit 2; }
+    scan_map "$2" "$3" "$4"
+    ;;
+  apply)
+    [ "$#" -ge 4 ] && [ "$#" -le 5 ] || { usage; exit 2; }
+    apply_map "$2" "$3" "$4" "${5:-}"
+    ;;
+  cleanup)
+    [ "$#" -eq 2 ] || { usage; exit 2; }
+    cleanup_aliases "$2"
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac

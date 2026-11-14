@@ -88,10 +88,11 @@ splash() {
 # The percentage is based on bytes written and read back, not elapsed time.
 update_progress() {
 	unset BASEOS_CUSTOM_SPLASH BASEOS_CUSTOM_SPLASH_ONLY
-	# Keep the wordmark illumination and overlay the traditional bottom
-	# progress pill. fbsplash with a message preserves the underlying logo.
-	[ -x /usr/bin/fbsplash ] && /usr/bin/fbsplash "$1" >/dev/null 2>&1 || :
-	[ -x /usr/bin/baseos-splash ] && /usr/bin/baseos-splash --important "$1" "UPDATING SYSTEM" >/dev/null 2>&1 || :
+	# Compose both indicators in one framebuffer update: fbsplash renders the
+	# wordmark's left-to-right illumination and the bottom status pill together.
+	# Separate full-screen and pill calls briefly expose an intermediate frame,
+	# which is the visible flash seen on each progress step.
+	[ -x /usr/bin/baseos-splash ] && /usr/bin/baseos-splash --progress "$1" "UPDATING SYSTEM" >/dev/null 2>&1 || :
 	return 0
 }
 

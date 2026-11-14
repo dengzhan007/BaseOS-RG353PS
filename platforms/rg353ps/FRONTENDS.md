@@ -37,6 +37,39 @@ directories:
 <card>/baseos/frontends/<adapter-id>/
 ```
 
+These historical adapter directories are also listed by the BaseOS frontend
+selector. In addition to the card root and its old wrapper-directory level,
+runtime and selector discovery check one named directory below
+`Frontends/<name>/`. This supports complete legacy archives such as NextUI
+installed as:
+
+```text
+<card>/
+└── Frontends/
+    └── NextUI/
+        ├── .baseos/frontends/nextui/launch.sh
+        ├── .system/
+        ├── Tools/
+        └── ...
+```
+
+The adapter is only the launch/manifest component. The complete
+`Frontends/NextUI/` directory is the isolated program bundle, including
+`.system/`, `Tools/` and any other files shipped with that frontend. BaseOS
+does not convert or rewrite the archive.
+
+For a legacy adapter, **SELECT** toggles enabled status by creating or
+removing a marker below `.baseos/frontends-disabled/<adapter-id>`; the adapter
+and all original files remain intact while disabled. The disabled entry stays
+in the selector and is labelled `[DISABLED]`. **X**, after a separate
+confirmation, removes the complete `Frontends/<name>/` directory when the
+adapter is installed inside that dedicated directory. This deletes its
+`.baseos/`, `.system/`, `Tools/` and other bundled resources, while
+preserving the card-level `Games/`, `Saves/` and other frontend directories.
+For legacy adapters installed directly at the card root or in a shared
+container without a dedicated `Frontends/<name>/` directory, **X** is
+conservative and removes only the adapter directory.
+
 The adapter ID is an identifier, not a product name. Use 1–48 ASCII letters,
 digits, dots, underscores or hyphens; it must not start with a dot, hyphen or
 underscore. BaseOS does not maintain a list of supported frontend names.
@@ -72,6 +105,84 @@ takes precedence over TF1, regardless of adapter priority.
 The card-side `/mnt/SDCARD/baseos.conf` may set `frontend_id=<adapter-id>`
 to pin one adapter. The default `frontend_id=auto` selects the highest-priority
 valid adapter. The legacy `frontends_order` setting is no longer used.
+
+## Automatic compatibility for plain frontend folders
+
+A folder placed directly under `Frontends/` does not need a BaseOS manifest if
+it has a recognised legacy entry point. BaseOS generates a compatibility
+package in the card's `.baseos/compat/<normalised-folder-id>/` directory and
+keeps the original frontend directory unchanged:
+
+```text
+/mnt/SDCARD/
+├── Frontends/
+│   └── NextUI/
+│       ├── launch.sh
+│       ├── nextui.elf
+│       └── ...
+└── .baseos/
+    └── compat/
+        └── NextUI/
+            ├── baseos-frontend.conf
+            ├── launch.sh
+            └── profiles/
+                └── default.conf
+```
+
+The compatibility scanner recognises these explicit entry-point names, in
+priority order:
+
+- `launch.sh`, `start.sh`, `run.sh`, or `frontend.sh` (run through
+  `/bin/sh`);
+- `.tmp_update/updater` or `.tmp_update/launch.sh` (run through
+  `/bin/sh`);
+- an ELF named after the directory, case-insensitively (for example
+  `NextUI/nextui.elf`), or `frontend.elf`.
+
+BaseOS does not guess by running an arbitrary ELF when several binaries are
+present. A folder without one of the recognised entry points is left untouched
+and is not added to the selector. The folder name is normalised to a legal
+package ID; conflicting names that normalise to the same ID are not silently
+merged. Rename the folder to a unique, simple name if it is skipped.
+
+An automatically wrapped folder gets one default profile named
+`<folder-id>--default`. If an earlier card-side `frontend_id` used the simple
+folder ID (for example `NextUI`), BaseOS accepts it as an alias for
+`NextUI--default` and then saves the canonical composite ID. An explicit
+legacy adapter at the historical `.baseos/frontends/<id>/` path keeps
+precedence for a matching simple ID.
+
+A folder made only from non-ASCII characters receives a stable
+`frontend-<checksum>` package ID while retaining its original folder name as
+the display label. Normalised-ID collisions are not merged; rename one folder
+to a unique name.
+
+The wrapper changes into the original program directory before invoking its
+entry point, and BaseOS gives that profile its own
+`.baseos/instances/<folder-id>--default/` data directory. Old frontends that
+keep their settings inside their program folder still use those original
+paths; BaseOS cannot promise settings isolation for unknown legacy layouts.
+
+All frontend types use the same **SELECT** key to enable or disable the
+selected entry. A disabled entry remains visible in the selector with a
+`[DISABLED]` marker, its program files and BaseOS metadata are preserved, and
+runtime discovery skips it. SELECT toggles the state back to enabled; setting
+a disabled entry as the default or launching it is rejected.
+
+For generated compatibility entries, **X** opens a confirmation and then
+deletes the original `Frontends/<folder>/` directory together with its
+generated compatibility metadata. Shared `Games/`, `Saves/`, other frontend
+directories and per-profile BaseOS instance data remain untouched.
+
+Users may install two copies of the same legacy frontend by copying the full
+directory and giving each copy a distinct folder name. Each folder is then
+discovered as an independent compatibility entry with its own default
+instance. BaseOS deliberately does not hash entire frontend trees or remove
+duplicate files: recursive hashing adds SD-card boot I/O, while replacing
+legacy files with links or bind mounts can redirect settings and save writes
+between copies. This compatibility path therefore keeps each copy complete.
+Native package/profile installations remain the recommended way to share one
+program payload across multiple isolated profiles.
 
 ## Managed frontend packages and configuration profiles (package API 1)
 
@@ -198,12 +309,17 @@ The selector makes the persistent default explicit: its top line shows
 When `frontend_id=auto`, the top line says `AUTO (priority-based discovery)`.
 A temporary selection never changes this marker.
 
-- **A** launches the highlighted profile once; the saved default is unchanged.
-- **Start** saves the highlighted profile as `frontend_id`, refreshes the
-  default marker, and launches it.
-- **Y** opens a confirmation to remove only the selected profile/configuration.
-- **X** opens a confirmation to uninstall the entire frontend package.
-- **B** cancels and continues with the configured default frontend.
+- **A** launches the highlighted, enabled profile once; the saved default is unchanged.
+- **Start** saves the highlighted, enabled profile as `frontend_id`, refreshes
+  the default marker, and launches it.
+- **SELECT** toggles the selected frontend between enabled and disabled. This
+  key is identical for managed packages, generated compatibility entries and
+  historical legacy adapters.
+- **Y** opens a confirmation to remove only the selected configuration profile
+  for a managed package. For compatibility and legacy entries, use SELECT to
+  change status or X to delete the frontend; Y does not toggle status.
+- **X** opens a confirmation to uninstall/delete the selected frontend.
+- **B** cancels and continues with the configured/default frontend.
 
 Profile removal deletes only the selected `profiles/<profile-id>.conf`. If
 other profiles remain, the common program payload stays installed and those
@@ -222,11 +338,11 @@ copy. If a removed profile/package supplied
 the configured default, BaseOS selects another discovered managed profile as
 the new default; if none remain, it changes `frontend_id` back to `auto`.
 
-The selector manages the new `Frontends/<package-id>/` package format,
-including multiple profiles within one package. A profile is an independent
-user configuration, not a second copy of the executable. Legacy
-`.baseos/frontends/<adapter-id>/` adapters remain supported for automatic and
-pinned startup, but are not removable through this managed-package selector.
+The selector lists managed packages, generated compatibility entries and
+historical legacy adapters together. SELECT enables/disables any selected
+entry using the same interaction. Y removes one managed profile; X deletes
+the whole selected frontend using the layout-specific safety boundary described
+in the legacy-adapter section below.
 
 ### Shared Games directory
 
@@ -234,9 +350,35 @@ The canonical ROM directory is `/mnt/SDCARD/Games/`. The old `Roms/`
 directory is renamed to `Games/` at startup only when `Games/` does not
 already exist. If both exist, BaseOS preserves both and does not attempt an
 automatic merge; merge their contents manually before removing the old
-directory. Frontend-specific system names and internal ROM paths are mapped
-by the package's adapter configuration; BaseOS does not require each frontend
-to use the same internal system labels.
+directory.
+
+BaseOS automatically creates a **package-level path map** when it discovers a
+frontend, including a legacy adapter or an automatically wrapped folder. The
+map is stored on the card at
+`/.baseos/frontend-paths/<frontend-id>.conf`; it is not placed inside the
+frontend directory and the frontend package does not need to ship one. The map
+is generated from the directory layout BaseOS finds, then kept as user data:
+subsequent scans do not overwrite it, so manual path corrections survive
+reboots and package rescans.
+
+The file maps canonical BaseOS resource roots to the directory names expected
+by the selected frontend. For example, a NextUI-style bundle can be given
+temporary card-root aliases such as `Roms/ -> Games/`, `.system/ ->`
+`Frontends/NextUI/.system/`, and `Tools/ -> Frontends/NextUI/Tools/`.
+During the frontend session, BaseOS also attempts to bind the shared core pack
+into the mapped frontend core directory when a compatible core pack is present.
+It removes only the aliases and bind mounts it created when the frontend exits
+or before USB storage mode exports the card. Existing non-empty directories
+and unrelated files are never replaced. When a path conflicts with an existing
+card-root directory, BaseOS preserves that directory and records a warning
+rather than overwriting user data.
+
+The map's `games_target`, `saves_target`, `bios_target`, `cheats_target`,
+`overlays_target`, `shaders_target`, `system_target`, `tools_target`,
+`emus_target` and `cores_target` fields describe frontend-facing names.
+They do not change sharing policy: the ROM library and battery saves remain
+shared, profile data remains separate, and the per-category asset policy
+remains independent of path naming.
 
 
 ### Runtime data ownership in the RG353PS Slot package
@@ -319,7 +461,8 @@ BaseOS exports:
 |---|---|
 | `PLATFORM` | Device platform identifier (`rg353ps`) |
 | `BASEOS_FRONTEND_ID` | Selected adapter ID |
-| `BASEOS_FRONTEND_ROOT` | Selected card root (kept compatible with legacy launchers) |
+| `BASEOS_FRONTEND_ROOT` | Selected card root (kept compatible with historical launchers) |
+| `BASEOS_FRONTEND_PROGRAM_ROOT` | Resolved frontend program bundle root, including a nested `Frontends/<name>/` bundle |
 | `BASEOS_PACKAGE_DIR` | Managed package directory; empty for legacy adapters |
 | `BASEOS_PACKAGE_ID` | Stable package identity |
 | `BASEOS_PROFILE_ID` | Selected configuration profile identity |

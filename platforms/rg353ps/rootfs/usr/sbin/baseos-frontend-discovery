@@ -197,7 +197,15 @@ baseos_frontend_record_candidate() {
 baseos_frontend_consider_package() {
   bcp_root=$1 bcp_dir=$2 bcp_profile=$3 bcp_preference=$4
   baseos_frontend_load_package "$bcp_root" "$bcp_dir" "$bcp_profile" || return 0
-  if [ "$bcp_preference" != auto ] && [ "$BASEOS_ADAPTER_ID" != "$bcp_preference" ]; then
+  if [ "$bcp_preference" = "$BASEOS_PACKAGE_ID" ] &&
+     [ "${BASEOS_PACKAGE_KIND:-managed}" = compat ]; then
+    # Keep an existing simple frontend_id working after a plain folder is
+    # automatically wrapped. An explicit legacy adapter with the same ID wins.
+    if [ -f "$bcp_root/.baseos/frontends/$BASEOS_PACKAGE_ID/launch.sh" ] ||
+       [ -f "$bcp_root/baseos/frontends/$BASEOS_PACKAGE_ID/launch.sh" ]; then
+      return 0
+    fi
+  elif [ "$bcp_preference" != auto ] && [ "$BASEOS_ADAPTER_ID" != "$bcp_preference" ]; then
     # A package may declare one previous package ID when its folder/identity
     # is renamed. Preserve the selected profile across that one-time migration.
     case "$bcp_preference" in *--*) bcp_old_package=${bcp_preference%%--*}; bcp_old_profile=${bcp_preference#*--} ;; *) return 0 ;; esac

@@ -403,7 +403,7 @@ apply_map() {
   safe_dir "$ap_program" || return 1
   [ -f "$ap_map" ] && [ ! -L "$ap_map" ] || return 1
   safe_baseos_path "$ap_root" || return 1
-  case "$ap_program" in "$ap_root"/*) ;; *) echo "frontend program path is outside its selected card" >&2; return 1 ;; esac
+  case "$ap_program" in "$ap_root"|"$ap_root"/*) ;; *) echo "frontend program path is outside its selected card" >&2; return 1 ;; esac
   cleanup_aliases "$ap_root" || return 1
 
   mkdir -p "$ap_root/.baseos/frontend-paths" "$ap_root/Games" "$ap_root/Saves" \

@@ -38,21 +38,38 @@ directories:
 ```
 
 These historical adapter directories are also listed by the BaseOS frontend
-selector. It scans the card root and the same one-wrapper-directory level used
-by runtime discovery. This supports archives such as NextUI extracted into a
-container directory, with the adapter below
-`<container>/.baseos/frontends/nextui/` and resources such as `.system/` and
-`Tools/` beside that adapter. BaseOS does not convert or rewrite the archive.
+selector. In addition to the card root and its old wrapper-directory level,
+runtime and selector discovery check one named directory below
+`Frontends/<name>/`. This supports complete legacy archives such as NextUI
+installed as:
+
+```text
+<card>/
+└── Frontends/
+    └── NextUI/
+        ├── .baseos/frontends/nextui/launch.sh
+        ├── .system/
+        ├── Tools/
+        └── ...
+```
+
+The adapter is only the launch/manifest component. The complete
+`Frontends/NextUI/` directory is the isolated program bundle, including
+`.system/`, `Tools/` and any other files shipped with that frontend. BaseOS
+does not convert or rewrite the archive.
 
 For a legacy adapter, **Y** disables discovery by writing a marker below
 `.baseos/frontends-disabled/<adapter-id>`; the adapter and all original files
 remain intact. Remove that marker to re-enable it. **X**, after a separate
-confirmation, removes only the adapter directory itself. It deliberately
-preserves sibling `.system/`, `Tools/`, `Games/`, `Saves/` and other
-resources, because historical root-style layouts do not declare an isolated
-frontend payload directory. Review and remove any remaining archive payload
-manually after checking for shared resources. Managed packages and generated
-plain-folder compatibility entries retain their separate removal semantics.
+confirmation, removes the complete `Frontends/<name>/` directory when the
+adapter is installed inside that dedicated directory. This deletes its
+`.baseos/`, `.system/`, `Tools/` and other bundled resources, while
+preserving the card-level `Games/`, `Saves/` and other frontend directories.
+For legacy adapters installed directly at the card root or in a shared
+container without a dedicated `Frontends/<name>/` directory, **X** is
+conservative and removes only the adapter directory. Managed packages and
+generated plain-folder compatibility entries retain their separate removal
+semantics.
 
 The adapter ID is an identifier, not a product name. Use 1–48 ASCII letters,
 digits, dots, underscores or hyphens; it must not start with a dot, hyphen or

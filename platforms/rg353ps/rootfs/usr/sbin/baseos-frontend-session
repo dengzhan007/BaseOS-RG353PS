@@ -319,8 +319,8 @@ scan_root() {
         FRONTEND_COMPAT_MODE=yes
         BASEOS_COMPAT_PROGRAM_DIR=$BASEOS_SCAN_COMPAT_PROGRAM_DIR
       fi
-      if [ "$BASEOS_SCAN_KIND" = package ] && [ "$FRONTEND_PREFERENCE" != auto ] &&
-         [ "$SELECTED" != "$FRONTEND_PREFERENCE" ] &&
+      if { [ "$BASEOS_SCAN_KIND" = package ] || [ "$BASEOS_SCAN_KIND" = compat-package ]; } &&
+         [ "$FRONTEND_PREFERENCE" != auto ] && [ "$SELECTED" != "$FRONTEND_PREFERENCE" ] &&
          [ -x /usr/sbin/baseos-frontend-manager ]; then
         if /usr/sbin/baseos-frontend-manager set-default "$SELECTED" >/dev/null 2>&1; then
           log "migrated frontend_id from $FRONTEND_PREFERENCE to $SELECTED"

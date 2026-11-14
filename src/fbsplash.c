@@ -751,10 +751,63 @@ static int draw_custom_bmp(uint8_t *fb, struct fb_var_screeninfo *v,
 // as it was before rotation existed.
 static void present(uint8_t *fb, struct fb_var_screeninfo *v,
                     struct fb_fix_screeninfo *f, int rot, int prog,
-                    const char *msg, int pill) {
+                    const char *msg, int pill, int combined) {
 	struct fb_var_screeninfo lv;
 	struct fb_fix_screeninfo lf;
 	uint8_t *canvas = fb;
+
+	if (combined) {
+		size_t canvas_len;
+		struct fb_var_screeninfo *draw_v = v;
+		struct fb_fix_screeninfo *draw_f = f;
+		int custom_drawn;
+		if (rot) {
+			logical_geometry(v, f, rot, &lv, &lf);
+			draw_v = &lv;
+			draw_f = &lf;
+			canvas_len = lf.smem_len;
+		} else {
+			canvas_len = (size_t)f->line_length * v->yres;
+		}
+		canvas = malloc(canvas_len);
+		if (canvas) {
+			// Compose the illuminated wordmark and bottom pill before publishing
+			// either. This replaces two independent framebuffer updates (the
+			// source of the visible flash) with one completed frame.
+			custom_drawn = draw_custom_bmp(canvas, draw_v, draw_f);
+			if (!custom_drawn && getenv("BASEOS_CUSTOM_SPLASH_ONLY")) {
+				// Preserve a bootloader/custom image when the caller explicitly
+				// asked not to draw the built-in wordmark.
+				if (rot)
+					rotate_blit(fb, v, f, canvas, &lv, &lf, rot, 0);
+				else
+					for (int y = 0; y < (int)v->yres; y++)
+						memcpy(canvas + (size_t)y * draw_f->line_length,
+						       fb + (size_t)y * f->line_length,
+						       f->line_length);
+			} else if (!custom_drawn) {
+				render(canvas, draw_v, draw_f, prog, NULL);
+			}
+			render_pill(canvas, draw_v, draw_f, prog, msg);
+			if (rot) {
+				rotate_blit(fb, v, f, canvas, &lv, &lf, rot, 1);
+			} else {
+				for (int y = 0; y < (int)v->yres; y++)
+					memcpy(fb + (size_t)y * f->line_length,
+					       canvas + (size_t)y * draw_f->line_length,
+					       f->line_length);
+			}
+			free(canvas);
+			return;
+		}
+		// Allocation failure is rare; retain both indicators as a fallback,
+		// even though they can no longer be committed as one off-screen frame.
+		int custom_fallback = draw_custom_bmp(fb, v, f);
+		if (!custom_fallback && !getenv("BASEOS_CUSTOM_SPLASH_ONLY"))
+			render(fb, v, f, prog, NULL);
+		render_pill(fb, v, f, prog, msg);
+		return;
+	}
 
 	if (rot) {
 		logical_geometry(v, f, rot, &lv, &lf);
@@ -784,10 +837,6 @@ static void present(uint8_t *fb, struct fb_var_screeninfo *v,
 	}
 
 	if (canvas != fb) {
-		// Turning the whole frame back writes every visible pixel, but the copy
-		// in above means the ones outside the pill are written their own values:
-		// "preserves every pixel outside the status surface" still holds by
-		// value, which is what the guarantee is about.
 		rotate_blit(fb, v, f, canvas, &lv, &lf, rot, 1);
 		free(canvas);
 	}

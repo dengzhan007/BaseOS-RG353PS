@@ -115,6 +115,7 @@ jobs:
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-usb-mtp
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-manager
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-discovery
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-compat
           sh -n platforms/rg353ps/frontends/slot/launch.sh
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-audio-init

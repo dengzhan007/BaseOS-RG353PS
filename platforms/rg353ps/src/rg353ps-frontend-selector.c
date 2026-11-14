@@ -26,7 +26,7 @@
 #define LABEL_LEN 160
 #define PACKAGE_LEN 64
 #define PROFILE_LEN 32
-#define ROOT_LEN 128
+#define ROOT_LEN 320
 #define PATH_LEN 320
 #define CATALOG_PATH "/run/baseos-frontend-catalog"
 #define CONFIG_PATH "/mnt/SDCARD/baseos.conf"
@@ -108,6 +108,24 @@ static int entry_is_default(const struct frontend_entry *entry)
 {
     return strcmp(current_default_id, "auto") != 0 &&
            strcmp(entry->id, current_default_id) == 0;
+}
+
+/* Old archives extracted under Frontends/<name>/ are complete isolated
+ * frontend bundles; their .system and Tools directories live in this root. */
+static int entry_is_frontend_bundle(const struct frontend_entry *entry)
+{
+    static const char *prefixes[] = {
+        "/mnt/SDCARD/Frontends/",
+        "/mnt/TF2/Frontends/"
+    };
+    for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); ++i) {
+        size_t n = strlen(prefixes[i]);
+        if (strncmp(entry->root, prefixes[i], n) == 0) {
+            const char *name = entry->root + n;
+            return name[0] != '\0' && strchr(name, '/') == NULL;
+        }
+    }
+    return 0;
 }
 
 static const char *current_default_label(void)
@@ -288,10 +306,15 @@ static void render(void)
                     (void)printf("  This entry will stay unregistered until compatibility is re-enabled.\n");
                 }
             } else if (strcmp(entry->kind, "legacy-adapter") == 0) {
-                if (uninstall_package_action) {
+                if (uninstall_package_action && entry_is_frontend_bundle(entry)) {
+                    (void)printf("\n  DELETE THE COMPLETE LEGACY FRONTEND DIRECTORY.\n");
+                    (void)printf("  This removes the complete bundle:\n  %s\n", entry->root);
+                    (void)printf("  Including .baseos/, .system/, Tools/ and its other contents.\n");
+                    (void)printf("  Games/, Saves/ and other Frontends/ entries stay untouched.\n");
+                } else if (uninstall_package_action) {
                     (void)printf("\n  DELETE ONLY THE LEGACY ADAPTER DIRECTORY.\n");
                     (void)printf("  This removes:\n  %s\n", entry->package_dir);
-                    (void)printf("  Shared .system/, Tools/, Games/ and Saves/ stay untouched.\n");
+                    (void)printf("  No isolated Frontends/<name>/ bundle was detected.\n");
                 } else {
                     (void)printf("\n  DISABLE THIS LEGACY ADAPTER.\n");
                     (void)printf("  The adapter and all original files are preserved.\n");
@@ -347,7 +370,10 @@ static void render(void)
             (void)printf("  X: DELETE original frontend program directory\n");
         } else if (strcmp(entries[selected_item].kind, "legacy-adapter") == 0) {
             (void)printf("  Y: disable legacy adapter (keep all files)\n");
-            (void)printf("  X: DELETE adapter directory only (shared payload stays)\n");
+            if (entry_is_frontend_bundle(&entries[selected_item]))
+                (void)printf("  X: DELETE complete frontend directory (.system/, Tools/ included)\n");
+            else
+                (void)printf("  X: DELETE adapter directory only (no bundle root found)\n");
         } else {
             (void)printf("  Y: remove selected profile    X: uninstall entire frontend\n");
         }
@@ -393,6 +419,7 @@ static void uninstall_selected(void)
     (void)snprintf(profile, sizeof(profile), "%s", entries[selected_item].profile_id);
     const int is_compat = strcmp(entries[selected_item].kind, "compat") == 0;
     const int is_legacy_adapter = strcmp(entries[selected_item].kind, "legacy-adapter") == 0;
+    const int is_legacy_bundle = is_legacy_adapter && entry_is_frontend_bundle(&entries[selected_item]);
     const char *action = is_compat
         ? (remove_package ? "delete-compat" : "uninstall-compat")
         : is_legacy_adapter
@@ -405,9 +432,12 @@ static void uninstall_selected(void)
         render();
         return;
     }
-    if (is_legacy_adapter && remove_package) {
+    if (is_legacy_bundle && remove_package) {
         (void)snprintf(status_line, sizeof(status_line),
-                       "Deleted adapter directory for %s; shared frontend payload was kept.", package);
+                       "Deleted complete legacy frontend directory %s, including its bundled resources.", package);
+    } else if (is_legacy_adapter && remove_package) {
+        (void)snprintf(status_line, sizeof(status_line),
+                       "Deleted adapter directory for %s; no isolated bundle root was found.", package);
     } else if (is_legacy_adapter) {
         (void)snprintf(status_line, sizeof(status_line),
                        "Disabled legacy adapter %s; all original files were kept.", package);

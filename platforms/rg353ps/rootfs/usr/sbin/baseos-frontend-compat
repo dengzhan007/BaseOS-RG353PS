@@ -83,10 +83,44 @@ resolve_entrypoint() {
   return 1
 }
 
+compat_needs_scan() {
+  cns_root=$1
+  cns_state=$cns_root/.baseos/compat.scan-state
+  [ -f "$cns_state" ] && [ ! -L "$cns_state" ] || return 0
+  if [ -d "$cns_root/Frontends" ]; then
+    [ "$cns_root/Frontends" -nt "$cns_state" ] && return 0
+    for cns_dir in "$cns_root"/Frontends/*; do
+      [ -d "$cns_dir" ] || continue
+      [ "$cns_dir" -nt "$cns_state" ] && return 0
+    done
+  fi
+  cns_disabled=$cns_root/.baseos/compat-disabled
+  [ -d "$cns_disabled" ] && [ "$cns_disabled" -nt "$cns_state" ] && return 0
+  # Removing/renaming the original source or its selected entry point does not
+  # change the Frontends parent directory for nested updater paths. Check the
+  # small generated manifest set using shell builtins and only rescan if stale.
+  for cns_manifest in "$cns_root/.baseos/compat"/*/baseos-frontend.conf; do
+    [ -f "$cns_manifest" ] || continue
+    baseos_frontend_read_value "$cns_manifest" compat_source ""
+    cns_source=$BASEOS_VALUE
+    baseos_frontend_read_value "$cns_manifest" compat_entrypoint ""
+    cns_entry=$BASEOS_VALUE
+    [ -n "$cns_source" ] && [ -n "$cns_entry" ] || return 0
+    case "$cns_source" in ''|.|..|*/*|*'|'*) return 0 ;; esac
+    case "$cns_entry" in
+      launch.sh|start.sh|run.sh|frontend.sh|.tmp_update/updater|.tmp_update/launch.sh|frontend.elf|*.elf) ;;
+      *) return 0 ;;
+    esac
+    [ -f "$cns_root/Frontends/$cns_source/$cns_entry" ] || return 0
+  done
+  return 1
+}
+
 scan_root() {
   sr_root=$1
   [ -d "$sr_root/Frontends" ] && [ ! -L "$sr_root/Frontends" ] || return 0
   [ ! -L "$sr_root/.baseos" ] || return 0
+  compat_needs_scan "$sr_root" || return 0
   [ ! -L "$sr_root/.baseos/compat" ] || return 0
   for sr_dir in "$sr_root"/Frontends/*; do
     [ -d "$sr_dir" ] && [ ! -L "$sr_dir" ] || continue
@@ -153,6 +187,12 @@ scan_root() {
       printf '%s\n' 'priority=100'
     } | write_if_changed "$sr_sidecar/profiles/default.conf"
   done
+  # The common boot path only does directory mtime checks and reads the small
+  # sidecar manifest set. Full name normalisation and wrapper regeneration run
+  # only when a frontend folder is added/removed/changed.
+  state=$sr_root/.baseos/compat.scan-state
+  [ ! -L "$state" ] || return 0
+  : > "$state"
 }
 
 case "${1:-scan}" in

@@ -190,9 +190,12 @@ scan_root() {
   # The common boot path only does directory mtime checks and reads the small
   # sidecar manifest set. Full name normalisation and wrapper regeneration run
   # only when a frontend folder is added/removed/changed.
+  if [ ! -d "$sr_root/.baseos" ]; then
+    mkdir -p "$sr_root/.baseos" || return 0
+  fi
   state=$sr_root/.baseos/compat.scan-state
   [ ! -L "$state" ] || return 0
-  : > "$state"
+  : > "$state" 2>/dev/null || :
 }
 
 case "${1:-scan}" in

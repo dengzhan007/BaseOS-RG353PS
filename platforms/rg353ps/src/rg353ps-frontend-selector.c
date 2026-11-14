@@ -384,7 +384,7 @@ static void render(void)
         }
         (void)printf("\n  Selected ID: %s\n", entries[selected_item].id);
         (void)printf("  A: launch once    START: set default + launch\n");
-        (void)printf("  SELECT: %s frontend (same control for every frontend type)\n",
+        (void)printf("  SELECT / E: %s frontend (same control for every frontend type)\n",
                      entries[selected_item].disabled ? "ENABLE" : "DISABLE");
         if (strcmp(entries[selected_item].kind, "compat") == 0) {
             (void)printf("  X: DELETE original frontend program directory\n");

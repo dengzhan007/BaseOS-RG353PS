@@ -24,6 +24,78 @@ valid_target() {
   esac
 }
 
+valid_core_target() {
+  case "$1" in
+    .system/rg353ps/cores|.system/h700/cores|.system/cores|SYSTEM/rg353ps/cores|SYSTEM/h700/cores|SYSTEM/cores|System/rg353ps/cores|System/h700/cores|System/cores)
+      return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+safe_baseos_path() {
+  sbp_root=$1
+  [ ! -L "$sbp_root/.baseos" ] || return 1
+  [ ! -L "$sbp_root/.baseos/frontend-paths" ] || return 1
+}
+
+placeholder_tree() {
+  pt_dir=$1
+  [ -d "$pt_dir" ] && [ ! -L "$pt_dir" ] || return 1
+  for pt_item in "$pt_dir"/* "$pt_dir"/.[!.]* "$pt_dir"/..?*; do
+    [ -e "$pt_item" ] || [ -L "$pt_item" ] || continue
+    [ ! -L "$pt_item" ] || return 1
+    if [ -d "$pt_item" ]; then
+      placeholder_tree "$pt_item" || return 1
+    else
+      [ -f "$pt_item" ] && [ "${pt_item##*/}" = .keep ] || return 1
+    fi
+  done
+  return 0
+}
+
+remove_placeholder_tree() {
+  rpt_dir=$1
+  for rpt_item in "$rpt_dir"/* "$rpt_dir"/.[!.]* "$rpt_dir"/..?*; do
+    [ -e "$rpt_item" ] || [ -L "$rpt_item" ] || continue
+    [ ! -L "$rpt_item" ] || return 1
+    if [ -d "$rpt_item" ]; then
+      remove_placeholder_tree "$rpt_item" || return 1
+      rmdir "$rpt_item" || return 1
+    else
+      [ "${rpt_item##*/}" = .keep ] || return 1
+      rm -f -- "$rpt_item" || return 1
+    fi
+  done
+  return 0
+}
+
+has_core_files() {
+  hcf_dir=$1
+  for hcf_file in "$hcf_dir"/*_libretro.so; do
+    [ -f "$hcf_file" ] && [ ! -L "$hcf_file" ] && return 0
+  done
+  return 1
+}
+
+safe_relative_path() {
+  srp_root=$1 srp_rel=$2
+  case "$srp_rel" in
+    ''|/*|*'..'*|*'|'*|*[!A-Za-z0-9._/-]*) return 1 ;;
+  esac
+  case "$srp_rel" in */|*//*) return 1 ;; esac
+  srp_walk=$srp_root
+  old_ifs=$IFS
+  IFS=/
+  set -- $srp_rel
+  IFS=$old_ifs
+  for srp_part do
+    [ -n "$srp_part" ] && [ "$srp_part" != . ] && [ "$srp_part" != .. ] || return 1
+    srp_walk=$srp_walk/$srp_part
+    [ ! -L "$srp_walk" ] || return 1
+  done
+  return 0
+}
+
 read_map_value() {
   rmv_file=$1 rmv_key=$2 rmv_default=$3
   rmv_result=$rmv_default
@@ -45,8 +117,7 @@ scan_map() {
   valid_id "$sm_id" || { echo "invalid frontend path-map ID: $sm_id" >&2; return 1; }
   safe_dir "$sm_root" || { echo "invalid card root: $sm_root" >&2; return 1; }
   safe_dir "$sm_program" || { echo "invalid frontend program root: $sm_program" >&2; return 1; }
-  [ ! -L "$sm_root/.baseos" ] || { echo "refusing symlinked .baseos" >&2; return 1; }
-  [ ! -L "$sm_root/.baseos/frontend-paths" ] || { echo "refusing symlinked frontend-paths directory" >&2; return 1; }
+  safe_baseos_path "$sm_root" || { echo "refusing symlinked BaseOS path-map directory" >&2; return 1; }
 
   sm_dir=$sm_root/.baseos/frontend-paths
   sm_map=$sm_dir/$sm_id.conf
@@ -88,13 +159,15 @@ scan_map() {
 
   sm_cores=
   for sm_candidate in \
-    "$sm_system/rg353ps/cores" "$sm_system/rg353ps" \
-    "$sm_system/h700/cores" "$sm_system/h700" \
-    "$sm_system/cores" "$sm_system"; do
+    "$sm_system/rg353ps/cores" "$sm_system/h700/cores" \
+    "$sm_system/cores"; do
     [ -n "$sm_candidate" ] || continue
-    [ -d "$sm_program/$sm_candidate" ] || continue
-    sm_cores=$sm_candidate
-    break
+    # The target may contain only .keep placeholders. Keep the target path even
+    # when the shared source is supplied by BaseOS rather than by this package.
+    if [ -d "$sm_program/$sm_candidate" ] || [ -d "$sm_program/$sm_system" ]; then
+      sm_cores=$sm_candidate
+      break
+    fi
   done
 
   mkdir -p "$sm_dir"
@@ -131,17 +204,39 @@ state_file() {
 cleanup_aliases() {
   ca_root=$1
   safe_dir "$ca_root" || return 1
+  safe_baseos_path "$ca_root" || return 1
   ca_dir=$ca_root/.baseos/frontend-paths
   ca_state=$(state_file "$ca_root")
   [ -f "$ca_state" ] && [ ! -L "$ca_state" ] || return 0
-  while IFS='|' read -r ca_name ca_source; do
-    [ -n "$ca_name" ] && [ -n "$ca_source" ] || continue
-    valid_target "$ca_name" || continue
-    ca_path=$ca_root/$ca_name
-    if [ -L "$ca_path" ] && [ "$(readlink "$ca_path" 2>/dev/null || :)" = "$ca_source" ]; then
-      rm -f -- "$ca_path"
-      log "removed temporary alias $ca_path"
+  while IFS='|' read -r ca_type ca_name ca_source; do
+    [ -n "$ca_type" ] || continue
+    # Accept the original two-column alias state for cards that were updated
+    # while a previous frontend session still had a map active.
+    if [ -z "$ca_source" ]; then
+      ca_source=$ca_name
+      ca_name=$ca_type
+      ca_type=A
     fi
+    case "$ca_type" in
+      A)
+        valid_target "$ca_name" || continue
+        ca_path=$ca_root/$ca_name
+        if [ -L "$ca_path" ] && [ "$(readlink "$ca_path" 2>/dev/null || :)" = "$ca_source" ]; then
+          rm -f -- "$ca_path"
+          log "removed temporary alias $ca_path"
+        fi
+        ;;
+      M)
+        case "$ca_name" in "$ca_root"/*) ;; *) continue ;; esac
+        if grep -F -q " $ca_name " /proc/mounts; then
+          umount "$ca_name" 2>/dev/null || {
+            log "WARNING: could not unmount shared-core view $ca_name"
+            continue
+          }
+          log "unmounted shared-core view $ca_name"
+        fi
+        ;;
+    esac
   done < "$ca_state"
   rm -f -- "$ca_state"
   return 0
@@ -159,11 +254,12 @@ add_alias() {
     return 0
   fi
   if [ -e "$aa_path" ]; then
-    if [ -d "$aa_path" ] && [ -z "$(ls -A "$aa_path" 2>/dev/null)" ]; then
-      rmdir "$aa_path" 2>/dev/null || {
-        log "path alias conflict: cannot replace empty directory $aa_path"
+    if [ -d "$aa_path" ] && placeholder_tree "$aa_path"; then
+      remove_placeholder_tree "$aa_path" || {
+        log "path alias conflict: could not remove placeholder tree $aa_path"
         return 0
       }
+      rmdir "$aa_path" 2>/dev/null || :
     else
       log "path alias conflict: preserving existing $aa_path"
       return 0
@@ -171,7 +267,7 @@ add_alias() {
   fi
   # Persist cleanup intent before making the symlink. A power loss between
   # these two operations is harmless: cleanup ignores a link that is absent.
-  printf '%s|%s\n' "$aa_name" "$aa_source" >> "$aa_state"
+  printf 'A|%s|%s\n' "$aa_name" "$aa_source" >> "$aa_state"
   sync
   ln -s "$aa_source" "$aa_path" || return 1
   log "mapped $aa_path -> $aa_source"
@@ -180,9 +276,54 @@ add_alias() {
 
 apply_map() {
   ap_root=$1 ap_program=$2 ap_map=$3 ap_userdata=${4:-}
+
+add_core_mount() {
+  acm_program=$1 acm_rel=$2 acm_source=$3 acm_state=$4
+  valid_core_target "$acm_rel" || return 1
+  [ -d "$acm_source" ] && [ ! -L "$acm_source" ] || return 0
+  has_core_files "$acm_source" || return 0
+  safe_relative_path "$acm_program" "$acm_rel" || {
+    log "refusing unsafe shared-core mount target $acm_program/$acm_rel"
+    return 1
+  }
+  acm_target=$acm_program/$acm_rel
+  if has_core_files "$acm_target"; then
+    log "frontend already has cores at $acm_target; keeping its supplied core set"
+    return 0
+  fi
+  mkdir -p "${acm_target%/*}" "$acm_target" || return 1
+  [ ! -L "$acm_target" ] || return 1
+  printf 'M|%s|%s\n' "$acm_target" "$acm_source" >> "$acm_state"
+  sync
+  if mount --bind "$acm_source" "$acm_target"; then
+    log "shared BaseOS cores mapped to $acm_target"
+    return 0
+  fi
+  # Remove the intent row if the bind did not happen.
+  sed "$d" "$acm_state" > "$acm_state.tmp" && mv -f "$acm_state.tmp" "$acm_state"
+  log "WARNING: could not bind shared cores to $acm_target"
+  return 1
+}
+
+find_shared_cores() {
+  fsc_root=$1
+  for fsc_dir in "$fsc_root/.baseos/shared/cores/slot-rg353ps" "$fsc_root/System"; do
+    [ -d "$fsc_dir" ] && [ ! -L "$fsc_dir" ] || continue
+    if has_core_files "$fsc_dir"; then
+      printf '%s' "$fsc_dir"
+      return 0
+    fi
+  done
+  return 1
+}
+
+apply_map() {
+  ap_root=$1 ap_program=$2 ap_map=$3 ap_userdata=${4:-}
   safe_dir "$ap_root" || return 1
   safe_dir "$ap_program" || return 1
   [ -f "$ap_map" ] && [ ! -L "$ap_map" ] || return 1
+  safe_baseos_path "$ap_root" || return 1
+  case "$ap_program" in "$ap_root"/*) ;; *) echo "frontend program path is outside its selected card" >&2; return 1 ;; esac
   cleanup_aliases "$ap_root" || return 1
 
   mkdir -p "$ap_root/.baseos/frontend-paths" "$ap_root/Games" "$ap_root/Saves" \
@@ -200,7 +341,13 @@ apply_map() {
   ap_system=$(read_map_value "$ap_map" system_target "")
   ap_tools=$(read_map_value "$ap_map" tools_target "")
   ap_emus=$(read_map_value "$ap_map" emus_target "")
+  ap_cores=$(read_map_value "$ap_map" cores_target "")
   ap_userdata=$(read_map_value "$ap_map" userdata_target .userdata)
+  [ -z "$ap_cores" ] || valid_core_target "$ap_cores" || {
+    echo "invalid shared-core target in frontend path map: $ap_cores" >&2
+    rm -f "$ap_state"
+    return 1
+  }
   for ap_name in "$ap_games" "$ap_saves" "$ap_bios" "$ap_cheats" "$ap_overlays" "$ap_shaders" "$ap_system" "$ap_tools" "$ap_emus" "$ap_userdata"; do
     [ -z "$ap_name" ] || valid_target "$ap_name" || {
       echo "invalid frontend path-map target: $ap_name" >&2
@@ -219,6 +366,14 @@ apply_map() {
   [ -z "$ap_tools" ] || add_alias "$ap_root" "$ap_tools" "$ap_program/$ap_tools" "$ap_state"
   [ -z "$ap_emus" ] || add_alias "$ap_root" "$ap_emus" "$ap_program/$ap_emus" "$ap_state"
   [ -z "$ap_userdata" ] || [ -z "$4" ] || add_alias "$ap_root" "$ap_userdata" "$4" "$ap_state"
+  if [ -n "$ap_cores" ]; then
+    ap_core_source=$(find_shared_cores "$ap_root" || :)
+    if [ -n "$ap_core_source" ]; then
+      add_core_mount "$ap_program" "$ap_cores" "$ap_core_source" "$ap_state" || :
+    else
+      log "no BaseOS shared core pack found; leaving frontend core directory unchanged"
+    fi
+  fi
   [ -s "$ap_state" ] || rm -f "$ap_state"
   sync
   return 0

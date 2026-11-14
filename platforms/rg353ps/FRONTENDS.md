@@ -58,18 +58,17 @@ The adapter is only the launch/manifest component. The complete
 `.system/`, `Tools/` and any other files shipped with that frontend. BaseOS
 does not convert or rewrite the archive.
 
-For a legacy adapter, **Y** disables discovery by writing a marker below
-`.baseos/frontends-disabled/<adapter-id>`; the adapter and all original files
-remain intact. Remove that marker to re-enable it. **X**, after a separate
+For a legacy adapter, **SELECT** toggles enabled status by creating or
+removing a marker below `.baseos/frontends-disabled/<adapter-id>`; the adapter
+and all original files remain intact while disabled. The disabled entry stays
+in the selector and is labelled `[DISABLED]`. **X**, after a separate
 confirmation, removes the complete `Frontends/<name>/` directory when the
 adapter is installed inside that dedicated directory. This deletes its
 `.baseos/`, `.system/`, `Tools/` and other bundled resources, while
 preserving the card-level `Games/`, `Saves/` and other frontend directories.
 For legacy adapters installed directly at the card root or in a shared
 container without a dedicated `Frontends/<name>/` directory, **X** is
-conservative and removes only the adapter directory. Managed packages and
-generated plain-folder compatibility entries retain their separate removal
-semantics.
+conservative and removes only the adapter directory.
 
 The adapter ID is an identifier, not a product name. Use 1–48 ASCII letters,
 digits, dots, underscores or hyphens; it must not start with a dot, hyphen or
@@ -164,17 +163,16 @@ entry point, and BaseOS gives that profile its own
 keep their settings inside their program folder still use those original
 paths; BaseOS cannot promise settings isolation for unknown legacy layouts.
 
-The selector exposes two separate removal operations for these compatibility
-entries:
+All frontend types use the same **SELECT** key to enable or disable the
+selected entry. A disabled entry remains visible in the selector with a
+`[DISABLED]` marker, its program files and BaseOS metadata are preserved, and
+runtime discovery skips it. SELECT toggles the state back to enabled; setting
+a disabled entry as the default or launching it is rejected.
 
-- **Y — Remove BaseOS compatibility:** deletes only the generated
-  `.baseos/compat/<folder-id>/` metadata and records a disable marker at
-  `.baseos/compat-disabled/<folder-id>`. The original `Frontends/<folder>/`
-  files remain. To let BaseOS discover it again later, remove that marker.
-- **X — Delete frontend program:** after the selector's confirmation screen,
-  deletes the original `Frontends/<folder>/` directory and its generated
-  compatibility metadata. Per-instance data under `.baseos/instances/` and
-  shared `Games/` and `Saves/` content are preserved.
+For generated compatibility entries, **X** opens a confirmation and then
+deletes the original `Frontends/<folder>/` directory together with its
+generated compatibility metadata. Shared `Games/`, `Saves/`, other frontend
+directories and per-profile BaseOS instance data remain untouched.
 
 Users may install two copies of the same legacy frontend by copying the full
 directory and giving each copy a distinct folder name. Each folder is then
@@ -311,12 +309,17 @@ The selector makes the persistent default explicit: its top line shows
 When `frontend_id=auto`, the top line says `AUTO (priority-based discovery)`.
 A temporary selection never changes this marker.
 
-- **A** launches the highlighted profile once; the saved default is unchanged.
-- **Start** saves the highlighted profile as `frontend_id`, refreshes the
-  default marker, and launches it.
-- **Y** opens a confirmation to remove only the selected profile/configuration.
-- **X** opens a confirmation to uninstall the entire frontend package.
-- **B** cancels and continues with the configured default frontend.
+- **A** launches the highlighted, enabled profile once; the saved default is unchanged.
+- **Start** saves the highlighted, enabled profile as `frontend_id`, refreshes
+  the default marker, and launches it.
+- **SELECT** toggles the selected frontend between enabled and disabled. This
+  key is identical for managed packages, generated compatibility entries and
+  historical legacy adapters.
+- **Y** opens a confirmation to remove only the selected configuration profile
+  for a managed package. For compatibility and legacy entries, use SELECT to
+  change status or X to delete the frontend; Y does not toggle status.
+- **X** opens a confirmation to uninstall/delete the selected frontend.
+- **B** cancels and continues with the configured/default frontend.
 
 Profile removal deletes only the selected `profiles/<profile-id>.conf`. If
 other profiles remain, the common program payload stays installed and those
@@ -335,11 +338,11 @@ copy. If a removed profile/package supplied
 the configured default, BaseOS selects another discovered managed profile as
 the new default; if none remain, it changes `frontend_id` back to `auto`.
 
-The selector manages the new `Frontends/<package-id>/` package format,
-including multiple profiles within one package. A profile is an independent
-user configuration, not a second copy of the executable. Legacy
-`.baseos/frontends/<adapter-id>/` adapters remain supported for automatic and
-pinned startup, but are not removable through this managed-package selector.
+The selector lists managed packages, generated compatibility entries and
+historical legacy adapters together. SELECT enables/disables any selected
+entry using the same interaction. Y removes one managed profile; X deletes
+the whole selected frontend using the layout-specific safety boundary described
+in the legacy-adapter section below.
 
 ### Shared Games directory
 

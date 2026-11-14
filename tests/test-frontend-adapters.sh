@@ -73,4 +73,10 @@ touch "$CACHE"
 sleep 1
 printf '%s\n' 'priority=500' >> "$TMP/card/.baseos/frontends/alpha/manifest.conf"
 baseos_frontend_tree_changed_since "$TMP/card" "$CACHE" || fail "manifest update did not invalidate cache"
+# The supervisor must suppress stdout/stderr for both direct updater launches
+# and script adapters; child processes inherit these descriptors.
+SESSION="$HERE/platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session"
+grep -Fq '"$LAUNCHER" >/dev/null 2>&1 &' "$SESSION" || fail "direct frontend launch can write to the console"
+grep -Fq '/bin/sh "$LAUNCHER" >/dev/null 2>&1 &' "$SESSION" || fail "script frontend launch can write to the console"
+
 echo "PASS: generic frontend adapter discovery"

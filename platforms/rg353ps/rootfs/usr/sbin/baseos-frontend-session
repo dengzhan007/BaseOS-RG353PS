@@ -509,6 +509,10 @@ else
   BASEOS_DATA_DIR="$FRONTEND_ROOT/.baseos/data"
   BASEOS_USERDATA_DIR="$FRONTEND_ROOT/.baseos/userdata"
   BASEOS_PROFILE_CONFIG=
+  # Create the private legacy user-data root before applying aliases such as
+  # .userdata -> this directory. Otherwise the first launch misses the alias
+  # and only later launches see it after the generic directory setup below.
+  mkdir -p "$BASEOS_INSTANCE_DIR" "$BASEOS_DATA_DIR" "$BASEOS_USERDATA_DIR" 2>/dev/null || :
 fi
 BASEOS_LAUNCHER=$LAUNCHER
 export PLATFORM BASEOS_FRONTEND_ID BASEOS_SYSTEM_ROOT BASEOS_BOOT

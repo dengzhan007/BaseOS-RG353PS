@@ -360,16 +360,17 @@ add_alias() {
       return 0
     fi
   fi
-  # Try a symlink first on filesystems that support it. The user-data
-  # partition is commonly exFAT, whose standard Linux driver has no symlink
-  # operation; in that case use a transient bind mount over the empty
-  # mountpoint instead. Both forms are recorded for cleanup before activation.
+  # Try a symlink first on filesystems that support it. Persist cleanup
+  # intent before activation so power loss cannot strand a created symlink.
+  # The user-data partition is commonly exFAT, whose standard Linux driver has
+  # no symlink operation; in that case use a transient bind mount instead.
+  printf 'A|%s|%s\n' "$aa_name" "$aa_source" >> "$aa_state"
+  sync
   if ln -s "$aa_source" "$aa_path"; then
-    printf 'A|%s|%s\n' "$aa_name" "$aa_source" >> "$aa_state"
-    sync
     log "mapped $aa_path -> $aa_source"
     return 0
   fi
+  sed '$d' "$aa_state" > "$aa_state.tmp" && mv -f "$aa_state.tmp" "$aa_state" || return 1
 
   if [ -e "$aa_path" ] || [ -L "$aa_path" ]; then
     log "path alias fallback blocked by existing destination $aa_path"

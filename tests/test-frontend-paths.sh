@@ -19,7 +19,7 @@ fail() {
   exit 1
 }
 
-[ -x "$HELPER" ] || fail "frontend path-map helper is missing or not executable"
+[ -f "$HELPER" ] || fail "frontend path-map helper is missing"
 sh "$HELPER" scan "$CARD" NextUI "$PROGRAM" || fail "initial path-map scan failed"
 
 MAP=$CARD/.baseos/frontend-paths/NextUI.conf

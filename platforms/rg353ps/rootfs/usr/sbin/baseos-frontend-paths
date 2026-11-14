@@ -279,9 +279,6 @@ add_alias() {
   return 0
 }
 
-apply_map() {
-  ap_root=$1 ap_program=$2 ap_map=$3 ap_userdata=${4:-}
-
 add_core_mount() {
   acm_program=$1 acm_rel=$2 acm_source=$3 acm_state=$4
   valid_core_target "$acm_rel" || return 1
@@ -305,7 +302,7 @@ add_core_mount() {
     return 0
   fi
   # Remove the intent row if the bind did not happen.
-  sed "$d" "$acm_state" > "$acm_state.tmp" && mv -f "$acm_state.tmp" "$acm_state"
+  sed '$d' "$acm_state" > "$acm_state.tmp" && mv -f "$acm_state.tmp" "$acm_state"
   log "WARNING: could not bind shared cores to $acm_target"
   return 1
 }

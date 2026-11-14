@@ -113,10 +113,21 @@ package ID; conflicting names that normalise to the same ID are not silently
 merged. Rename the folder to a unique, simple name if it is skipped.
 
 An automatically wrapped folder gets one default profile named
-`<folder-id>--default`. The wrapper changes into the original program
-directory before invoking its entry point, and BaseOS gives that profile its
-own `.baseos/instances/<folder-id>--default/` data directory. Old frontends
-that keep their settings inside their program folder still use those original
+`<folder-id>--default`. If an earlier card-side `frontend_id` used the simple
+folder ID (for example `NextUI`), BaseOS accepts it as an alias for
+`NextUI--default` and then saves the canonical composite ID. An explicit
+legacy adapter at the historical `.baseos/frontends/<id>/` path keeps
+precedence for a matching simple ID.
+
+A folder made only from non-ASCII characters receives a stable
+`frontend-<checksum>` package ID while retaining its original folder name as
+the display label. Normalised-ID collisions are not merged; rename one folder
+to a unique name.
+
+The wrapper changes into the original program directory before invoking its
+entry point, and BaseOS gives that profile its own
+`.baseos/instances/<folder-id>--default/` data directory. Old frontends that
+keep their settings inside their program folder still use those original
 paths; BaseOS cannot promise settings isolation for unknown legacy layouts.
 
 The selector exposes two separate removal operations for these compatibility

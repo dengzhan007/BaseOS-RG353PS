@@ -43,6 +43,7 @@ struct frontend_entry {
     char profile_config[PATH_LEN];
     char kind[16];
     int priority;
+    int disabled;
 };
 
 struct input_device {
@@ -134,8 +135,16 @@ static const char *current_default_label(void)
 
     if (strcmp(current_default_id, "auto") == 0)
         return "AUTO (priority-based discovery)";
-    for (int i = 0; i < entry_count; ++i)
-        if (entry_is_default(&entries[i])) return entries[i].label;
+    for (int i = 0; i < entry_count; ++i) {
+        if (entry_is_default(&entries[i])) {
+            if (entries[i].disabled) {
+                (void)snprintf(missing_label, sizeof(missing_label),
+                               "%s (disabled; choose another)", entries[i].label);
+                return missing_label;
+            }
+            return entries[i].label;
+        }
+    }
 
     (void)snprintf(missing_label, sizeof(missing_label),
                    "%s (not listed here)", current_default_id);
@@ -150,7 +159,7 @@ static int load_catalog(void)
     if (fp == NULL) return 0;
 
     while (entry_count < MAX_FRONTENDS && fgets(line, sizeof(line), fp) != NULL) {
-        char *fields[9];
+        char *fields[10];
         char *save = NULL;
         char *token;
         int count = 0;
@@ -158,11 +167,11 @@ static int load_catalog(void)
         if (len > 0 && line[len - 1] == '\n') line[--len] = '\0';
         if (len > 0 && line[len - 1] == '\r') line[--len] = '\0';
         token = strtok_r(line, "|", &save);
-        while (token != NULL && count < 9) {
+        while (token != NULL && count < 10) {
             fields[count++] = token;
             token = strtok_r(NULL, "|", &save);
         }
-        if (count != 9 || token != NULL) continue;
+        if ((count != 9 && count != 10) || token != NULL) continue;
 
         struct frontend_entry *entry = &entries[entry_count];
         memset(entry, 0, sizeof(*entry));
@@ -176,6 +185,7 @@ static int load_catalog(void)
             !copy_field(entry->kind, sizeof(entry->kind), fields[8]))
             continue;
         entry->priority = atoi(fields[7]);
+        entry->disabled = count == 10 && strcmp(fields[9], "disabled") == 0;
         ++entry_count;
     }
     (void)fclose(fp);
@@ -294,6 +304,8 @@ static void render(void)
             (void)printf("\n  No frontend package is selected.\n");
         } else {
             (void)printf("\n  Package: %-62.62s\n", entry->package_id);
+            if (entry->disabled)
+                (void)printf("  STATUS: DISABLED (files are preserved)\n");
             (void)printf("  Selected profile: %-53.53s\n", entry->profile_id);
             (void)printf("  Profiles in this package: %-46d\n", count_package_profiles(entry->package_id));
             if (strcmp(entry->kind, "compat") == 0) {
@@ -344,7 +356,14 @@ static void render(void)
     } else {
         (void)printf("  INSTALLED PROFILES\n");
         for (int i = scroll_offset; i < entry_count && i < scroll_offset + 10; ++i) {
-            if (entry_is_default(&entries[i])) {
+            if (entries[i].disabled) {
+                if (i == selected_item)
+                    (void)printf("  \033[1;32m>\033[0m \033[1;31m[DISABLED]\033[0m %-62.62s\n",
+                                 entries[i].label);
+                else
+                    (void)printf("    \033[1;31m[DISABLED]\033[0m %-62.62s\n",
+                                 entries[i].label);
+            } else if (entry_is_default(&entries[i])) {
                 if (i == selected_item)
                     (void)printf("  \033[1;32m>\033[0m \033[1;33m[DEFAULT]\033[0m %-62.62s\n",
                                  entries[i].label);
@@ -366,16 +385,20 @@ static void render(void)
         (void)printf("\n  Selected ID: %s\n", entries[selected_item].id);
         (void)printf("  A: launch once    START: set default + launch\n");
         if (strcmp(entries[selected_item].kind, "compat") == 0) {
-            (void)printf("  Y: remove BaseOS compatibility (keep program files)\n");
+            (void)printf("  Y: %s compatibility (keep program files)\n",
+                         entries[selected_item].disabled ? "enable" : "disable");
             (void)printf("  X: DELETE original frontend program directory\n");
         } else if (strcmp(entries[selected_item].kind, "legacy-adapter") == 0) {
-            (void)printf("  Y: disable legacy adapter (keep all files)\n");
+            (void)printf("  Y: %s legacy frontend (keep all files)\n",
+                         entries[selected_item].disabled ? "enable" : "disable");
             if (entry_is_frontend_bundle(&entries[selected_item]))
                 (void)printf("  X: DELETE complete frontend directory (.system/, Tools/ included)\n");
             else
                 (void)printf("  X: DELETE adapter directory only (no bundle root found)\n");
         } else {
-            (void)printf("  Y: remove selected profile    X: uninstall entire frontend\n");
+            (void)printf("  Y: remove selected profile    SELECT: %s frontend\n",
+                         entries[selected_item].disabled ? "enable" : "disable");
+            (void)printf("  X: uninstall entire frontend package\n");
         }
         (void)printf("  B: cancel and use the configured/default frontend\n");
         if (entry_count > 10)
@@ -391,6 +414,12 @@ static void render(void)
 static void choose_launch(int set_default)
 {
     if (entry_count <= 0) return;
+    if (entries[selected_item].disabled) {
+        (void)snprintf(status_line, sizeof(status_line),
+                       "This frontend is disabled. Enable it before launching.");
+        render();
+        return;
+    }
     if (set_default) {
         int rc = run_manager("set-default", entries[selected_item].id);
         if (rc != 0) {
@@ -406,6 +435,35 @@ static void choose_launch(int set_default)
         return;
     }
     running = 0;
+}
+
+static void toggle_selected_status(void)
+{
+    int rc;
+    const struct frontend_entry *entry;
+    const char *action;
+
+    if (entry_count <= 0) return;
+    entry = &entries[selected_item];
+    if (strcmp(entry->kind, "legacy-adapter") == 0) {
+        action = entry->disabled ? "enable-legacy" : "disable-legacy";
+    } else if (strcmp(entry->kind, "compat") == 0) {
+        action = entry->disabled ? "enable-compat" : "uninstall-compat";
+    } else {
+        action = entry->disabled ? "enable-package" : "disable-package";
+    }
+    rc = run_manager(action, entry->id);
+    if (rc != 0) {
+        (void)snprintf(status_line, sizeof(status_line),
+                       "Could not change frontend status (manager exit %d).", rc);
+        render();
+        return;
+    }
+    (void)snprintf(status_line, sizeof(status_line), "%s %s.",
+                   entry->disabled ? "Enabled" : "Disabled", entry->label);
+    load_current_default();
+    (void)load_catalog();
+    render();
 }
 
 static void uninstall_selected(void)
@@ -490,12 +548,19 @@ static void handle_key(unsigned int code, int value)
     case BTN_START:
         choose_launch(1);
         break;
-    case BTN_WEST: /* Y: remove this profile only. */
-        if (entry_count > 0) {
+    case BTN_WEST: /* Y: legacy frontend status toggle; otherwise remove a profile. */
+        if (entry_count > 0 &&
+            (strcmp(entries[selected_item].kind, "compat") == 0 ||
+             strcmp(entries[selected_item].kind, "legacy-adapter") == 0)) {
+            toggle_selected_status();
+        } else if (entry_count > 0) {
             uninstall_package_action = 0;
             confirming_uninstall = 1;
             render();
         }
+        break;
+    case BTN_SELECT:
+        toggle_selected_status();
         break;
     case BTN_NORTH: /* X: remove the entire frontend package. */
         if (entry_count > 0) {
@@ -543,6 +608,7 @@ static void handle_terminal_byte(unsigned char ch, int *escape_state)
     else if (ch == 'a' || ch == 'A' || ch == '\n' || ch == '\r') handle_key(BTN_EAST, 1);
     else if (ch == 'd' || ch == 'D') handle_key(BTN_START, 1);
     else if (ch == 'u' || ch == 'U' || ch == 'y' || ch == 'Y') handle_key(BTN_WEST, 1);
+    else if (ch == 'e' || ch == 'E') handle_key(BTN_SELECT, 1);
     else if (ch == 'x' || ch == 'X') handle_key(BTN_NORTH, 1);
     else if (ch == 'b' || ch == 'B' || ch == 'q' || ch == 'Q') handle_key(BTN_SOUTH, 1);
 }

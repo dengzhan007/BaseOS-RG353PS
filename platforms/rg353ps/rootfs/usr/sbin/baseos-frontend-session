@@ -141,6 +141,10 @@ diagnostic() {
       sleep 0.1
     done
     wait "$DIAGNOSTIC_PID" 2>/dev/null || :
+    if [ -s /run/baseos-frontend-selection ]; then
+      log "frontend selected from diagnostics; resuming frontend discovery and launch"
+      exec /usr/sbin/baseos-frontend-session
+    fi
     sleep 0.2
   done
 }
@@ -258,6 +262,7 @@ fi
 FRONTEND_PREFERENCE=$(setting frontend_id auto)
 if [ -s /run/baseos-frontend-selection ]; then
   read -r requested_frontend < /run/baseos-frontend-selection || requested_frontend=
+  rm -f /run/baseos-frontend-selection
   if [ -n "$requested_frontend" ] && baseos_frontend_valid_id "$requested_frontend"; then
     FRONTEND_PREFERENCE=$requested_frontend
     log "one-time frontend profile selection: $FRONTEND_PREFERENCE"

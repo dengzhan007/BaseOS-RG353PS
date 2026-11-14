@@ -10,7 +10,7 @@ trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 TF1=$TMP/card
 TF2=$TMP/tf2
 CATALOG=$TMP/catalog
-mkdir -p "$TF1/Frontends/NextUI" "$TF1/Frontends/NextUI-copy" "$TF1/Frontends/Next'UI" "$TF1/Frontends/街机" "$TF2"
+mkdir -p "$TF1/Frontends/NextUI" "$TF1/Frontends/NextUI-copy" "$TF1/Frontends/Next'UI" "$TF1/Frontends/街机" "$TF2/Frontends"
 cat > "$TF1/Frontends/NextUI/launch.sh" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$PWD" > "$COMPAT_TEST_RESULT"
@@ -45,6 +45,18 @@ run_manager() {
 }
 
 compat_scan
+STATE=$TF1/.baseos/compat.scan-state
+[ -f "$STATE" ] || fail "compatibility scan state was not recorded"
+state_before=$(stat -c '%y' "$STATE")
+sleep 1
+compat_scan
+state_after=$(stat -c '%y' "$STATE")
+[ "$state_before" = "$state_after" ] || fail "unchanged compatibility scan rewrote its state"
+sleep 1
+mkdir -p "$TF1/Frontends/LateFrontend"
+printf '%s\n' '#!/bin/sh' 'exit 0' > "$TF1/Frontends/LateFrontend/launch.sh"
+compat_scan
+[ -f "$TF1/.baseos/compat/LateFrontend/baseos-frontend.conf" ] || fail "new frontend folder did not invalidate the compatibility scan cache"
 SIDE=$TF1/.baseos/compat/NextUI
 [ -f "$SIDE/baseos-frontend.conf" ] || fail "compatibility manifest was not generated"
 [ -f "$SIDE/launch.sh" ] || fail "compatibility launcher was not generated"
@@ -68,7 +80,7 @@ grep -F -q "$unicode_id--default|街机|" "$CATALOG" || fail "all-Unicode folder
 baseos_frontend_scan_root "$TF1" NextUI || fail "legacy simple frontend_id pin was not resolved"
 [ "$BASEOS_SCAN_ID" = "NextUI--default" ] || fail "legacy simple frontend_id did not resolve to its default profile"
 [ "$BASEOS_SCAN_KIND" = "compat-package" ] || fail "simple frontend_id pin did not select the compatibility package"
-[ "$(wc -l < "$CATALOG" | tr -d ' ')" = 4 ] || fail "expected four independent compatibility entries"
+[ "$(wc -l < "$CATALOG" | tr -d ' ')" = 5 ] || fail "expected five independent compatibility entries"
 
 # Y action unregisters only the BaseOS-generated compatibility and leaves the
 # original program directory untouched; the tombstone prevents auto-regeneration.

@@ -120,8 +120,8 @@ scan_root() {
   sr_root=$1
   [ -d "$sr_root/Frontends" ] && [ ! -L "$sr_root/Frontends" ] || return 0
   [ ! -L "$sr_root/.baseos" ] || return 0
-  compat_needs_scan "$sr_root" || return 0
   [ ! -L "$sr_root/.baseos/compat" ] || return 0
+  compat_needs_scan "$sr_root" || return 0
   for sr_dir in "$sr_root"/Frontends/*; do
     [ -d "$sr_dir" ] && [ ! -L "$sr_dir" ] || continue
     [ -f "$sr_dir/baseos-frontend.conf" ] && continue

@@ -232,7 +232,10 @@ run_manager enable-legacy nextui
 [ ! -e "$LEGACY_ROOT/.baseos/frontends-disabled/nextui" ] || fail "re-enabling legacy adapter left its marker"
 run_manager catalog
 grep -F -q '|legacy-adapter|enabled' "$CATALOG" || fail "legacy adapter did not return to enabled state"
+mkdir -p "$TF1/.baseos/frontend-paths"
+printf '%s\n' 'paths_api=1' 'frontend_id=nextui' > "$TF1/.baseos/frontend-paths/nextui.conf"
 run_manager delete-legacy-adapter nextui
+[ ! -e "$TF1/.baseos/frontend-paths/nextui.conf" ] || fail "legacy frontend deletion left its BaseOS path map"
 [ ! -e "$LEGACY_ROOT" ] || fail "confirmed legacy frontend deletion left its bundle directory"
 [ ! -e "$LEGACY_ROOT/.system/rg353ps/nextui.elf" ] || fail "legacy frontend deletion left bundled .system payload"
 [ ! -e "$LEGACY_ROOT/Tools/rg353ps/tool" ] || fail "legacy frontend deletion left bundled Tools payload"

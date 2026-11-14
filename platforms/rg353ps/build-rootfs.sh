@@ -206,7 +206,12 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       echo "frontend package manager is missing" >&2
       exit 1
     }
+    test -f "$R/usr/sbin/baseos-frontend-compat" || {
+      echo "legacy frontend compatibility helper is missing" >&2
+      exit 1
+    }
     sh -n "$R/usr/sbin/baseos-frontend-manager"
+    sh -n "$R/usr/sbin/baseos-frontend-compat"
     test -x "$R/usr/bin/v4l2-ctl" || {
       echo "v4l2-ctl was not installed into target rootfs" >&2
       exit 1
@@ -304,6 +309,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     chmod 0755 "$R/usr/sbin/baseos-usb-storage"
     chmod 0755 "$R/usr/sbin/baseos-frontend-session"
     chmod 0755 "$R/usr/sbin/baseos-frontend-manager"
+    chmod 0755 "$R/usr/sbin/baseos-frontend-compat"
     chmod 0755 "$R/usr/sbin/rg353ps-frontend-selector"
     chmod 0755 "$R/usr/sbin/baseos-boot-mark"
     chmod 0755 "$R/usr/sbin/baseos-boot-report"

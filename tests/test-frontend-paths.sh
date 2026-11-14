@@ -129,10 +129,11 @@ fi
 exec /bin/mount "$@"
 EOF
 chmod +x "$FAKE_BIN/ln" "$FAKE_BIN/mount"
-# The production helper deliberately resets PATH; create a test-only copy with
-# the fake command directory prepended to exercise the unsupported-symlink case.
+# The production helper deliberately resets PATH; create a test-only copy
+# that routes only the link and bind-mount operations through our test doubles.
 FALLBACK_HELPER=$TMP/baseos-frontend-paths-fallback
-sed "s#^PATH=/sbin:/bin:/usr/sbin:/usr/bin#PATH=$FAKE_BIN:/sbin:/bin:/usr/sbin:/usr/bin#" \
+sed -e "s#ln -s #$FAKE_BIN/ln -s #g" \
+    -e "s#mount --bind #$FAKE_BIN/mount --bind #g" \
   "$HELPER" > "$FALLBACK_HELPER"
 chmod +x "$FALLBACK_HELPER"
 sh "$FALLBACK_HELPER" apply "$FALLBACK_CARD" "$FALLBACK_CARD" "$FALLBACK_MAP" || \

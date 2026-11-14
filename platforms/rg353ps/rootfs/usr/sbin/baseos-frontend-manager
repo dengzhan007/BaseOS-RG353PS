@@ -18,6 +18,38 @@ run_compat_scan() {
   /bin/sh "$compat_tool" scan "$TF2" "$TF1"
 }
 
+append_legacy_adapters() {
+  legacy_root=$1
+  for legacy_parent in "$legacy_root/.baseos/frontends" "$legacy_root/baseos/frontends"; do
+    [ -d "$legacy_parent" ] && [ ! -L "$legacy_parent" ] || continue
+    case "$legacy_parent" in
+      "$legacy_root/.baseos/frontends") [ ! -L "$legacy_root/.baseos" ] || continue ;;
+      "$legacy_root/baseos/frontends") [ ! -L "$legacy_root/baseos" ] || continue ;;
+    esac
+    for legacy_dir in "$legacy_parent"/*; do
+      [ -d "$legacy_dir" ] && [ ! -L "$legacy_dir" ] || continue
+      [ -f "$legacy_dir/launch.sh" ] && [ ! -L "$legacy_dir/launch.sh" ] || continue
+      [ ! -L "$legacy_dir/manifest.conf" ] || continue
+      legacy_id=${legacy_dir##*/}
+      # Reuse runtime validation so the selector accepts the same adapter
+      # manifests, IDs, priorities and ownership fields as boot discovery.
+      baseos_frontend_load_manifest "$legacy_dir" || continue
+      [ "$BASEOS_ADAPTER_ID" = "$legacy_id" ] || continue
+      [ ! -e "$legacy_root/.baseos/frontends-disabled/$legacy_id" ] || continue
+      grep -F -q "$legacy_id|" "$catalog_tmp" && continue
+      if [ -f "$legacy_dir/manifest.conf" ]; then
+        legacy_config=$legacy_dir/manifest.conf
+      else
+        legacy_config=$legacy_dir/launch.sh
+      fi
+      printf '%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
+        "$legacy_id" "$BASEOS_FRONTEND_NAME" "$legacy_id" "legacy" \
+        "$legacy_root" "$legacy_dir" "$legacy_config" \
+        "$BASEOS_ADAPTER_PRIORITY" "legacy-adapter" >> "$catalog_tmp"
+    done
+  done
+}
+
 build_catalog() {
   run_compat_scan || echo "WARNING: compatibility scan failed" >&2
   catalog_tmp=$CATALOG.$$
@@ -49,6 +81,12 @@ build_catalog() {
         done
       done
     done
+    # Runtime discovery scans the card root and one wrapper-directory level.
+    append_legacy_adapters "$catalog_root"
+    for catalog_nested in "$catalog_root"/*; do
+      [ -d "$catalog_nested" ] && [ ! -L "$catalog_nested" ] || continue
+      append_legacy_adapters "$catalog_nested"
+    done
   done
   mv -f "$catalog_tmp" "$CATALOG"
   migrate_default_package_alias
@@ -68,6 +106,82 @@ find_catalog_entry() {
   return 1
 }
 
+legacy_root_is_allowed() {
+  lra_root=$1
+  for lra_card in "$TF1" "$TF2"; do
+    [ "$lra_root" = "$lra_card" ] && return 0
+    case "$lra_root" in
+      "$lra_card"/*)
+        lra_relative=${lra_root#"$lra_card"/}
+        case "$lra_relative" in ''|*/*) return 1 ;; esac
+        [ -d "$lra_root" ] && [ ! -L "$lra_root" ] || return 1
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+remove_legacy_adapter() {
+  rla_action=$1
+  [ "$ENTRY_KIND" = legacy-adapter ] || return 1
+  [ "$ENTRY_ID" = "$ENTRY_PACKAGE" ] && [ "$ENTRY_PROFILE" = legacy ] || return 1
+  baseos_frontend_valid_id "$ENTRY_PACKAGE" || return 1
+  if [ "$ENTRY_DIR" = "$ENTRY_ROOT/.baseos/frontends/$ENTRY_PACKAGE" ]; then
+    [ ! -L "$ENTRY_ROOT/.baseos" ] && [ ! -L "$ENTRY_ROOT/.baseos/frontends" ] || {
+      echo "refusing symlinked canonical adapter path" >&2; return 1;
+    }
+  elif [ "$ENTRY_DIR" = "$ENTRY_ROOT/baseos/frontends/$ENTRY_PACKAGE" ]; then
+    [ ! -L "$ENTRY_ROOT/baseos" ] && [ ! -L "$ENTRY_ROOT/baseos/frontends" ] || {
+      echo "refusing symlinked visible adapter path" >&2; return 1;
+    }
+  else
+    echo "refusing unexpected legacy adapter path" >&2; return 1
+  fi
+  legacy_root_is_allowed "$ENTRY_ROOT" || { echo "refusing unexpected legacy adapter root" >&2; return 1; }
+  [ -d "$ENTRY_DIR" ] && [ ! -L "$ENTRY_DIR" ] || {
+    echo "legacy adapter directory is missing or is a symlink" >&2; return 1;
+  }
+  [ -f "$ENTRY_DIR/launch.sh" ] && [ ! -L "$ENTRY_DIR/launch.sh" ] || {
+    echo "legacy adapter launcher is missing or is a symlink" >&2; return 1;
+  }
+  [ ! -L "$ENTRY_DIR/manifest.conf" ] || { echo "refusing symlinked adapter manifest" >&2; return 1; }
+  [ ! -L "$ENTRY_ROOT/.baseos" ] || { echo "refusing symlinked .baseos directory" >&2; return 1; }
+  disabled_dir=$ENTRY_ROOT/.baseos/frontends-disabled
+  [ ! -L "$disabled_dir" ] || { echo "refusing symlinked legacy disable directory" >&2; return 1; }
+  mkdir -p "$disabled_dir" || return 1
+  disabled_marker=$disabled_dir/$ENTRY_PACKAGE
+  [ ! -L "$disabled_marker" ] || { echo "refusing symlinked legacy disable marker" >&2; return 1; }
+
+  case "$rla_action" in
+    disable-legacy)
+      : > "$disabled_marker" || return 1
+      removed_label=LEGACY_DISABLED
+      ;;
+    delete-legacy-adapter)
+      rm -rf -- "$ENTRY_DIR" || return 1
+      rm -f -- "$disabled_marker" || return 1
+      removed_label=LEGACY_ADAPTER
+      ;;
+    *)
+      echo "legacy adapter requires disable-legacy or delete-legacy-adapter" >&2
+      return 1
+      ;;
+  esac
+  sync
+  current_default=$(sed -n 's/^[[:space:]]*frontend_id=//p' "$CONFIG" 2>/dev/null | tail -n 1)
+  build_catalog
+  if [ "$current_default" = "$ENTRY_ID" ]; then
+    next_default=$(awk -F '|' 'NR == 1 { print $1; exit }' "$CATALOG")
+    [ -n "$next_default" ] || next_default=auto
+    write_default "$next_default"
+  fi
+  case "$removed_label" in
+    LEGACY_DISABLED) printf '%s\n' "DISABLED_LEGACY_ADAPTER:$ENTRY_PACKAGE (files kept)" ;;
+    LEGACY_ADAPTER) printf '%s\n' "DELETED_LEGACY_ADAPTER:$ENTRY_PACKAGE (shared payload kept)" ;;
+  esac
+}
+
 write_default() {
   default_id=$1
   case "$default_id" in
@@ -77,7 +191,10 @@ write_default() {
       default_profile=${default_id#*--}
       valid_profile_id "$default_profile" || return 1
       ;;
-    *) return 1 ;;
+    *)
+      # Preserve the plain frontend_id form used by historical adapters.
+      baseos_frontend_valid_id "$default_id" || return 1
+      ;;
   esac
   mkdir -p "$TF1" 2>/dev/null || :
   [ -f "$CONFIG" ] || : > "$CONFIG"
@@ -150,6 +267,10 @@ case "$cmd" in
     remove_id=$2
     build_catalog
     find_catalog_entry "$remove_id" || { echo "frontend profile not found: $remove_id" >&2; exit 1; }
+    if [ "$ENTRY_KIND" = legacy-adapter ]; then
+      remove_legacy_adapter "$remove_action" || exit 1
+      exit 0
+    fi
     valid_package_id "$ENTRY_PACKAGE" || exit 1
     valid_profile_id "$ENTRY_PROFILE" || exit 1
     case "$ENTRY_ROOT" in "$TF1"|"$TF2") ;; *) echo "refusing unexpected frontend root" >&2; exit 1 ;; esac

@@ -261,7 +261,7 @@ case "$cmd" in
     find_catalog_entry "$2" || { echo "frontend profile not found: $2" >&2; exit 1; }
     write_default "$ENTRY_ID"
     ;;
-  uninstall|uninstall-package|uninstall-compat|delete-compat)
+  uninstall|uninstall-package|uninstall-compat|delete-compat|disable-legacy|delete-legacy-adapter)
     [ "$#" -eq 2 ] || exit 2
     remove_action=$cmd
     remove_id=$2
@@ -379,7 +379,7 @@ case "$cmd" in
     esac
     ;;
   *)
-    echo "usage: baseos-frontend-manager [catalog|compat-scan|set-default ID|uninstall ID|uninstall-package ID|uninstall-compat ID|delete-compat ID]" >&2
+    echo "usage: baseos-frontend-manager [catalog|compat-scan|set-default ID|uninstall ID|uninstall-package ID|uninstall-compat ID|delete-compat ID|disable-legacy ID|delete-legacy-adapter ID]" >&2
     exit 2
     ;;
 esac

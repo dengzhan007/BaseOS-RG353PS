@@ -15,7 +15,12 @@ normalise_id() {
   printf '%s' "$ni_raw" | LC_ALL=C grep -q '[[:cntrl:]]' && return 1
   ni_id=$(printf '%s' "$ni_raw" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-' | tr -s '-')
   ni_id=$(printf '%s' "$ni_id" | sed 's/^[._-]*//; s/[._-]*$//; s/--*/-/g')
-  [ -n "$ni_id" ] || return 1
+  if [ -z "$ni_id" ]; then
+    # A folder name made entirely from non-ASCII characters still receives a
+    # stable, readable-structure-safe ID; the original name remains its label.
+    ni_hash=$(printf '%s' "$ni_raw" | cksum | awk '{print $1}')
+    ni_id=frontend-$ni_hash
+  fi
   if [ "${#ni_id}" -gt 22 ]; then
     ni_hash=$(printf '%s' "$ni_raw" | cksum | awk '{print $1}')
     ni_prefix=$(printf '%s' "$ni_id" | cut -c1-11)
@@ -63,8 +68,9 @@ resolve_entrypoint() {
       return 0
     fi
   done
-  re_slug=$(basename "$re_dir" | LC_ALL=C tr 'A-Z' 'a-z')
-  for re_name in "$re_slug.elf" frontend.elf; do
+  re_base=$(basename "$re_dir")
+  re_slug=$(printf '%s' "$re_base" | LC_ALL=C tr 'A-Z' 'a-z')
+  for re_name in "$re_base.elf" "$re_slug.elf" frontend.elf; do
     if [ -f "$re_dir/$re_name" ] && [ ! -L "$re_dir/$re_name" ]; then
       COMPAT_ENTRY=$re_name
       COMPAT_MODE=exec
@@ -86,6 +92,8 @@ scan_root() {
     sr_name=${sr_dir##*/}
     normalise_id "$sr_name" || continue
     sr_id=$COMPAT_ID
+    sr_display_name=$sr_name
+    [ "${#sr_display_name}" -le 120 ] || sr_display_name=$sr_id
     sr_disabled=$sr_root/.baseos/compat-disabled/$sr_id
     [ ! -e "$sr_disabled" ] || continue
     sr_sidecar=$sr_root/.baseos/compat/$sr_id
@@ -113,7 +121,7 @@ scan_root() {
     sr_stat=$(stat -c '%Y:%s' "$sr_dir/$COMPAT_ENTRY" 2>/dev/null || echo unknown)
     {
       printf '%s\n' 'package_api=1'
-      printf 'display_name=%s\n' "$sr_name"
+      printf 'display_name=%s\n' "$sr_display_name"
       printf '%s\n' 'compat_api=1'
       printf 'compat_source=%s\n' "$sr_name"
       printf 'compat_entrypoint=%s\n' "$COMPAT_ENTRY"
@@ -136,7 +144,7 @@ scan_root() {
     } | write_if_changed "$sr_sidecar/launch.sh"
     {
       printf '%s\n' 'profile_api=1'
-      printf 'display_name=%s\n' "$sr_name"
+      printf 'display_name=%s\n' "$sr_display_name"
       printf '%s\n' 'priority=100'
     } | write_if_changed "$sr_sidecar/profiles/default.conf"
   done

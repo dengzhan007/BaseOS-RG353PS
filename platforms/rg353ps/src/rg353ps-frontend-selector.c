@@ -41,6 +41,7 @@ struct frontend_entry {
     char root[ROOT_LEN];
     char package_dir[PATH_LEN];
     char profile_config[PATH_LEN];
+    char kind[16];
     int priority;
 };
 
@@ -131,7 +132,7 @@ static int load_catalog(void)
     if (fp == NULL) return 0;
 
     while (entry_count < MAX_FRONTENDS && fgets(line, sizeof(line), fp) != NULL) {
-        char *fields[8];
+        char *fields[9];
         char *save = NULL;
         char *token;
         int count = 0;
@@ -139,11 +140,11 @@ static int load_catalog(void)
         if (len > 0 && line[len - 1] == '\n') line[--len] = '\0';
         if (len > 0 && line[len - 1] == '\r') line[--len] = '\0';
         token = strtok_r(line, "|", &save);
-        while (token != NULL && count < 8) {
+        while (token != NULL && count < 9) {
             fields[count++] = token;
             token = strtok_r(NULL, "|", &save);
         }
-        if (count != 8 || token != NULL) continue;
+        if (count != 9 || token != NULL) continue;
 
         struct frontend_entry *entry = &entries[entry_count];
         memset(entry, 0, sizeof(*entry));
@@ -153,7 +154,8 @@ static int load_catalog(void)
             !copy_field(entry->profile_id, sizeof(entry->profile_id), fields[3]) ||
             !copy_field(entry->root, sizeof(entry->root), fields[4]) ||
             !copy_field(entry->package_dir, sizeof(entry->package_dir), fields[5]) ||
-            !copy_field(entry->profile_config, sizeof(entry->profile_config), fields[6]))
+            !copy_field(entry->profile_config, sizeof(entry->profile_config), fields[6]) ||
+            !copy_field(entry->kind, sizeof(entry->kind), fields[8]))
             continue;
         entry->priority = atoi(fields[7]);
         ++entry_count;
@@ -276,8 +278,17 @@ static void render(void)
             (void)printf("\n  Package: %-62.62s\n", entry->package_id);
             (void)printf("  Selected profile: %-53.53s\n", entry->profile_id);
             (void)printf("  Profiles in this package: %-46d\n", count_package_profiles(entry->package_id));
-            if (uninstall_package_action) {
-                (void)printf("\n  REMOVE THE ENTIRE FRONTEND PACKAGE.\n");
+            if (strcmp(entry->kind, "compat") == 0) {
+                if (uninstall_package_action) {
+                    (void)printf("\n  DELETE THE ORIGINAL FRONTEND PROGRAM DIRECTORY.\n");
+                    (void)printf("  This permanently removes:\n  %s\n", entry->package_dir);
+                } else {
+                    (void)printf("\n  REMOVE BASEOS COMPATIBILITY ONLY.\n");
+                    (void)printf("  The original program directory and all files stay in place.\n");
+                    (void)printf("  This entry will stay unregistered until compatibility is re-enabled.\n");
+                }
+            } else if (uninstall_package_action) {
+                (void)printf("\n  REMOVE THE ENTIRE MANAGED FRONTEND PACKAGE.\n");
                 (void)printf("  All profiles and the shared program payload will be deleted.\n");
             } else {
                 (void)printf("\n  Remove only the selected profile/configuration.\n");
@@ -312,13 +323,19 @@ static void render(void)
             } else {
                 (void)printf("    %-72.72s\n", entries[i].label);
             }
-            (void)printf("      package=%-24.24s profile=%-18.18s source=%s\n",
+            (void)printf("      package=%-24.24s profile=%-18.18s source=%s type=%s\n",
                          entries[i].package_id, entries[i].profile_id,
-                         strcmp(entries[i].root, "/mnt/TF2") == 0 ? "TF2" : "TF1");
+                         strcmp(entries[i].root, "/mnt/TF2") == 0 ? "TF2" : "TF1",
+                         strcmp(entries[i].kind, "compat") == 0 ? "legacy" : "managed");
         }
         (void)printf("\n  Selected ID: %s\n", entries[selected_item].id);
         (void)printf("  A: launch once    START: set default + launch\n");
-        (void)printf("  Y: remove selected profile    X: uninstall entire frontend\n");
+        if (strcmp(entries[selected_item].kind, "compat") == 0) {
+            (void)printf("  Y: remove BaseOS compatibility (keep program files)\n");
+            (void)printf("  X: DELETE original frontend program directory\n");
+        } else {
+            (void)printf("  Y: remove selected profile    X: uninstall entire frontend\n");
+        }
         (void)printf("  B: cancel and use the configured/default frontend\n");
         if (entry_count > 10)
             (void)printf("  Showing %d-%d of %d profiles\n", scroll_offset + 1,
@@ -359,14 +376,24 @@ static void uninstall_selected(void)
     if (entry_count <= 0) return;
     (void)snprintf(package, sizeof(package), "%s", entries[selected_item].package_id);
     (void)snprintf(profile, sizeof(profile), "%s", entries[selected_item].profile_id);
-    rc = run_manager(remove_package ? "uninstall-package" : "uninstall", entries[selected_item].id);
+    const int is_compat = strcmp(entries[selected_item].kind, "compat") == 0;
+    const char *action = is_compat
+        ? (remove_package ? "delete-compat" : "uninstall-compat")
+        : (remove_package ? "uninstall-package" : "uninstall");
+    rc = run_manager(action, entries[selected_item].id);
     if (rc != 0) {
         (void)snprintf(status_line, sizeof(status_line), "Uninstall failed (manager exit %d).", rc);
         confirming_uninstall = 0;
         render();
         return;
     }
-    if (remove_package) {
+    if (is_compat && remove_package) {
+        (void)snprintf(status_line, sizeof(status_line),
+                       "Deleted legacy frontend %s. Per-instance data and shared content were kept.", package);
+    } else if (is_compat) {
+        (void)snprintf(status_line, sizeof(status_line),
+                       "Removed BaseOS compatibility for %s; original files were kept.", package);
+    } else if (remove_package) {
         (void)snprintf(status_line, sizeof(status_line),
                        "Uninstalled frontend %s. Profile instance data and shared content were kept.", package);
     } else {

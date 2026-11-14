@@ -384,20 +384,17 @@ static void render(void)
         }
         (void)printf("\n  Selected ID: %s\n", entries[selected_item].id);
         (void)printf("  A: launch once    START: set default + launch\n");
+        (void)printf("  SELECT: %s frontend (same control for every frontend type)\n",
+                     entries[selected_item].disabled ? "ENABLE" : "DISABLE");
         if (strcmp(entries[selected_item].kind, "compat") == 0) {
-            (void)printf("  Y: %s compatibility (keep program files)\n",
-                         entries[selected_item].disabled ? "enable" : "disable");
             (void)printf("  X: DELETE original frontend program directory\n");
         } else if (strcmp(entries[selected_item].kind, "legacy-adapter") == 0) {
-            (void)printf("  Y: %s legacy frontend (keep all files)\n",
-                         entries[selected_item].disabled ? "enable" : "disable");
             if (entry_is_frontend_bundle(&entries[selected_item]))
                 (void)printf("  X: DELETE complete frontend directory (.system/, Tools/ included)\n");
             else
                 (void)printf("  X: DELETE adapter directory only (no bundle root found)\n");
         } else {
-            (void)printf("  Y: remove selected profile    SELECT: %s frontend\n",
-                         entries[selected_item].disabled ? "enable" : "disable");
+            (void)printf("  Y: remove selected profile\n");
             (void)printf("  X: uninstall entire frontend package\n");
         }
         (void)printf("  B: cancel and use the configured/default frontend\n");
@@ -548,14 +545,15 @@ static void handle_key(unsigned int code, int value)
     case BTN_START:
         choose_launch(1);
         break;
-    case BTN_WEST: /* Y: legacy frontend status toggle; otherwise remove a profile. */
+    case BTN_WEST: /* Y: remove one managed package profile. */
         if (entry_count > 0 &&
-            (strcmp(entries[selected_item].kind, "compat") == 0 ||
-             strcmp(entries[selected_item].kind, "legacy-adapter") == 0)) {
-            toggle_selected_status();
-        } else if (entry_count > 0) {
+            strcmp(entries[selected_item].kind, "managed") == 0) {
             uninstall_package_action = 0;
             confirming_uninstall = 1;
+            render();
+        } else if (entry_count > 0) {
+            (void)snprintf(status_line, sizeof(status_line),
+                           "Use SELECT to enable/disable this frontend; X removes it.");
             render();
         }
         break;

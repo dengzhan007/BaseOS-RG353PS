@@ -176,4 +176,42 @@ EOF
 baseos_frontend_scan_root "$TF1" "slot-rg353ps--640-native-alt" || fail "recreated legacy profile did not resolve through the package alias"
 [ "$BASEOS_SCAN_ID" = "LUCKLUCK-SLOT--640-native-alt" ] || fail "recreated profile resolved to an unexpected identity"
 
-echo "PASS: frontend manager catalog, profile/full uninstall, data retention, package rename/default migration and symlink guard"
+# NextUI's historical archive layout, extracted into Frontends/, puts the
+# adapter below Frontends/.baseos/frontends while .system and Tools are siblings.
+LEGACY_ROOT=$TF1/Frontends
+LEGACY_ADAPTER=$LEGACY_ROOT/.baseos/frontends/nextui
+mkdir -p "$LEGACY_ADAPTER" "$LEGACY_ROOT/.system/rg353ps" "$LEGACY_ROOT/Tools/rg353ps"
+printf '%s\n' '#!/bin/sh' 'exit 0' > "$LEGACY_ADAPTER/launch.sh"
+cat > "$LEGACY_ADAPTER/manifest.conf" <<'EOF'
+adapter_api=1
+priority=120
+volume_owner=system
+power_owner=system
+EOF
+printf 'nextui payload\n' > "$LEGACY_ROOT/.system/rg353ps/nextui.elf"
+printf 'shared tool\n' > "$LEGACY_ROOT/Tools/rg353ps/tool"
+run_manager catalog
+grep -F -q 'nextui|nextui|nextui|legacy|' "$CATALOG" || fail "legacy adapter under wrapper root was missing from the selector catalog"
+. "$DISCOVERY"
+baseos_frontend_scan_root "$TF1" nextui || fail "runtime discovery did not find the old NextUI wrapper layout"
+[ "$BASEOS_SCAN_DIR" = "$LEGACY_ADAPTER" ] || fail "runtime discovery selected an unexpected legacy adapter directory"
+run_manager set-default nextui
+grep -F -q 'frontend_id=nextui' "$CONFIG" || fail "plain legacy adapter ID was not accepted as a default"
+run_manager disable-legacy nextui
+[ -f "$LEGACY_ROOT/.baseos/frontends-disabled/nextui" ] || fail "legacy adapter disable marker was not created"
+[ -f "$LEGACY_ADAPTER/launch.sh" ] || fail "disabling legacy adapter deleted its original files"
+[ -f "$LEGACY_ROOT/.system/rg353ps/nextui.elf" ] || fail "disabling legacy adapter touched shared frontend payload"
+run_manager catalog
+! grep -F -q 'nextui|' "$CATALOG" || fail "disabled legacy adapter remained in selector catalog"
+[ "$(sed -n 's/^frontend_id=//p' "$CONFIG" | tail -n 1)" != nextui ] || fail "disabled default adapter was left pinned"
+rm -f "$LEGACY_ROOT/.baseos/frontends-disabled/nextui"
+run_manager catalog
+grep -F -q 'nextui|nextui|nextui|legacy|' "$CATALOG" || fail "legacy adapter did not return after re-enable"
+run_manager delete-legacy-adapter nextui
+[ ! -e "$LEGACY_ADAPTER" ] || fail "confirmed legacy adapter deletion left the adapter directory"
+[ -f "$LEGACY_ROOT/.system/rg353ps/nextui.elf" ] || fail "legacy adapter deletion removed shared .system payload"
+[ -f "$LEGACY_ROOT/Tools/rg353ps/tool" ] || fail "legacy adapter deletion removed shared Tools payload"
+[ -f "$TF1/Games/game.rom" ] || fail "legacy adapter deletion removed shared Games"
+[ -f "$TF1/Saves/game.srm" ] || fail "legacy adapter deletion removed shared Saves"
+
+echo "PASS: frontend manager catalog, profile/full uninstall, legacy adapter selector lifecycle, data retention, package rename/default migration and symlink guard"

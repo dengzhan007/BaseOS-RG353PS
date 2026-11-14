@@ -284,6 +284,17 @@ card or wrapper directory remains the current working directory. Scripts do
 not need the executable bit, which is important for exFAT cards and Windows
 extraction tools.
 
+### Console output policy
+
+BaseOS launches every frontend with standard output and standard error
+redirected to `/dev/null`. This is enforced by the common supervisor for both
+script adapters and direct legacy-updater launches; child processes inherit the
+same descriptors. Frontend packages must not rely on terminal output for
+normal operation and must not write diagnostics directly to `/dev/tty1` or
+the kernel console. Frontend-specific diagnostic logs should be written to the
+package/profile log directory or another persistent path owned by that
+frontend. BaseOS system logs remain separate.
+
 BaseOS exports:
 
 | Variable | Meaning |

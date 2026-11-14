@@ -197,6 +197,11 @@ baseos_frontend_record_candidate() {
 baseos_frontend_consider_package() {
   bcp_root=$1 bcp_dir=$2 bcp_profile=$3 bcp_preference=$4
   baseos_frontend_load_package "$bcp_root" "$bcp_dir" "$bcp_profile" || return 0
+  # Keep disabled auto-compat packages catalogued, but never launch them.
+  if [ "${BASEOS_PACKAGE_KIND:-managed}" = compat ] &&
+     [ -e "$bcp_root/.baseos/compat-disabled/$BASEOS_PACKAGE_ID" ]; then
+    return 0
+  fi
   if [ "$bcp_preference" = "$BASEOS_PACKAGE_ID" ] &&
      [ "${BASEOS_PACKAGE_KIND:-managed}" = compat ]; then
     # Keep an existing simple frontend_id working after a plain folder is

@@ -350,9 +350,35 @@ The canonical ROM directory is `/mnt/SDCARD/Games/`. The old `Roms/`
 directory is renamed to `Games/` at startup only when `Games/` does not
 already exist. If both exist, BaseOS preserves both and does not attempt an
 automatic merge; merge their contents manually before removing the old
-directory. Frontend-specific system names and internal ROM paths are mapped
-by the package's adapter configuration; BaseOS does not require each frontend
-to use the same internal system labels.
+directory.
+
+BaseOS automatically creates a **package-level path map** when it discovers a
+frontend, including a legacy adapter or an automatically wrapped folder. The
+map is stored on the card at
+`/.baseos/frontend-paths/<frontend-id>.conf`; it is not placed inside the
+frontend directory and the frontend package does not need to ship one. The map
+is generated from the directory layout BaseOS finds, then kept as user data:
+subsequent scans do not overwrite it, so manual path corrections survive
+reboots and package rescans.
+
+The file maps canonical BaseOS resource roots to the directory names expected
+by the selected frontend. For example, a NextUI-style bundle can be given
+temporary card-root aliases such as `Roms/ -> Games/`, `.system/ ->`
+`Frontends/NextUI/.system/`, and `Tools/ -> Frontends/NextUI/Tools/`.
+During the frontend session, BaseOS also attempts to bind the shared core pack
+into the mapped frontend core directory when a compatible core pack is present.
+It removes only the aliases and bind mounts it created when the frontend exits
+or before USB storage mode exports the card. Existing non-empty directories
+and unrelated files are never replaced. When a path conflicts with an existing
+card-root directory, BaseOS preserves that directory and records a warning
+rather than overwriting user data.
+
+The map's `games_target`, `saves_target`, `bios_target`, `cheats_target`,
+`overlays_target`, `shaders_target`, `system_target`, `tools_target`,
+`emus_target` and `cores_target` fields describe frontend-facing names.
+They do not change sharing policy: the ROM library and battery saves remain
+shared, profile data remains separate, and the per-category asset policy
+remains independent of path naming.
 
 
 ### Runtime data ownership in the RG353PS Slot package

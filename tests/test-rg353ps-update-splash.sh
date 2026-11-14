@@ -4,6 +4,8 @@ set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UPDATE="$ROOT/platforms/rg353ps/rootfs/usr/sbin/baseos-update"
+WRAPPER="$ROOT/platforms/rg353ps/rootfs/usr/bin/baseos-splash"
+FBSPLASH="$ROOT/src/fbsplash.c"
 
 require() {
   grep -Fq -- "$1" "$UPDATE" || {
@@ -13,11 +15,23 @@ require() {
 }
 
 require 'unset BASEOS_CUSTOM_SPLASH BASEOS_CUSTOM_SPLASH_ONLY'
-require '[ -x /usr/bin/baseos-splash ] && /usr/bin/baseos-splash --important "$1" "UPDATING SYSTEM"'
-if grep -Fq '/usr/bin/fbsplash "$1"' "$UPDATE"; then
-  echo "progress update must not redraw the full-screen background on every step" >&2
+require '[ -x /usr/bin/baseos-splash ] && /usr/bin/baseos-splash --progress "$1" "UPDATING SYSTEM"'
+grep -Fq 'exec /usr/bin/fbsplash "$1" "$2" --combined' "$WRAPPER" || {
+  echo "progress wrapper must invoke the combined framebuffer renderer" >&2
   exit 1
-fi
+}
+grep -Fq 'render(canvas, draw_v, draw_f, prog, NULL);' "$FBSPLASH" || {
+  echo "combined mode must keep the left-to-right wordmark illumination" >&2
+  exit 1
+}
+grep -Fq 'render_pill(canvas, draw_v, draw_f, prog, msg);' "$FBSPLASH" || {
+  echo "combined mode must draw the bottom status pill in the same frame" >&2
+  exit 1
+}
+grep -Fq 'present(fb, &v, &f, panel_rotation(), prog, msg, pill, combined);' "$FBSPLASH" || {
+  echo "combined render mode is not wired to the framebuffer entry point" >&2
+  exit 1
+}
 require 'paint() { update_progress $(( $1 + ($2 - $1) * $3 / total_mb )); }'
 require 'update_progress "$WRITE_FROM"'
 require 'update_progress "$COMMIT_STAGE"'
@@ -28,4 +42,4 @@ if grep -Fq 'paint() { splash' "$UPDATE"; then
   exit 1
 fi
 
-echo "PASS: update progress updates only the bottom status pill without full-screen flicker"
+echo "PASS: update progress keeps wordmark illumination and status pill in one framebuffer frame"

@@ -61,6 +61,13 @@ baseos_frontend_scan_root "$TMP/card" gamma || fail "nested adapter not found"
 baseos_frontend_scan_root "$TMP/card" -bad && fail "invalid adapter ID accepted"
 baseos_frontend_scan_root "$TMP/card" unsupported && fail "unsupported API accepted"
 
+# A selector disable marker hides the adapter at runtime without deleting it.
+mkdir -p "$TMP/card/.baseos/frontends-disabled"
+: > "$TMP/card/.baseos/frontends-disabled/alpha"
+baseos_frontend_scan_root "$TMP/card" alpha && fail "disabled adapter was still selectable at runtime"
+rm -f "$TMP/card/.baseos/frontends-disabled/alpha"
+baseos_frontend_scan_root "$TMP/card" alpha || fail "adapter did not return after re-enabling"
+
 # Cached selection stays fast until one of the adapter trees changes.
 CACHE=$TMP/selection-cache
 : > "$CACHE"

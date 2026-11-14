@@ -51,6 +51,45 @@ append_legacy_adapters() {
   done
 }
 
+generate_catalog_path_maps() {
+  [ -x /usr/sbin/baseos-frontend-paths ] || return 0
+  while IFS='|' read -r gpm_id gpm_name gpm_package gpm_profile gpm_root gpm_dir gpm_config gpm_priority gpm_kind gpm_status; do
+    [ -n "$gpm_id" ] || continue
+    case "$gpm_kind" in
+      legacy-adapter)
+        case "$gpm_root" in
+          "$TF1/Frontends/"*) gpm_card=$TF1; gpm_program=$gpm_root ;;
+          "$TF2/Frontends/"*) gpm_card=$TF2; gpm_program=$gpm_root ;;
+          "$TF1"/*) gpm_card=$TF1; gpm_program=$gpm_root ;;
+          "$TF2"/*) gpm_card=$TF2; gpm_program=$gpm_root ;;
+          "$TF1") gpm_card=$TF1; gpm_program=$TF1 ;;
+          "$TF2") gpm_card=$TF2; gpm_program=$TF2 ;;
+          *) continue ;;
+        esac
+        gpm_map_id=$gpm_id
+        ;;
+      compat)
+        gpm_card=$gpm_root
+        baseos_frontend_read_value "$gpm_dir/baseos-frontend.conf" compat_source ""
+        gpm_source=$BASEOS_VALUE
+        case "$gpm_source" in ''|.|..|*/*|*'|'*) continue ;; esac
+        gpm_program=$gpm_card/Frontends/$gpm_source
+        gpm_map_id=$gpm_package
+        ;;
+      managed)
+        gpm_card=$gpm_root
+        gpm_program=$gpm_dir
+        [ ! -d "$gpm_program/payload" ] || gpm_program=$gpm_program/payload
+        gpm_map_id=$gpm_package
+        ;;
+      *) continue ;;
+    esac
+    [ -d "$gpm_program" ] && [ ! -L "$gpm_program" ] || continue
+    /usr/sbin/baseos-frontend-paths scan "$gpm_card" "$gpm_map_id" "$gpm_program" >/dev/null 2>&1 ||
+      echo "WARNING: could not generate frontend path map for $gpm_map_id" >&2
+  done < "$CATALOG"
+}
+
 build_catalog() {
   run_compat_scan || echo "WARNING: compatibility scan failed" >&2
   catalog_tmp=$CATALOG.$$
@@ -105,6 +144,9 @@ build_catalog() {
     done
   done
   mv -f "$catalog_tmp" "$CATALOG"
+  # Path-map files are BaseOS-owned card metadata and are created during
+  # frontend discovery/catalog construction, never inside frontend payloads.
+  generate_catalog_path_maps
   migrate_default_package_alias
 }
 find_catalog_entry() {

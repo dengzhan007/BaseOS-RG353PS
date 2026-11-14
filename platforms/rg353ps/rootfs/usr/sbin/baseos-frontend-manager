@@ -149,6 +149,37 @@ build_catalog() {
   generate_catalog_path_maps
   migrate_default_package_alias
 }
+remove_frontend_path_map() {
+  rfm_root=$1 rfm_id=$2
+  baseos_frontend_valid_id "$rfm_id" || return 1
+  [ -d "$rfm_root" ] && [ ! -L "$rfm_root" ] || return 1
+  [ ! -L "$rfm_root/.baseos" ] || { echo "refusing symlinked .baseos directory" >&2; return 1; }
+  rfm_dir=$rfm_root/.baseos/frontend-paths
+  [ ! -L "$rfm_dir" ] || { echo "refusing symlinked frontend path-map directory" >&2; return 1; }
+  [ -d "$rfm_dir" ] || return 0
+  rfm_file=$rfm_dir/$rfm_id.conf
+  [ ! -L "$rfm_file" ] || { echo "refusing symlinked frontend path-map file" >&2; return 1; }
+  [ ! -e "$rfm_file" ] || [ -f "$rfm_file" ] || {
+    echo "refusing non-file frontend path-map entry" >&2
+    return 1
+  }
+  [ ! -f "$rfm_file" ] || rm -f -- "$rfm_file"
+}
+
+legacy_path_map_card() {
+  lpm_root=$1
+  for lpm_card in "$TF1" "$TF2"; do
+    case "$lpm_root" in
+      "$lpm_card"|"$lpm_card"/*)
+        [ -d "$lpm_card" ] && [ ! -L "$lpm_card" ] || return 1
+        printf '%s' "$lpm_card"
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
 find_catalog_entry() {
   find_id=$1
   ENTRY_ID= ENTRY_NAME= ENTRY_PACKAGE= ENTRY_PROFILE=
@@ -248,6 +279,8 @@ remove_legacy_adapter() {
       removed_label=LEGACY_ENABLED
       ;;
     delete-legacy-adapter)
+      legacy_map_card=$(legacy_path_map_card "$ENTRY_ROOT") || return 1
+      remove_frontend_path_map "$legacy_map_card" "$ENTRY_PACKAGE" || return 1
       if legacy_bundle_is_isolated; then
         # The adapter, .system/, Tools/ and other payload all belong to this
         # dedicated Frontends/<name>/ directory. Remove that whole frontend.
@@ -465,6 +498,7 @@ case "$cmd" in
         rm -f -- "$disabled_marker"
         removed_label=COMPAT_ENABLED
       else
+        remove_frontend_path_map "$ENTRY_ROOT" "$ENTRY_PACKAGE" || exit 1
         rm -rf -- "$expected_dir"
         rm -rf -- "$compat_dir"
         rm -f -- "$disabled_marker"
@@ -499,11 +533,13 @@ case "$cmd" in
           break
         done
         if [ "$profiles_remain" = no ]; then
+          remove_frontend_path_map "$ENTRY_ROOT" "$ENTRY_PACKAGE" || exit 1
           rmdir "$expected_dir/profiles" 2>/dev/null || :
           rm -rf -- "$expected_dir"
         fi
         removed_label=PROFILE
       else
+        remove_frontend_path_map "$ENTRY_ROOT" "$ENTRY_PACKAGE" || exit 1
         rm -rf -- "$expected_dir"
         removed_label=FRONTEND
       fi

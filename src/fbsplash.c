@@ -842,17 +842,17 @@ static void present(uint8_t *fb, struct fb_var_screeninfo *v,
 	}
 }
 
-// This renderer takes no options. Reject anything option-shaped rather than
-// letting atoi() quietly turn it into progress 0: that is precisely how a
-// binary predating the pill renderer, handed the `--pill 45 MESSAGE` of the
-// day's wrapper, painted the full-screen logo with "45" as its caption and
-// dropped the real message. A caller built against a different contract must
-// fail loudly and draw nothing, leaving the bootloader logo intact.
-// `-1` is a progress value, not an option, and passes.
+// Accept exactly one explicit option: --combined after progress and message.
+// It tells fbsplash to compose the full progress wordmark and bottom status pill
+// in one frame. Other option-shaped arguments remain hard errors.
 static int reject_options(int argc, char **argv) {
-	for (int i = 1; i < argc; i++)
-		if (argv[i][0] == '-' && argv[i][1] == '-')
+	for (int i = 1; i < argc; i++) {
+		if (argv[i][0] == '-' && argv[i][1] == '-') {
+			if (i == 3 && strcmp(argv[i], "--combined") == 0)
+				continue;
 			return 1;
+		}
+	}
 	return 0;
 }
 
@@ -871,14 +871,20 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "fbsplash: no options are accepted\n");
 		return 2;
 	}
+	int combined = argc > 3 && strcmp(argv[3], "--combined") == 0;
 	int prog = argc > 1 ? atoi(argv[1]) : 0;
 	const char *msg = (argc > 2 && argv[2][0]) ? argv[2] : NULL;
 	int pill = msg != NULL;
+	if (combined && !pill) {
+		fprintf(stderr, "fbsplash: --combined requires a message\\n");
+		return 2;
+	}
 	prog = pill && prog < 0 ? -1 : clampi(prog, 0, 100);
-	const char *out = argc > 3 ? argv[3] : "/out/render.ppm";
-	int W = argc > 4 ? atoi(argv[4]) : 640;
-	int H = argc > 5 ? atoi(argv[5]) : 480;
-	int rot = normalise_rotation(argc > 6 ? atoi(argv[6]) : 0);
+	int arg_offset = combined ? 1 : 0;
+	const char *out = argc > 3 + arg_offset ? argv[3 + arg_offset] : "/out/render.ppm";
+	int W = argc > 4 + arg_offset ? atoi(argv[4 + arg_offset]) : 640;
+	int H = argc > 5 + arg_offset ? atoi(argv[5 + arg_offset]) : 480;
+	int rot = normalise_rotation(argc > 6 + arg_offset ? atoi(argv[6 + arg_offset]) : 0);
 	W = clampi(W, 64, 4096);
 	H = clampi(H, 64, 4096);
 
@@ -894,10 +900,10 @@ int main(int argc, char **argv) {
 	f.smem_len = f.line_length * H;
 
 	uint8_t *fb = calloc(1, f.smem_len);
-	if (pill)
+	if (pill && !combined)
 		// Give offline previews the default static logo beneath the overlay.
-		present(fb, &v, &f, rot, 100, NULL, 0);
-	present(fb, &v, &f, rot, prog, msg, pill);
+		present(fb, &v, &f, rot, 100, NULL, 0, 0);
+	present(fb, &v, &f, rot, prog, msg, pill, combined);
 
 	FILE *fp = fopen(out, "wb");
 	fprintf(fp, "P6\n%d %d\n255\n", W, H);
@@ -990,9 +996,14 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "fbsplash: no options are accepted\n");
 		return 2;
 	}
+	int combined = argc > 3 && strcmp(argv[3], "--combined") == 0;
 	int prog = argc > 1 ? atoi(argv[1]) : 0;
 	const char *msg = (argc > 2 && argv[2][0]) ? argv[2] : NULL;
 	int pill = msg != NULL;
+	if (combined && !pill) {
+		fprintf(stderr, "fbsplash: --combined requires a message\\n");
+		return 2;
+	}
 	prog = pill && prog < 0 ? -1 : clampi(prog, 0, 100);
 
 	// rcS calls this mode only after user storage is mounted. If the optional
@@ -1022,7 +1033,7 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
-	present(fb, &v, &f, panel_rotation(), prog, msg, pill);
+	present(fb, &v, &f, panel_rotation(), prog, msg, pill, combined);
 	msync(fb, map_len, MS_SYNC);
 
 	// Force the panel to scan out this buffer: on Allwinner disp2 "smooth boot"

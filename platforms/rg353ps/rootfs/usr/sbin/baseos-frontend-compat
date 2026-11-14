@@ -4,10 +4,10 @@
 set -eu
 PATH=/sbin:/bin:/usr/sbin:/usr/bin
 export PATH
-. "\${BASEOS_DISCOVERY_LIB:-/usr/sbin/baseos-frontend-discovery}"
+. "${BASEOS_DISCOVERY_LIB:-/usr/sbin/baseos-frontend-discovery}"
 
-TF1=\${BASEOS_FRONTEND_TF1:-/mnt/SDCARD}
-TF2=\${BASEOS_FRONTEND_TF2:-/mnt/TF2}
+TF1=${BASEOS_FRONTEND_TF1:-/mnt/SDCARD}
+TF2=${BASEOS_FRONTEND_TF2:-/mnt/TF2}
 
 normalise_id() {
   ni_raw=$1
@@ -16,13 +16,13 @@ normalise_id() {
   ni_id=$(printf '%s' "$ni_raw" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-' | tr -s '-')
   ni_id=$(printf '%s' "$ni_id" | sed 's/^[._-]*//; s/[._-]*$//; s/--*/-/g')
   [ -n "$ni_id" ] || return 1
-  if [ "\${#ni_id}" -gt 22 ]; then
+  if [ "${#ni_id}" -gt 22 ]; then
     ni_hash=$(printf '%s' "$ni_raw" | cksum | awk '{print $1}')
     ni_prefix=$(printf '%s' "$ni_id" | cut -c1-11)
     ni_id=$ni_prefix-$ni_hash
   fi
   baseos_frontend_valid_id "$ni_id" || return 1
-  [ "\${#ni_id}" -le 22 ] || return 1
+  [ "${#ni_id}" -le 22 ] || return 1
   case "$ni_id" in *--*) return 1 ;; esac
   COMPAT_ID=$ni_id
   return 0
@@ -83,7 +83,7 @@ scan_root() {
     [ -d "$sr_dir" ] && [ ! -L "$sr_dir" ] || continue
     [ -f "$sr_dir/baseos-frontend.conf" ] && continue
     resolve_entrypoint "$sr_dir" || continue
-    sr_name=\${sr_dir##*/}
+    sr_name=${sr_dir##*/}
     normalise_id "$sr_name" || continue
     sr_id=$COMPAT_ID
     sr_disabled=$sr_root/.baseos/compat-disabled/$sr_id
@@ -142,7 +142,7 @@ scan_root() {
   done
 }
 
-case "\${1:-scan}" in
+case "${1:-scan}" in
   scan)
     shift || :
     if [ "$#" -eq 0 ]; then set -- "$TF2" "$TF1"; fi

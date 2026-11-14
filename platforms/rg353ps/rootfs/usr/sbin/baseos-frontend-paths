@@ -102,7 +102,7 @@ copy_core_set() {
     ccs_name=${ccs_file##*/}
     ccs_target=$ccs_dest/$ccs_name
     [ ! -e "$ccs_target" ] && [ ! -L "$ccs_target" ] || continue
-    ccs_tmp=$ccs_dest/.$ccs_name.baseos-tmp.$
+    ccs_tmp=$ccs_dest/.$ccs_name.baseos-tmp
     [ ! -L "$ccs_tmp" ] || continue
     rm -f -- "$ccs_tmp"
     if cp -p "$ccs_file" "$ccs_tmp"; then

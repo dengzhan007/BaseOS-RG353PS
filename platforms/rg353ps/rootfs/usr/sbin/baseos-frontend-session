@@ -440,6 +440,16 @@ cached_selection() {
     ADAPTER_DIR= ADAPTER_VOLUME_OWNER=system ADAPTER_POWER_OWNER=system
   fi
   SELECTED=$c_id LAUNCH_MODE=$c_mode LAUNCHER=$c_launcher FRONTEND_ROOT=$c_root
+  case "$c_root" in
+    "$TF1") FRONTEND_CARD_ROOT=$TF1 ;;
+    "$TF2") FRONTEND_CARD_ROOT=$TF2 ;;
+    *) return 1 ;;
+  esac
+  if [ "$c_mode" = script ]; then
+    FRONTEND_PROGRAM_ROOT=$c_root
+    FRONTEND_PATHMAP_ID=$c_id
+    FRONTEND_SCAN_KIND=legacy
+  fi
   return 0
 }
 write_selection_cache() {
@@ -481,8 +491,9 @@ if [ -z "$LAUNCHER" ]; then
 fi
 write_selection_cache
 
-# Keep the compatibility alias aligned with the card actually selected.
-ln -sfn "$FRONTEND_ROOT" /mnt/sdcard
+# Keep the compatibility alias on the selected card root. Frontend program
+# folders may be nested under Frontends/<name>, but legacy ROM discovery must
+# still see the shared Games/ tree at the card root.
 # Splits the blind spot between "rcS done" and the handoff into the part that
 # is frontend discovery and the part that is waiting on audio and the volume
 # handoff below.
@@ -496,6 +507,7 @@ BASEOS_BOOT=/mnt/boot
 # The latter has its own explicit BASEOS_FRONTEND_PROGRAM_ROOT variable.
 BASEOS_CARD_ROOT=${FRONTEND_CARD_ROOT:-$TF1}
 BASEOS_FRONTEND_ROOT=$BASEOS_CARD_ROOT
+ln -sfn "$BASEOS_CARD_ROOT" /mnt/sdcard
 BASEOS_PACKAGE_ID=${FRONTEND_PACKAGE_ID:-}
 BASEOS_PROFILE_ID=${FRONTEND_PROFILE_ID:-}
 BASEOS_PROFILE_DEFAULTS=${FRONTEND_PROFILE_CONFIG:-}

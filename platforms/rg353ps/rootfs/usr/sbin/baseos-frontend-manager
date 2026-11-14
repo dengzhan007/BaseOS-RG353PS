@@ -184,7 +184,9 @@ case "$cmd" in
         disabled_dir=$ENTRY_ROOT/.baseos/compat-disabled
         [ ! -L "$disabled_dir" ] || exit 1
         mkdir -p "$disabled_dir"
-        : > "$disabled_dir/$ENTRY_PACKAGE"
+        disabled_marker=$disabled_dir/$ENTRY_PACKAGE
+        [ ! -L "$disabled_marker" ] || { echo "refusing symlinked compatibility disable marker" >&2; exit 1; }
+        : > "$disabled_marker"
         rm -rf -- "$compat_dir"
         removed_label=COMPAT
       else

@@ -73,6 +73,74 @@ The card-side `/mnt/SDCARD/baseos.conf` may set `frontend_id=<adapter-id>`
 to pin one adapter. The default `frontend_id=auto` selects the highest-priority
 valid adapter. The legacy `frontends_order` setting is no longer used.
 
+## Automatic compatibility for plain frontend folders
+
+A folder placed directly under `Frontends/` does not need a BaseOS manifest if
+it has a recognised legacy entry point. BaseOS generates a compatibility
+package in the card's `.baseos/compat/<normalised-folder-id>/` directory and
+keeps the original frontend directory unchanged:
+
+```text
+/mnt/SDCARD/
+├── Frontends/
+│   └── NextUI/
+│       ├── launch.sh
+│       ├── nextui.elf
+│       └── ...
+└── .baseos/
+    └── compat/
+        └── NextUI/
+            ├── baseos-frontend.conf
+            ├── launch.sh
+            └── profiles/
+                └── default.conf
+```
+
+The compatibility scanner recognises these explicit entry-point names, in
+priority order:
+
+- `launch.sh`, `start.sh`, `run.sh`, or `frontend.sh` (run through
+  `/bin/sh`);
+- `.tmp_update/updater` or `.tmp_update/launch.sh` (run through
+  `/bin/sh`);
+- an ELF named after the directory, case-insensitively (for example
+  `NextUI/nextui.elf`), or `frontend.elf`.
+
+BaseOS does not guess by running an arbitrary ELF when several binaries are
+present. A folder without one of the recognised entry points is left untouched
+and is not added to the selector. The folder name is normalised to a legal
+package ID; conflicting names that normalise to the same ID are not silently
+merged. Rename the folder to a unique, simple name if it is skipped.
+
+An automatically wrapped folder gets one default profile named
+`<folder-id>--default`. The wrapper changes into the original program
+directory before invoking its entry point, and BaseOS gives that profile its
+own `.baseos/instances/<folder-id>--default/` data directory. Old frontends
+that keep their settings inside their program folder still use those original
+paths; BaseOS cannot promise settings isolation for unknown legacy layouts.
+
+The selector exposes two separate removal operations for these compatibility
+entries:
+
+- **Y — Remove BaseOS compatibility:** deletes only the generated
+  `.baseos/compat/<folder-id>/` metadata and records a disable marker at
+  `.baseos/compat-disabled/<folder-id>`. The original `Frontends/<folder>/`
+  files remain. To let BaseOS discover it again later, remove that marker.
+- **X — Delete frontend program:** after the selector's confirmation screen,
+  deletes the original `Frontends/<folder>/` directory and its generated
+  compatibility metadata. Per-instance data under `.baseos/instances/` and
+  shared `Games/` and `Saves/` content are preserved.
+
+Users may install two copies of the same legacy frontend by copying the full
+directory and giving each copy a distinct folder name. Each folder is then
+discovered as an independent compatibility entry with its own default
+instance. BaseOS deliberately does not hash entire frontend trees or remove
+duplicate files: recursive hashing adds SD-card boot I/O, while replacing
+legacy files with links or bind mounts can redirect settings and save writes
+between copies. This compatibility path therefore keeps each copy complete.
+Native package/profile installations remain the recommended way to share one
+program payload across multiple isolated profiles.
+
 ## Managed frontend packages and configuration profiles (package API 1)
 
 New installations should use a managed package directory rather than placing

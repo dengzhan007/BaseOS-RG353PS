@@ -305,7 +305,7 @@ static void render(void)
     (void)printf("\n  Select a frontend profile. Profiles from one package use separate settings.\n");
     (void)printf("  \033[1;33mDEFAULT STARTUP: %-60.60s\033[0m\n\n", current_default_label());
     if (entry_count == 0) {
-        (void)printf("  No managed Frontends packages were found.\n");
+        (void)printf("  No compatible frontend folders or managed packages were found.\n");
         (void)printf("  Extract a package into /mnt/SDCARD/Frontends/<package-id>/.\n");
         (void)printf("\n  B: continue with the configured/default frontend\n");
     } else {

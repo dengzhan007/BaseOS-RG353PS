@@ -91,6 +91,7 @@ jobs:
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-discovery
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-manager
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-compat
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-paths
           sh tests/test-frontend-adapters.sh
           sh tests/test-frontend-packages.sh
           sh tests/test-frontend-manager.sh

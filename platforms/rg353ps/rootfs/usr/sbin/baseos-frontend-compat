@@ -42,6 +42,9 @@ shell_quote() {
 write_if_changed() {
   wic_path=$1
   wic_tmp=$wic_path.tmp
+  [ ! -L "$wic_path" ] || return 1
+  [ ! -L "$wic_tmp" ] || return 1
+  rm -f "$wic_tmp"
   cat > "$wic_tmp"
   if [ -f "$wic_path" ] && cmp -s "$wic_path" "$wic_tmp"; then
     rm -f "$wic_tmp"

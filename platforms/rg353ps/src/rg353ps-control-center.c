@@ -220,7 +220,7 @@ static void render_home(void)
     printf("  Frontend selector: select its menu item to choose or enable a frontend.\n");
     printf("  USB storage: select its menu item, then connect the PC data cable.\\n");
     if (return_to_selector)
-        printf("  Return to frontend selector: select the final menu item.\\n");
+        printf("  Return to frontend selector: select the final menu item.\n");
 }
 
 static void render_controls(void)

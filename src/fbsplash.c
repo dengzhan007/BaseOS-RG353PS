@@ -876,7 +876,7 @@ int main(int argc, char **argv) {
 	const char *msg = (argc > 2 && argv[2][0]) ? argv[2] : NULL;
 	int pill = msg != NULL;
 	if (combined && !pill) {
-		fprintf(stderr, "fbsplash: --combined requires a message\\n");
+		fprintf(stderr, "fbsplash: --combined requires a message\n");
 		return 2;
 	}
 	prog = pill && prog < 0 ? -1 : clampi(prog, 0, 100);
@@ -1001,7 +1001,7 @@ int main(int argc, char **argv) {
 	const char *msg = (argc > 2 && argv[2][0]) ? argv[2] : NULL;
 	int pill = msg != NULL;
 	if (combined && !pill) {
-		fprintf(stderr, "fbsplash: --combined requires a message\\n");
+		fprintf(stderr, "fbsplash: --combined requires a message\n");
 		return 2;
 	}
 	prog = pill && prog < 0 ? -1 : clampi(prog, 0, 100);

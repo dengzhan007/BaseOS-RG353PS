@@ -24,9 +24,9 @@
 #define MAX_FRONTENDS 64
 #define ID_LEN 64
 #define LABEL_LEN 160
-#define PACKAGE_LEN 32
+#define PACKAGE_LEN 64
 #define PROFILE_LEN 32
-#define ROOT_LEN 32
+#define ROOT_LEN 128
 #define PATH_LEN 320
 #define CATALOG_PATH "/run/baseos-frontend-catalog"
 #define CONFIG_PATH "/mnt/SDCARD/baseos.conf"
@@ -287,6 +287,16 @@ static void render(void)
                     (void)printf("  The original program directory and all files stay in place.\n");
                     (void)printf("  This entry will stay unregistered until compatibility is re-enabled.\n");
                 }
+            } else if (strcmp(entry->kind, "legacy-adapter") == 0) {
+                if (uninstall_package_action) {
+                    (void)printf("\n  DELETE ONLY THE LEGACY ADAPTER DIRECTORY.\n");
+                    (void)printf("  This removes:\n  %s\n", entry->package_dir);
+                    (void)printf("  Shared .system/, Tools/, Games/ and Saves/ stay untouched.\n");
+                } else {
+                    (void)printf("\n  DISABLE THIS LEGACY ADAPTER.\n");
+                    (void)printf("  The adapter and all original files are preserved.\n");
+                    (void)printf("  Remove its disable marker to re-enable it.\n");
+                }
             } else if (uninstall_package_action) {
                 (void)printf("\n  REMOVE THE ENTIRE MANAGED FRONTEND PACKAGE.\n");
                 (void)printf("  All profiles and the shared program payload will be deleted.\n");
@@ -325,14 +335,19 @@ static void render(void)
             }
             (void)printf("      package=%-24.24s profile=%-18.18s source=%s type=%s\n",
                          entries[i].package_id, entries[i].profile_id,
-                         strcmp(entries[i].root, "/mnt/TF2") == 0 ? "TF2" : "TF1",
-                         strcmp(entries[i].kind, "compat") == 0 ? "legacy" : "managed");
+                         (strncmp(entries[i].root, "/mnt/TF2/", 9) == 0 ||
+                          strcmp(entries[i].root, "/mnt/TF2") == 0) ? "TF2" : "TF1",
+                         strcmp(entries[i].kind, "compat") == 0 ? "compat" :
+                         strcmp(entries[i].kind, "legacy-adapter") == 0 ? "legacy adapter" : "managed");
         }
         (void)printf("\n  Selected ID: %s\n", entries[selected_item].id);
         (void)printf("  A: launch once    START: set default + launch\n");
         if (strcmp(entries[selected_item].kind, "compat") == 0) {
             (void)printf("  Y: remove BaseOS compatibility (keep program files)\n");
             (void)printf("  X: DELETE original frontend program directory\n");
+        } else if (strcmp(entries[selected_item].kind, "legacy-adapter") == 0) {
+            (void)printf("  Y: disable legacy adapter (keep all files)\n");
+            (void)printf("  X: DELETE adapter directory only (shared payload stays)\n");
         } else {
             (void)printf("  Y: remove selected profile    X: uninstall entire frontend\n");
         }
@@ -377,9 +392,12 @@ static void uninstall_selected(void)
     (void)snprintf(package, sizeof(package), "%s", entries[selected_item].package_id);
     (void)snprintf(profile, sizeof(profile), "%s", entries[selected_item].profile_id);
     const int is_compat = strcmp(entries[selected_item].kind, "compat") == 0;
+    const int is_legacy_adapter = strcmp(entries[selected_item].kind, "legacy-adapter") == 0;
     const char *action = is_compat
         ? (remove_package ? "delete-compat" : "uninstall-compat")
-        : (remove_package ? "uninstall-package" : "uninstall");
+        : is_legacy_adapter
+            ? (remove_package ? "delete-legacy-adapter" : "disable-legacy")
+            : (remove_package ? "uninstall-package" : "uninstall");
     rc = run_manager(action, entries[selected_item].id);
     if (rc != 0) {
         (void)snprintf(status_line, sizeof(status_line), "Uninstall failed (manager exit %d).", rc);
@@ -387,7 +405,13 @@ static void uninstall_selected(void)
         render();
         return;
     }
-    if (is_compat && remove_package) {
+    if (is_legacy_adapter && remove_package) {
+        (void)snprintf(status_line, sizeof(status_line),
+                       "Deleted adapter directory for %s; shared frontend payload was kept.", package);
+    } else if (is_legacy_adapter) {
+        (void)snprintf(status_line, sizeof(status_line),
+                       "Disabled legacy adapter %s; all original files were kept.", package);
+    } else if (is_compat && remove_package) {
         (void)snprintf(status_line, sizeof(status_line),
                        "Deleted legacy frontend %s. Per-instance data and shared content were kept.", package);
     } else if (is_compat) {

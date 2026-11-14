@@ -37,6 +37,23 @@ directories:
 <card>/baseos/frontends/<adapter-id>/
 ```
 
+These historical adapter directories are also listed by the BaseOS frontend
+selector. It scans the card root and the same one-wrapper-directory level used
+by runtime discovery. This supports archives such as NextUI extracted into a
+container directory, with the adapter below
+`<container>/.baseos/frontends/nextui/` and resources such as `.system/` and
+`Tools/` beside that adapter. BaseOS does not convert or rewrite the archive.
+
+For a legacy adapter, **Y** disables discovery by writing a marker below
+`.baseos/frontends-disabled/<adapter-id>`; the adapter and all original files
+remain intact. Remove that marker to re-enable it. **X**, after a separate
+confirmation, removes only the adapter directory itself. It deliberately
+preserves sibling `.system/`, `Tools/`, `Games/`, `Saves/` and other
+resources, because historical root-style layouts do not declare an isolated
+frontend payload directory. Review and remove any remaining archive payload
+manually after checking for shared resources. Managed packages and generated
+plain-folder compatibility entries retain their separate removal semantics.
+
 The adapter ID is an identifier, not a product name. Use 1–48 ASCII letters,
 digits, dots, underscores or hyphens; it must not start with a dot, hyphen or
 underscore. BaseOS does not maintain a list of supported frontend names.

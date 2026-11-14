@@ -158,17 +158,16 @@ scan_map() {
   [ -d "$sm_program/shaders" ] && sm_shaders=shaders
 
   sm_cores=
-  for sm_candidate in \
-    "$sm_system/rg353ps/cores" "$sm_system/h700/cores" \
-    "$sm_system/cores"; do
-    [ -n "$sm_candidate" ] || continue
-    # The target may contain only .keep placeholders. Keep the target path even
-    # when the shared source is supplied by BaseOS rather than by this package.
-    if [ -d "$sm_program/$sm_candidate" ] || [ -d "$sm_program/$sm_system" ]; then
-      sm_cores=$sm_candidate
-      break
-    fi
-  done
+  # Select only a platform directory actually present in this frontend bundle.
+  # The cores/ child itself may be empty or absent because BaseOS supplies the
+  # shared core pack at runtime.
+  if [ -n "$sm_system" ] && [ -d "$sm_program/$sm_system/rg353ps" ]; then
+    sm_cores=$sm_system/rg353ps/cores
+  elif [ -n "$sm_system" ] && [ -d "$sm_program/$sm_system/h700" ]; then
+    sm_cores=$sm_system/h700/cores
+  elif [ -n "$sm_system" ] && [ -d "$sm_program/$sm_system/cores" ]; then
+    sm_cores=$sm_system/cores
+  fi
 
   mkdir -p "$sm_dir"
   sm_tmp=$sm_map.tmp

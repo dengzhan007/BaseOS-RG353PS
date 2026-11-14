@@ -80,4 +80,22 @@ for alias in Roms ROMs roms; do
   [ ! -L "$CARD/$alias" ] || fail "temporary legacy ROM alias survived cleanup: $alias"
 done
 
+# A legacy frontend may live directly at the selected card root (for example,
+# a root-installed NextUI layout). That is inside the card and must still get
+# the ROM aliases; it must not be rejected as an external program path.
+ROOT_CARD=$TMP/root-card
+mkdir -p "$ROOT_CARD/.system/rg353ps/cores" "$ROOT_CARD/Tools" \
+  "$ROOT_CARD/Games/FC" "$ROOT_CARD/.baseos/userdata"
+printf '%s\\n' "root-layout-rom" > "$ROOT_CARD/Games/FC/root.rom"
+sh "$HELPER" scan "$ROOT_CARD" NextUIRoot "$ROOT_CARD" || fail "root-layout path-map scan failed"
+ROOT_MAP=$ROOT_CARD/.baseos/frontend-paths/NextUIRoot.conf
+sh "$HELPER" apply "$ROOT_CARD" "$ROOT_CARD" "$ROOT_MAP" "$ROOT_CARD/.baseos/userdata" || \
+  fail "root-installed frontend path-map apply failed"
+[ -L "$ROOT_CARD/Roms" ] || fail "root-installed frontend did not get the Roms alias"
+[ "$(readlink "$ROOT_CARD/Roms")" = "$ROOT_CARD/Games" ] || fail "root-layout Roms alias does not target Games"
+[ -f "$ROOT_CARD/Roms/FC/root.rom" ] || fail "root-layout Roms alias cannot see shared Games"
+sh "$HELPER" cleanup "$ROOT_CARD" || fail "root-layout path-map cleanup failed"
+[ ! -L "$ROOT_CARD/Roms" ] || fail "root-layout temporary Roms alias survived cleanup"
+[ -f "$ROOT_CARD/Games/FC/root.rom" ] || fail "root-layout cleanup modified shared Games"
+
 echo "PASS: BaseOS path maps share frontend cores and preserve legacy ROM paths"

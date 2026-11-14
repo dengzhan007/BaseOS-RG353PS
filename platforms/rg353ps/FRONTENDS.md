@@ -461,7 +461,8 @@ BaseOS exports:
 |---|---|
 | `PLATFORM` | Device platform identifier (`rg353ps`) |
 | `BASEOS_FRONTEND_ID` | Selected adapter ID |
-| `BASEOS_FRONTEND_ROOT` | Selected card root (kept compatible with legacy launchers) |
+| `BASEOS_FRONTEND_ROOT` | Selected card root (kept compatible with historical launchers) |
+| `BASEOS_FRONTEND_PROGRAM_ROOT` | Resolved frontend program bundle root, including a nested `Frontends/<name>/` bundle |
 | `BASEOS_PACKAGE_DIR` | Managed package directory; empty for legacy adapters |
 | `BASEOS_PACKAGE_ID` | Stable package identity |
 | `BASEOS_PROFILE_ID` | Selected configuration profile identity |

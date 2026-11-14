@@ -82,20 +82,27 @@ baseos_frontend_scan_root "$TF1" NextUI || fail "legacy simple frontend_id pin w
 [ "$BASEOS_SCAN_KIND" = "compat-package" ] || fail "simple frontend_id pin did not select the compatibility package"
 [ "$(wc -l < "$CATALOG" | tr -d ' ')" = 5 ] || fail "expected five independent compatibility entries"
 
-# Y action unregisters only the BaseOS-generated compatibility and leaves the
-# original program directory untouched; the tombstone prevents auto-regeneration.
+# Y action disables the compatibility entry but preserves metadata and program
+# files. Disabled entries stay listed and cannot be selected by boot discovery.
 run_manager uninstall-compat NextUI--default
-[ -d "$TF1/Frontends/NextUI" ] || fail "compatibility-only uninstall deleted original program files"
-[ ! -e "$SIDE" ] || fail "compatibility-only uninstall left generated metadata"
+[ -d "$TF1/Frontends/NextUI" ] || fail "disabling compatibility deleted original program files"
+[ -d "$SIDE" ] || fail "disabling compatibility deleted its BaseOS metadata"
 [ -f "$TF1/.baseos/compat-disabled/NextUI" ] || fail "compatibility disable marker missing"
 run_manager catalog
-! grep -F -q 'NextUI--default|' "$CATALOG" || fail "disabled compatibility entry was regenerated"
+grep -F -q 'NextUI--default|' "$CATALOG" || fail "disabled compatibility entry disappeared from catalog"
+grep -F -q '|compat|disabled' "$CATALOG" || fail "compatibility disabled status was not exposed to selector"
+. "$DISCOVERY"
+baseos_frontend_scan_root "$TF1" NextUI--default && fail "disabled compatibility frontend was still discoverable at boot"
 
-# X action explicitly deletes the original program directory after the caller's
-# confirmation, and also removes the sidecar and disabled marker.
-rm -f "$TF1/.baseos/compat-disabled/NextUI"
+# Re-enable through the same catalog entry. BaseOS reuses the saved metadata.
+run_manager enable-compat NextUI--default
+[ ! -e "$TF1/.baseos/compat-disabled/NextUI" ] || fail "re-enable left the compatibility disable marker"
 run_manager catalog
-grep -F -q 'NextUI--default|' "$CATALOG" || fail "compat entry did not return after re-enable"
+grep -F -q '|compat|enabled' "$CATALOG" || fail "re-enabled compatibility status did not return to enabled"
+baseos_frontend_scan_root "$TF1" NextUI--default || fail "re-enabled compatibility frontend was not discoverable"
+
+# X action explicitly deletes the original program directory after confirmation,
+# along with its BaseOS compatibility metadata and disable marker.
 run_manager delete-compat NextUI--default
 [ ! -e "$TF1/Frontends/NextUI" ] || fail "full compatibility deletion left the original program directory"
 [ ! -e "$TF1/.baseos/compat/NextUI" ] || fail "full compatibility deletion left sidecar metadata"

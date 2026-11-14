@@ -147,6 +147,10 @@ diagnostic() {
 
 mkdir -p "$TF1" "$TF2"
 ln -sfn "$TF1" /mnt/sdcard
+# Recover temporary root-layout aliases left by an interrupted frontend session.
+if is_mounted "$TF1" && [ -x /usr/sbin/baseos-frontend-paths ]; then
+  /usr/sbin/baseos-frontend-paths cleanup "$TF1" || log "WARNING: stale frontend path aliases could not be cleaned"
+fi
 
 # TF2 is normally mounted by rcS before hotkeyd can open a storage session: a
 # boot-triggered export takes whatever is mounted when it starts, so the mount
@@ -308,6 +312,9 @@ scan_root() {
     FRONTEND_PACKAGE_MODE=no FRONTEND_PACKAGE_ID= FRONTEND_PROFILE_ID=
     FRONTEND_PROFILE_CONFIG= FRONTEND_PACKAGE_DIR=
     FRONTEND_COMPAT_MODE=no
+    FRONTEND_SCAN_KIND=$BASEOS_SCAN_KIND
+    FRONTEND_PROGRAM_ROOT=$BASEOS_SCAN_ROOT
+    FRONTEND_PATHMAP_ID=$SELECTED
     BASEOS_COMPAT_PROGRAM_DIR=
     if [ "$BASEOS_SCAN_KIND" = package ] || [ "$BASEOS_SCAN_KIND" = compat-package ]; then
       FRONTEND_PACKAGE_MODE=yes
@@ -315,9 +322,14 @@ scan_root() {
       FRONTEND_PROFILE_ID=$BASEOS_SCAN_PROFILE_ID
       FRONTEND_PROFILE_CONFIG=$BASEOS_SCAN_PROFILE_CONFIG
       FRONTEND_PACKAGE_DIR=$BASEOS_SCAN_PACKAGE_DIR
+      FRONTEND_PATHMAP_ID=$FRONTEND_PACKAGE_ID
       if [ "$BASEOS_SCAN_KIND" = compat-package ]; then
         FRONTEND_COMPAT_MODE=yes
         BASEOS_COMPAT_PROGRAM_DIR=$BASEOS_SCAN_COMPAT_PROGRAM_DIR
+        FRONTEND_PROGRAM_ROOT=$BASEOS_SCAN_COMPAT_PROGRAM_DIR
+      else
+        FRONTEND_PROGRAM_ROOT=$FRONTEND_PACKAGE_DIR
+        [ ! -d "$FRONTEND_PROGRAM_ROOT/payload" ] || FRONTEND_PROGRAM_ROOT=$FRONTEND_PROGRAM_ROOT/payload
       fi
       if { [ "$BASEOS_SCAN_KIND" = package ] || [ "$BASEOS_SCAN_KIND" = compat-package ]; } &&
          [ "$FRONTEND_PREFERENCE" != auto ] && [ "$SELECTED" != "$FRONTEND_PREFERENCE" ] &&
@@ -362,6 +374,7 @@ SELECTED= LAUNCHER= FRONTEND_ROOT= ADAPTER_DIR=
 ADAPTER_VOLUME_OWNER=system ADAPTER_POWER_OWNER=system
 FRONTEND_PACKAGE_MODE=no FRONTEND_PACKAGE_ID= FRONTEND_PROFILE_ID=
 FRONTEND_PROFILE_CONFIG= FRONTEND_PACKAGE_DIR=
+FRONTEND_SCAN_KIND=legacy FRONTEND_PROGRAM_ROOT= FRONTEND_PATHMAP_ID=
 LAUNCH_MODE=script
 SELECTION_CACHE=/mnt/SDCARD/.baseos/cache/frontend-selection
 # Same test as is_mounted, without the fork: this runs on the path it is
@@ -461,6 +474,8 @@ BASEOS_PROFILE_ID=${FRONTEND_PROFILE_ID:-}
 BASEOS_PROFILE_DEFAULTS=${FRONTEND_PROFILE_CONFIG:-}
 BASEOS_PACKAGE_DIR=${FRONTEND_PACKAGE_DIR:-}
 BASEOS_COMPAT_PROGRAM_DIR=${BASEOS_COMPAT_PROGRAM_DIR:-}
+BASEOS_FRONTEND_PATHMAP_ID=${FRONTEND_PATHMAP_ID:-$SELECTED}
+BASEOS_FRONTEND_PROGRAM_ROOT=${FRONTEND_PROGRAM_ROOT:-$FRONTEND_ROOT}
 BASEOS_INSTANCE_ID=$SELECTED
 BASEOS_CARD_ROOT=$TF1
 BASEOS_GAMES_DIR=$TF1/Games
@@ -488,8 +503,30 @@ fi
 BASEOS_LAUNCHER=$LAUNCHER
 export PLATFORM BASEOS_FRONTEND_ID BASEOS_SYSTEM_ROOT BASEOS_BOOT
 export BASEOS_FRONTEND_ROOT BASEOS_PACKAGE_ID BASEOS_PROFILE_ID BASEOS_PROFILE_CONFIG BASEOS_PROFILE_DEFAULTS
-export BASEOS_PACKAGE_DIR BASEOS_COMPAT_PROGRAM_DIR BASEOS_INSTANCE_ID BASEOS_INSTANCE_DIR BASEOS_CARD_ROOT BASEOS_GAMES_DIR
+export BASEOS_PACKAGE_DIR BASEOS_COMPAT_PROGRAM_DIR BASEOS_FRONTEND_PATHMAP_ID BASEOS_FRONTEND_PROGRAM_ROOT
+export BASEOS_INSTANCE_ID BASEOS_INSTANCE_DIR BASEOS_CARD_ROOT BASEOS_GAMES_DIR
 export BASEOS_DATA_DIR BASEOS_USERDATA_DIR BASEOS_LAUNCHER
+
+# Generate the BaseOS-owned shared-path map on first discovery. It lives under
+# the card's .baseos directory, never inside or alongside frontend source files.
+# For legacy/compat frontends, expose expected card-root paths while they run.
+if [ -x /usr/sbin/baseos-frontend-paths ] && [ -n "$BASEOS_FRONTEND_PATHMAP_ID" ]; then
+  if /usr/sbin/baseos-frontend-paths scan "$TF1" "$BASEOS_FRONTEND_PATHMAP_ID" "$BASEOS_FRONTEND_PROGRAM_ROOT"; then
+    BASEOS_FRONTEND_PATHMAP="$TF1/.baseos/frontend-paths/$BASEOS_FRONTEND_PATHMAP_ID.conf"
+    export BASEOS_FRONTEND_PATHMAP
+    case "$FRONTEND_SCAN_KIND" in
+      legacy|compat-package)
+        if /usr/sbin/baseos-frontend-paths apply "$TF1" "$BASEOS_FRONTEND_PROGRAM_ROOT" "$BASEOS_FRONTEND_PATHMAP" "$BASEOS_USERDATA_DIR"; then
+          log "applied BaseOS shared-path map for $BASEOS_FRONTEND_PATHMAP_ID"
+        else
+          log "WARNING: could not apply BaseOS shared-path map for $BASEOS_FRONTEND_PATHMAP_ID"
+        fi
+        ;;
+    esac
+  else
+    log "WARNING: could not create BaseOS shared-path map for $BASEOS_FRONTEND_PATHMAP_ID"
+  fi
+fi
 # Mesa's on-disk program cache keeps GL program compilation out of later starts.
 # It was never enabled on purpose: it follows $XDG_CACHE_HOME, then $HOME, and the
 # launcher sets HOME=/ for the frontend, so the cache ended up in /.cache beside
@@ -836,6 +873,9 @@ while kill -0 "$FRONTEND_PID" 2>/dev/null; do
     while kill -0 "$FRONTEND_PID" 2>/dev/null && [ "$i" -lt 15 ]; do sleep 0.1; i=$((i+1)); done
     if kill -0 "$FRONTEND_PID" 2>/dev/null; then kill_tree KILL "$FRONTEND_PID"; fi
     wait "$FRONTEND_PID" 2>/dev/null || :
+    if [ -x /usr/sbin/baseos-frontend-paths ]; then
+      /usr/sbin/baseos-frontend-paths cleanup "$TF1" || log "WARNING: could not clean frontend path aliases before USB export"
+    fi
     cd /
     release_volume_from_frontend
     : > /run/baseos-frontend-paused
@@ -850,6 +890,9 @@ wait "$FRONTEND_PID"
 rc=$?
 release_power_owner
 release_volume_from_frontend
+if [ -x /usr/sbin/baseos-frontend-paths ]; then
+  /usr/sbin/baseos-frontend-paths cleanup "$TF1" || log "WARNING: could not clean frontend path aliases after exit"
+fi
 persist_detection_log
 log "frontend '$SELECTED' exited with status $rc; returning to diagnostics"
 printf '\033[0m\033[?25h\033[2J\033[H' > /dev/tty1 2>/dev/null || :

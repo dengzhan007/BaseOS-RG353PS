@@ -33,6 +33,8 @@ on:
       - "tests/test-frontend-packages.sh"
       - "tests/test-frontend-manager.sh"
       - "tests/test-frontend-compat.sh"
+      - "tests/test-frontend-paths.sh"
+      - "tests/test-rg353ps-update-splash.sh"
       - "platforms/rg353ps/build-rootfs.sh"
       - "platforms/rg353ps/build-kernel.sh"
       - "overlay/usr/sbin/usb-gadget-adb"

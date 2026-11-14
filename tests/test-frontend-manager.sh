@@ -207,9 +207,13 @@ run_manager disable-legacy nextui
 run_manager catalog
 ! grep -F -q 'nextui|' "$CATALOG" || fail "disabled legacy adapter remained in selector catalog"
 [ "$(sed -n 's/^frontend_id=//p' "$CONFIG" | tail -n 1)" != nextui ] || fail "disabled default adapter was left pinned"
-rm -f "$LEGACY_ROOT/.baseos/frontends-disabled/nextui"
 run_manager catalog
-grep -F -q 'nextui|nextui|nextui|legacy|' "$CATALOG" || fail "legacy adapter did not return after re-enable"
+grep -F -q 'nextui|nextui|nextui|legacy|' "$CATALOG" || fail "disabled legacy adapter disappeared from selector catalog"
+grep -F -q '|legacy-adapter|disabled' "$CATALOG" || fail "legacy adapter disabled status was not exposed"
+run_manager enable-legacy nextui
+[ ! -e "$LEGACY_ROOT/.baseos/frontends-disabled/nextui" ] || fail "re-enabling legacy adapter left its marker"
+run_manager catalog
+grep -F -q '|legacy-adapter|enabled' "$CATALOG" || fail "legacy adapter did not return to enabled state"
 run_manager delete-legacy-adapter nextui
 [ ! -e "$LEGACY_ROOT" ] || fail "confirmed legacy frontend deletion left its bundle directory"
 [ ! -e "$LEGACY_ROOT/.system/rg353ps/nextui.elf" ] || fail "legacy frontend deletion left bundled .system payload"

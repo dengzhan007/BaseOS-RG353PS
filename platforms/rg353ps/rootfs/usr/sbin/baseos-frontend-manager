@@ -87,6 +87,12 @@ build_catalog() {
       [ -d "$catalog_nested" ] && [ ! -L "$catalog_nested" ] || continue
       append_legacy_adapters "$catalog_nested"
     done
+    # A complete old frontend may be installed in Frontends/<name>/, with its
+    # own .baseos/frontends adapter and sibling .system/ and Tools/ payloads.
+    for catalog_frontend in "$catalog_root/Frontends"/*; do
+      [ -d "$catalog_frontend" ] && [ ! -L "$catalog_frontend" ] || continue
+      append_legacy_adapters "$catalog_frontend"
+    done
   done
   mv -f "$catalog_tmp" "$CATALOG"
   migrate_default_package_alias
@@ -110,11 +116,37 @@ legacy_root_is_allowed() {
   lra_root=$1
   for lra_card in "$TF1" "$TF2"; do
     [ "$lra_root" = "$lra_card" ] && return 0
+    # Permit exactly one named frontend directory below Frontends/.
+    case "$lra_root" in
+      "$lra_card/Frontends/"*)
+        lra_relative=${lra_root#"$lra_card/Frontends/"}
+        case "$lra_relative" in ''|*/*) return 1 ;; esac
+        [ -d "$lra_card/Frontends" ] && [ ! -L "$lra_card/Frontends" ] || return 1
+        [ -d "$lra_root" ] && [ ! -L "$lra_root" ] || return 1
+        return 0
+        ;;
+    esac
     case "$lra_root" in
       "$lra_card"/*)
         lra_relative=${lra_root#"$lra_card"/}
         case "$lra_relative" in ''|*/*) return 1 ;; esac
         [ -d "$lra_root" ] && [ ! -L "$lra_root" ] || return 1
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+legacy_bundle_is_isolated() {
+  lbi_root=$ENTRY_ROOT
+  for lbi_card in "$TF1" "$TF2"; do
+    case "$lbi_root" in
+      "$lbi_card/Frontends/"*)
+        lbi_relative=${lbi_root#"$lbi_card/Frontends/"}
+        case "$lbi_relative" in ''|*/*) return 1 ;; esac
+        [ -d "$lbi_card/Frontends" ] && [ ! -L "$lbi_card/Frontends" ] || return 1
+        [ -d "$lbi_root" ] && [ ! -L "$lbi_root" ] || return 1
         return 0
         ;;
     esac
@@ -159,9 +191,18 @@ remove_legacy_adapter() {
       removed_label=LEGACY_DISABLED
       ;;
     delete-legacy-adapter)
-      rm -rf -- "$ENTRY_DIR" || return 1
-      rm -f -- "$disabled_marker" || return 1
-      removed_label=LEGACY_ADAPTER
+      if legacy_bundle_is_isolated; then
+        # The adapter, .system/, Tools/ and other payload all belong to this
+        # dedicated Frontends/<name>/ directory. Remove that whole frontend.
+        rm -rf -- "$ENTRY_ROOT" || return 1
+        removed_label=LEGACY_FRONTEND
+      else
+        # Older adapters installed directly at card root/container level do
+        # not have a proven isolated payload boundary; remove only the adapter.
+        rm -rf -- "$ENTRY_DIR" || return 1
+        rm -f -- "$disabled_marker" || return 1
+        removed_label=LEGACY_ADAPTER
+      fi
       ;;
     *)
       echo "legacy adapter requires disable-legacy or delete-legacy-adapter" >&2
@@ -178,7 +219,8 @@ remove_legacy_adapter() {
   fi
   case "$removed_label" in
     LEGACY_DISABLED) printf '%s\n' "DISABLED_LEGACY_ADAPTER:$ENTRY_PACKAGE (files kept)" ;;
-    LEGACY_ADAPTER) printf '%s\n' "DELETED_LEGACY_ADAPTER:$ENTRY_PACKAGE (shared payload kept)" ;;
+    LEGACY_ADAPTER) printf '%s\n' "DELETED_LEGACY_ADAPTER:$ENTRY_PACKAGE (no isolated payload root)" ;;
+    LEGACY_FRONTEND) printf '%s\n' "DELETED_LEGACY_FRONTEND:$ENTRY_PACKAGE (complete Frontends directory removed)" ;;
   esac
 }
 

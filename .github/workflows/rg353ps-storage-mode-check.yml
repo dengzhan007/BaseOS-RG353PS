@@ -21,7 +21,13 @@ on:
       - "tests/test-rg353ps-usb-mutual-exclusion.sh"
       - "platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session"
       - "platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-discovery"
+      - "platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-manager"
+      - "platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-compat"
+      - "platforms/rg353ps/src/rg353ps-frontend-selector.c"
       - "tests/test-frontend-adapters.sh"
+      - "tests/test-frontend-packages.sh"
+      - "tests/test-frontend-manager.sh"
+      - "tests/test-frontend-compat.sh"
       - "platforms/rg353ps/build-rootfs.sh"
       - "platforms/rg353ps/build-kernel.sh"
       - "overlay/usr/sbin/usb-gadget-adb"
@@ -39,7 +45,13 @@ on:
       - "tests/test-rg353ps-usb-mutual-exclusion.sh"
       - "platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session"
       - "platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-discovery"
+      - "platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-manager"
+      - "platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-compat"
+      - "platforms/rg353ps/src/rg353ps-frontend-selector.c"
       - "tests/test-frontend-adapters.sh"
+      - "tests/test-frontend-packages.sh"
+      - "tests/test-frontend-manager.sh"
+      - "tests/test-frontend-compat.sh"
       - "platforms/rg353ps/build-rootfs.sh"
       - "platforms/rg353ps/build-kernel.sh"
       - "overlay/usr/sbin/usb-gadget-adb"
@@ -65,7 +77,13 @@ jobs:
           sh -n platforms/rg353ps/rootfs/usr/bin/baseos-splash
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-discovery
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-manager
+          sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-compat
           sh tests/test-frontend-adapters.sh
+          sh tests/test-frontend-packages.sh
+          sh tests/test-frontend-manager.sh
+          sh tests/test-frontend-compat.sh
+          gcc -std=c11 -O2 -Wall -Wextra -Werror -fsyntax-only platforms/rg353ps/src/rg353ps-frontend-selector.c
           sh -n platforms/rg353ps/build-rootfs.sh
           sh -n platforms/rg353ps/build-kernel.sh
           sh -n overlay/usr/sbin/usb-gadget-adb

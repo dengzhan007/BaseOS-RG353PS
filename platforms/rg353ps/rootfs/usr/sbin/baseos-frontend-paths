@@ -6,7 +6,7 @@ PATH=/sbin:/bin:/usr/sbin:/usr/bin
 export PATH
 
 log() {
-  printf '%s\n' "baseos-frontend-paths: $*" > /dev/kmsg 2>/dev/null || :
+  printf '%s\n' "baseos-frontend-paths: $*" 2>/dev/null > /dev/kmsg || :
 }
 
 valid_id() {

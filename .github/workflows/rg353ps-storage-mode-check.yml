@@ -34,6 +34,7 @@ on:
       - "tests/test-frontend-manager.sh"
       - "tests/test-frontend-compat.sh"
       - "tests/test-frontend-paths.sh"
+      - "tests/test-rg353ps-diagnostic-usb.sh"
       - "tests/test-rg353ps-update-splash.sh"
       - "platforms/rg353ps/build-rootfs.sh"
       - "platforms/rg353ps/build-kernel.sh"
@@ -64,6 +65,7 @@ on:
       - "tests/test-frontend-packages.sh"
       - "tests/test-frontend-manager.sh"
       - "tests/test-frontend-compat.sh"
+      - "tests/test-rg353ps-diagnostic-usb.sh"
       - "platforms/rg353ps/build-rootfs.sh"
       - "platforms/rg353ps/build-kernel.sh"
       - "overlay/usr/sbin/usb-gadget-adb"
@@ -97,6 +99,7 @@ jobs:
           sh tests/test-frontend-manager.sh
           sh tests/test-frontend-compat.sh
           sh tests/test-frontend-paths.sh
+          sh tests/test-rg353ps-diagnostic-usb.sh
           sh tests/test-rg353ps-update-splash.sh
           gcc -std=c11 -O2 -Wall -Wextra -Werror -fsyntax-only platforms/rg353ps/src/rg353ps-frontend-selector.c
           sh -n platforms/rg353ps/build-rootfs.sh

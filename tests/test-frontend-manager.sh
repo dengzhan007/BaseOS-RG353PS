@@ -147,7 +147,24 @@ EOF
 run_manager catalog
 grep -F -q 'LUCKLUCK-SLOT--640-native|LUCKLUCK-SLOT|' "$CATALOG" || fail "selector label was not reduced to the package name"
 grep -F -q 'frontend_id=LUCKLUCK-SLOT--640-native' "$CONFIG" || fail "legacy package default was not migrated"
+
+# Managed packages remain visible while disabled; enable restores boot discovery.
+run_manager disable-package LUCKLUCK-SLOT--640-native
+[ -f "$TF1/.baseos/frontend-disabled/LUCKLUCK-SLOT--640-native" ] || fail "managed frontend disable marker missing"
+run_manager catalog
+grep -F -q '|managed|disabled' "$CATALOG" || fail "disabled managed profile disappeared or lost its status"
+if run_manager set-default LUCKLUCK-SLOT--640-native; then
+  fail "disabled managed profile was accepted as the default"
+fi
 . "$DISCOVERY"
+baseos_frontend_scan_root "$TF1" "slot-rg353ps--640-native" && fail "disabled managed frontend remained discoverable"
+[ -f "$RENAMED_PACKAGE/launch.sh" ] || fail "disabling managed frontend changed program files"
+run_manager enable-package LUCKLUCK-SLOT--640-native
+[ ! -e "$TF1/.baseos/frontend-disabled/LUCKLUCK-SLOT--640-native" ] || fail "managed frontend enable marker remained"
+run_manager catalog
+grep -F -q '|managed|enabled' "$CATALOG" || fail "managed profile did not return to enabled state"
+. "$DISCOVERY"
+baseos_frontend_scan_root "$TF1" "slot-rg353ps--640-native" || fail "re-enabled managed frontend was not discoverable"
 baseos_frontend_scan_root "$TF1" "slot-rg353ps--640-native" || fail "legacy pinned package ID did not resolve through previous_package_id"
 [ "$BASEOS_SCAN_ID" = "LUCKLUCK-SLOT--640-native" ] || fail "legacy selection resolved to an unexpected package ID"
 

@@ -79,6 +79,9 @@ build_catalog() {
           if [ "$catalog_kind" = compat ] &&
              [ -e "$catalog_root/.baseos/compat-disabled/$BASEOS_PACKAGE_ID" ]; then
             catalog_status=disabled
+          elif [ "$catalog_kind" = managed ] &&
+               [ -e "$catalog_root/.baseos/frontend-disabled/$catalog_id" ]; then
+            catalog_status=disabled
           fi
           printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' \
             "$catalog_id" "$BASEOS_FRONTEND_NAME" "$BASEOS_PACKAGE_ID" \
@@ -237,6 +240,42 @@ remove_legacy_adapter() {
   esac
 }
 
+set_managed_status() {
+  sms_action=$1
+  [ "$ENTRY_KIND" = managed ] || { echo "status action is not valid for this frontend kind" >&2; return 1; }
+  [ "$ENTRY_DIR" = "$ENTRY_ROOT/Frontends/$ENTRY_PACKAGE" ] || {
+    echo "refusing unexpected managed package path" >&2; return 1;
+  }
+  case "$ENTRY_ROOT" in "$TF1"|"$TF2") ;; *) echo "refusing unexpected managed card root" >&2; return 1 ;; esac
+  [ -d "$ENTRY_DIR" ] && [ ! -L "$ENTRY_DIR" ] || return 1
+  [ ! -L "$ENTRY_ROOT/.baseos" ] || { echo "refusing symlinked .baseos directory" >&2; return 1; }
+  status_dir=$ENTRY_ROOT/.baseos/frontend-disabled
+  [ ! -L "$status_dir" ] || { echo "refusing symlinked frontend status directory" >&2; return 1; }
+  mkdir -p "$status_dir" || return 1
+  status_marker=$status_dir/$ENTRY_ID
+  [ ! -L "$status_marker" ] || { echo "refusing symlinked frontend status marker" >&2; return 1; }
+  case "$sms_action" in
+    disable)
+      : > "$status_marker" || return 1
+      status_label=DISABLED
+      ;;
+    enable)
+      rm -f -- "$status_marker" || return 1
+      status_label=ENABLED
+      ;;
+    *) return 1 ;;
+  esac
+  sync
+  current_default=$(sed -n 's/^[[:space:]]*frontend_id=//p' "$CONFIG" 2>/dev/null | tail -n 1)
+  build_catalog
+  if [ "$status_label" = DISABLED ] && [ "$current_default" = "$ENTRY_ID" ]; then
+    next_default=$(awk -F '|' '$10 == "enabled" { print $1; exit }' "$CATALOG")
+    [ -n "$next_default" ] || next_default=auto
+    write_default "$next_default"
+  fi
+  printf '%s\\n' "${status_label}_MANAGED_FRONTEND:$ENTRY_ID"
+}
+
 write_default() {
   default_id=$1
   case "$default_id" in
@@ -317,15 +356,30 @@ case "$cmd" in
     [ "$ENTRY_STATUS" = enabled ] || { echo "cannot set a disabled frontend as default: $ENTRY_ID" >&2; exit 1; }
     write_default "$ENTRY_ID"
     ;;
-  uninstall|uninstall-package|uninstall-compat|enable-compat|delete-compat|disable-legacy|enable-legacy|delete-legacy-adapter)
+  uninstall|uninstall-package|uninstall-compat|enable-compat|delete-compat|disable-legacy|enable-legacy|delete-legacy-adapter|disable-package|enable-package)
     [ "$#" -eq 2 ] || exit 2
     remove_action=$cmd
     remove_id=$2
     build_catalog
     find_catalog_entry "$remove_id" || { echo "frontend profile not found: $remove_id" >&2; exit 1; }
     if [ "$ENTRY_KIND" = legacy-adapter ]; then
-      remove_legacy_adapter "$remove_action" || exit 1
+      case "$remove_action" in
+        disable-package) remove_legacy_adapter disable-legacy ;;
+        enable-package) remove_legacy_adapter enable-legacy ;;
+        *) remove_legacy_adapter "$remove_action" ;;
+      esac || exit 1
       exit 0
+    fi
+    if [ "$ENTRY_KIND" = compat ]; then
+      case "$remove_action" in
+        disable-package) remove_action=uninstall-compat ;;
+        enable-package) remove_action=enable-compat ;;
+      esac
+    else
+      case "$remove_action" in
+        disable-package) set_managed_status disable; exit $? ;;
+        enable-package) set_managed_status enable; exit $? ;;
+      esac
     fi
     valid_package_id "$ENTRY_PACKAGE" || exit 1
     valid_profile_id "$ENTRY_PROFILE" || exit 1
@@ -434,7 +488,7 @@ case "$cmd" in
     esac
     ;;
   *)
-    echo "usage: baseos-frontend-manager [catalog|compat-scan|set-default ID|uninstall ID|uninstall-package ID|uninstall-compat ID|enable-compat ID|delete-compat ID|disable-legacy ID|enable-legacy ID|delete-legacy-adapter ID]" >&2
+    echo "usage: baseos-frontend-manager [catalog|compat-scan|set-default ID|disable-package ID|enable-package ID|uninstall ID|uninstall-package ID|uninstall-compat ID|enable-compat ID|delete-compat ID|disable-legacy ID|enable-legacy ID|delete-legacy-adapter ID]" >&2
     exit 2
     ;;
 esac

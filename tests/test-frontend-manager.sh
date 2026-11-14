@@ -176,9 +176,9 @@ EOF
 baseos_frontend_scan_root "$TF1" "slot-rg353ps--640-native-alt" || fail "recreated legacy profile did not resolve through the package alias"
 [ "$BASEOS_SCAN_ID" = "LUCKLUCK-SLOT--640-native-alt" ] || fail "recreated profile resolved to an unexpected identity"
 
-# NextUI's historical archive layout, extracted into Frontends/, puts the
-# adapter below Frontends/.baseos/frontends while .system and Tools are siblings.
-LEGACY_ROOT=$TF1/Frontends
+# A legacy archive is installed as one independent directory under
+# Frontends/<name>/. The adapter, .system and Tools all belong to this bundle.
+LEGACY_ROOT=$TF1/Frontends/NextUI
 LEGACY_ADAPTER=$LEGACY_ROOT/.baseos/frontends/nextui
 mkdir -p "$LEGACY_ADAPTER" "$LEGACY_ROOT/.system/rg353ps" "$LEGACY_ROOT/Tools/rg353ps"
 printf '%s\n' '#!/bin/sh' 'exit 0' > "$LEGACY_ADAPTER/launch.sh"
@@ -208,10 +208,10 @@ rm -f "$LEGACY_ROOT/.baseos/frontends-disabled/nextui"
 run_manager catalog
 grep -F -q 'nextui|nextui|nextui|legacy|' "$CATALOG" || fail "legacy adapter did not return after re-enable"
 run_manager delete-legacy-adapter nextui
-[ ! -e "$LEGACY_ADAPTER" ] || fail "confirmed legacy adapter deletion left the adapter directory"
-[ -f "$LEGACY_ROOT/.system/rg353ps/nextui.elf" ] || fail "legacy adapter deletion removed shared .system payload"
-[ -f "$LEGACY_ROOT/Tools/rg353ps/tool" ] || fail "legacy adapter deletion removed shared Tools payload"
-[ -f "$TF1/Games/game.rom" ] || fail "legacy adapter deletion removed shared Games"
-[ -f "$TF1/Saves/game.srm" ] || fail "legacy adapter deletion removed shared Saves"
+[ ! -e "$LEGACY_ROOT" ] || fail "confirmed legacy frontend deletion left its bundle directory"
+[ ! -e "$LEGACY_ROOT/.system/rg353ps/nextui.elf" ] || fail "legacy frontend deletion left bundled .system payload"
+[ ! -e "$LEGACY_ROOT/Tools/rg353ps/tool" ] || fail "legacy frontend deletion left bundled Tools payload"
+[ -f "$TF1/Games/game.rom" ] || fail "legacy frontend deletion removed shared Games"
+[ -f "$TF1/Saves/game.srm" ] || fail "legacy frontend deletion removed shared Saves"
 
 echo "PASS: frontend manager catalog, profile/full uninstall, legacy adapter selector lifecycle, data retention, package rename/default migration and symlink guard"

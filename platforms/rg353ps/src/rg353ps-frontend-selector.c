@@ -66,6 +66,12 @@ static char current_default_id[ID_LEN] = "auto";
 static struct termios saved_termios;
 static int termios_saved;
 static int stdin_active;
+static int show_diagnostics_entry = 1;
+
+static int visible_item_count(void)
+{
+    return entry_count + (show_diagnostics_entry ? 1 : 0);
+}
 
 static void stop_running(int sig)
 {
@@ -189,7 +195,8 @@ static int load_catalog(void)
         ++entry_count;
     }
     (void)fclose(fp);
-    if (selected_item >= entry_count) selected_item = entry_count > 0 ? entry_count - 1 : 0;
+    if (selected_item >= visible_item_count())
+        selected_item = visible_item_count() > 0 ? visible_item_count() - 1 : 0;
     if (selected_item < 0) selected_item = 0;
     return entry_count;
 }
@@ -298,7 +305,8 @@ static void render(void)
 {
     adjust_scroll();
     if (confirming_uninstall) {
-        struct frontend_entry *entry = entry_count > 0 ? &entries[selected_item] : NULL;
+        struct frontend_entry *entry =
+            selected_item >= 0 && selected_item < entry_count ? &entries[selected_item] : NULL;
         render_header("BaseOS  |  Confirm removal");
         if (entry == NULL) {
             (void)printf("\n  No frontend package is selected.\n");
@@ -315,7 +323,7 @@ static void render(void)
                 } else {
                     (void)printf("\n  REMOVE BASEOS COMPATIBILITY ONLY.\n");
                     (void)printf("  The original program directory and all files stay in place.\n");
-                    (void)printf("  This entry will stay unregistered until compatibility is re-enabled.\n");
+                    (void)printf("  The disabled entry and generated metadata remain available for re-enable.\n");
                 }
             } else if (strcmp(entry->kind, "legacy-adapter") == 0) {
                 if (uninstall_package_action && entry_is_frontend_bundle(entry)) {
@@ -330,7 +338,6 @@ static void render(void)
                 } else {
                     (void)printf("\n  DISABLE THIS LEGACY ADAPTER.\n");
                     (void)printf("  The adapter and all original files are preserved.\n");
-                    (void)printf("  Remove its disable marker to re-enable it.\n");
                 }
             } else if (uninstall_package_action) {
                 (void)printf("\n  REMOVE THE ENTIRE MANAGED FRONTEND PACKAGE.\n");
@@ -352,7 +359,6 @@ static void render(void)
     if (entry_count == 0) {
         (void)printf("  No compatible frontend folders or managed packages were found.\n");
         (void)printf("  Extract a package into /mnt/SDCARD/Frontends/<package-id>/.\n");
-        (void)printf("\n  B: continue with the configured/default frontend\n");
     } else {
         (void)printf("  INSTALLED PROFILES\n");
         for (int i = scroll_offset; i < entry_count && i < scroll_offset + 10; ++i) {
@@ -382,6 +388,17 @@ static void render(void)
                          strcmp(entries[i].kind, "compat") == 0 ? "compat" :
                          strcmp(entries[i].kind, "legacy-adapter") == 0 ? "legacy adapter" : "managed");
         }
+    }
+
+    if (show_diagnostics_entry && entry_count >= scroll_offset &&
+        entry_count < scroll_offset + 10) {
+        if (selected_item == entry_count)
+            (void)printf("  \033[1;32m> %-72.72s\033[0m\n", "BaseOS Diagnostics");
+        else
+            (void)printf("    %-72.72s\n", "BaseOS Diagnostics");
+    }
+
+    if (selected_item >= 0 && selected_item < entry_count) {
         (void)printf("\n  Selected ID: %s\n", entries[selected_item].id);
         (void)printf("  A: launch once    START: set default + launch\n");
         (void)printf("  SELECT / E: %s frontend (same control for every frontend type)\n",
@@ -397,20 +414,59 @@ static void render(void)
             (void)printf("  Y: remove selected profile\n");
             (void)printf("  X: uninstall entire frontend package\n");
         }
-        (void)printf("  B: cancel and use the configured/default frontend\n");
-        if (entry_count > 10)
-            (void)printf("  Showing %d-%d of %d profiles\n", scroll_offset + 1,
-                         scroll_offset + 10 < entry_count ? scroll_offset + 10 : entry_count,
-                         entry_count);
+    } else if (show_diagnostics_entry && selected_item == entry_count) {
+        (void)printf("\n  Selected action: BaseOS Diagnostics\n");
+        (void)printf("  A / START: open diagnostics; choose Return to frontend selector to come back\n");
     }
+    (void)printf("  B: return to the previous page / configured default frontend\n");
+    if (entry_count > 10)
+        (void)printf("  Showing %d-%d of %d frontend profiles\n", scroll_offset + 1,
+                     scroll_offset + 10 < entry_count ? scroll_offset + 10 : entry_count,
+                     entry_count);
     (void)printf("\n  %s\n", status_line);
     (void)printf("  D-pad UP/DOWN to move.\n");
     fflush(stdout);
 }
 
+static void open_diagnostics(void)
+{
+    pid_t child;
+    int status = 0;
+
+    child = fork();
+    if (child < 0) {
+        (void)snprintf(status_line, sizeof(status_line), "Could not start diagnostics.");
+        render();
+        return;
+    }
+    if (child == 0) {
+        (void)setenv("BASEOS_RETURN_TO_SELECTOR", "1", 1);
+        execl("/usr/sbin/rg353ps-control-center", "rg353ps-control-center", (char *)NULL);
+        _exit(127);
+    }
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno != EINTR) {
+            (void)snprintf(status_line, sizeof(status_line), "Diagnostics wait failed.");
+            render();
+            return;
+        }
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        (void)snprintf(status_line, sizeof(status_line), "Diagnostics returned with an error.");
+    else
+        (void)snprintf(status_line, sizeof(status_line), "Returned from BaseOS Diagnostics.");
+    load_current_default();
+    (void)load_catalog();
+    render();
+}
+
 static void choose_launch(int set_default)
 {
-    if (entry_count <= 0) return;
+    if (show_diagnostics_entry && selected_item == entry_count) {
+        open_diagnostics();
+        return;
+    }
+    if (entry_count <= 0 || selected_item < 0 || selected_item >= entry_count) return;
     if (entries[selected_item].disabled) {
         (void)snprintf(status_line, sizeof(status_line),
                        "This frontend is disabled. Enable it before launching.");
@@ -440,7 +496,7 @@ static void toggle_selected_status(void)
     const struct frontend_entry *entry;
     const char *action;
 
-    if (entry_count <= 0) return;
+    if (entry_count <= 0 || selected_item < 0 || selected_item >= entry_count) return;
     entry = &entries[selected_item];
     if (strcmp(entry->kind, "legacy-adapter") == 0) {
         action = entry->disabled ? "enable-legacy" : "disable-legacy";
@@ -469,7 +525,7 @@ static void uninstall_selected(void)
     char package[PACKAGE_LEN];
     char profile[PROFILE_LEN];
     int remove_package = uninstall_package_action;
-    if (entry_count <= 0) return;
+    if (entry_count <= 0 || selected_item < 0 || selected_item >= entry_count) return;
     (void)snprintf(package, sizeof(package), "%s", entries[selected_item].package_id);
     (void)snprintf(profile, sizeof(profile), "%s", entries[selected_item].profile_id);
     const int is_compat = strcmp(entries[selected_item].kind, "compat") == 0;
@@ -532,11 +588,11 @@ static void handle_key(unsigned int code, int value)
 
     switch (code) {
     case BTN_DPAD_UP:
-        if (entry_count > 0 && selected_item > 0) --selected_item;
+        if (visible_item_count() > 0 && selected_item > 0) --selected_item;
         render();
         break;
     case BTN_DPAD_DOWN:
-        if (entry_count > 0 && selected_item + 1 < entry_count) ++selected_item;
+        if (visible_item_count() > 0 && selected_item + 1 < visible_item_count()) ++selected_item;
         render();
         break;
     case BTN_EAST:
@@ -546,22 +602,23 @@ static void handle_key(unsigned int code, int value)
         choose_launch(1);
         break;
     case BTN_WEST: /* Y: remove one managed package profile. */
-        if (entry_count > 0 &&
+        if (selected_item >= 0 && selected_item < entry_count &&
             strcmp(entries[selected_item].kind, "managed") == 0) {
             uninstall_package_action = 0;
             confirming_uninstall = 1;
             render();
-        } else if (entry_count > 0) {
+        } else if (selected_item >= 0 && selected_item < entry_count) {
             (void)snprintf(status_line, sizeof(status_line),
-                           "Use SELECT to enable/disable this frontend; X removes it.");
+                           "Y removes a managed profile; SELECT toggles frontend status.");
             render();
         }
         break;
     case BTN_SELECT:
-        toggle_selected_status();
+        if (selected_item >= 0 && selected_item < entry_count)
+            toggle_selected_status();
         break;
     case BTN_NORTH: /* X: remove the entire frontend package. */
-        if (entry_count > 0) {
+        if (selected_item >= 0 && selected_item < entry_count) {
             uninstall_package_action = 1;
             confirming_uninstall = 1;
             render();
@@ -619,6 +676,8 @@ int main(void)
     (void)signal(SIGTERM, stop_running);
     (void)signal(SIGHUP, stop_running);
     (void)unlink(SELECTION_PATH);
+    show_diagnostics_entry = !(getenv("BASEOS_SELECTOR_RETURN_TO_DIAGNOSTICS") != NULL &&
+                               strcmp(getenv("BASEOS_SELECTOR_RETURN_TO_DIAGNOSTICS"), "1") == 0);
     load_current_default();
     (void)load_catalog();
     discover_inputs();

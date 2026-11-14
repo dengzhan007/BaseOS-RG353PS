@@ -10,13 +10,21 @@ trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 TF1=$TMP/card
 TF2=$TMP/tf2
 CATALOG=$TMP/catalog
-mkdir -p "$TF1/Frontends/NextUI" "$TF1/Frontends/NextUI-copy" "$TF2"
+mkdir -p "$TF1/Frontends/NextUI" "$TF1/Frontends/NextUI-copy" "$TF1/Frontends/Next'UI" "$TF1/Frontends/街机" "$TF2"
 cat > "$TF1/Frontends/NextUI/launch.sh" <<'EOF'
 #!/bin/sh
 printf '%s\n' "$PWD" > "$COMPAT_TEST_RESULT"
 printf '%s\n' "$BASEOS_COMPAT_PROGRAM_DIR" >> "$COMPAT_TEST_RESULT"
 EOF
 cat > "$TF1/Frontends/NextUI-copy/launch.sh" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+cat > "$TF1/Frontends/Next'UI/launch.sh" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+cat > "$TF1/Frontends/街机/launch.sh" <<'EOF'
 #!/bin/sh
 exit 0
 EOF
@@ -53,7 +61,14 @@ export COMPAT_TEST_RESULT
 run_manager catalog
 grep -F -q 'NextUI--default|NextUI|' "$CATALOG" || fail "legacy folder was not added to selector catalog"
 grep -F -q 'NextUI-copy--default|NextUI-copy|' "$CATALOG" || fail "renamed full-copy folder was not discovered independently"
-[ "$(wc -l < "$CATALOG" | tr -d ' ')" = 2 ] || fail "expected two separately installed full-copy entries"
+grep -F -q "Next-UI--default|Next'UI|" "$CATALOG" || fail "folder names containing quotes were not safely wrapped"
+unicode_id="frontend-$(printf '%s' '街机' | cksum | awk '{print $1}')"
+grep -F -q "$unicode_id--default|街机|" "$CATALOG" || fail "all-Unicode folder name was not assigned a stable ID"
+. "$DISCOVERY"
+baseos_frontend_scan_root "$TF1" NextUI || fail "legacy simple frontend_id pin was not resolved"
+[ "$BASEOS_SCAN_ID" = "NextUI--default" ] || fail "legacy simple frontend_id did not resolve to its default profile"
+[ "$BASEOS_SCAN_KIND" = "compat-package" ] || fail "simple frontend_id pin did not select the compatibility package"
+[ "$(wc -l < "$CATALOG" | tr -d ' ')" = 4 ] || fail "expected four independent compatibility entries"
 
 # Y action unregisters only the BaseOS-generated compatibility and leaves the
 # original program directory untouched; the tombstone prevents auto-regeneration.

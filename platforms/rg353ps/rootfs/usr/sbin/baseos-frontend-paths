@@ -310,6 +310,24 @@ cleanup_aliases() {
           log "unmounted shared-core view $ca_name"
         fi
         ;;
+      B)
+        # Bind-mounted card-root aliases are used on filesystems such as the
+        # standard Linux exFAT driver that do not implement symbolic links.
+        case "$ca_name" in "$ca_root"/*) ;; *) continue ;; esac
+        if grep -F -q " $ca_name " /proc/mounts; then
+          umount "$ca_name" 2>/dev/null || {
+            log "WARNING: could not unmount frontend path alias $ca_name"
+            ca_failed=yes
+            continue
+          }
+          log "unmounted frontend path alias $ca_name"
+        fi
+        # The mountpoint directory was created by add_alias. Once unmounted,
+        # remove it only when empty; never remove user data.
+        if [ -d "$ca_name" ] && [ ! -L "$ca_name" ]; then
+          rmdir "$ca_name" 2>/dev/null || :
+        fi
+        ;;
     esac
   done < "$ca_state"
   if [ "$ca_failed" = yes ]; then
@@ -342,13 +360,35 @@ add_alias() {
       return 0
     fi
   fi
-  # Persist cleanup intent before making the symlink. A power loss between
-  # these two operations is harmless: cleanup ignores a link that is absent.
-  printf 'A|%s|%s\n' "$aa_name" "$aa_source" >> "$aa_state"
+  # Try a symlink first on filesystems that support it. The user-data
+  # partition is commonly exFAT, whose standard Linux driver has no symlink
+  # operation; in that case use a transient bind mount over the empty
+  # mountpoint instead. Both forms are recorded for cleanup before activation.
+  if ln -s "$aa_source" "$aa_path"; then
+    printf 'A|%s|%s\n' "$aa_name" "$aa_source" >> "$aa_state"
+    sync
+    log "mapped $aa_path -> $aa_source"
+    return 0
+  fi
+
+  if [ -e "$aa_path" ] || [ -L "$aa_path" ]; then
+    log "path alias fallback blocked by existing destination $aa_path"
+    return 0
+  fi
+  mkdir "$aa_path" || return 1
+  printf 'B|%s|%s\n' "$aa_path" "$aa_source" >> "$aa_state" || {
+    rmdir "$aa_path" 2>/dev/null || :
+    return 1
+  }
   sync
-  ln -s "$aa_source" "$aa_path" || return 1
-  log "mapped $aa_path -> $aa_source"
-  return 0
+  if mount --bind "$aa_source" "$aa_path"; then
+    log "bind-mounted $aa_path -> $aa_source"
+    return 0
+  fi
+  sed '$d' "$aa_state" > "$aa_state.tmp" && mv -f "$aa_state.tmp" "$aa_state"
+  rmdir "$aa_path" 2>/dev/null || :
+  log "WARNING: could not create symlink or bind-mounted alias $aa_path"
+  return 1
 }
 
 add_core_mount() {

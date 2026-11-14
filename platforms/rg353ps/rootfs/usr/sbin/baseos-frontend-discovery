@@ -286,8 +286,15 @@ baseos_frontend_scan_root() {
   BASEOS_SCAN_COMPAT_PROGRAM_DIR= BASEOS_SCAN_COMPAT_ENTRYPOINT=
   baseos_frontend_scan_container "$bfs_root" "$bfs_preference"
   for bfs_nested in "$bfs_root"/*; do
-    [ -d "$bfs_nested" ] || continue
+    [ -d "$bfs_nested" ] && [ ! -L "$bfs_nested" ] || continue
     baseos_frontend_scan_container "$bfs_nested" "$bfs_preference"
+  done
+  # Historical frontend archives are often installed as a self-contained
+  # directory under Frontends/<name>/. Their adapter lives one level deeper
+  # than the older root/wrapper layouts, beside .system/ and Tools/.
+  for bfs_frontend in "$bfs_root"/Frontends/*; do
+    [ -d "$bfs_frontend" ] && [ ! -L "$bfs_frontend" ] || continue
+    baseos_frontend_scan_container "$bfs_frontend" "$bfs_preference"
   done
   [ -n "$BASEOS_SCAN_ID" ]
 }
@@ -297,7 +304,7 @@ baseos_frontend_tree_changed_since() {
   bft_root=$1
   bft_cache=$2
   [ -f "$bft_cache" ] || return 0
-  for bft_container in "$bft_root" "$bft_root"/*; do
+  for bft_container in "$bft_root" "$bft_root"/* "$bft_root"/Frontends/*; do
     [ -d "$bft_container" ] || continue
     for bft_packages in "$bft_container/Frontends" "$bft_container/.baseos/compat"; do
       [ -d "$bft_packages" ] || continue

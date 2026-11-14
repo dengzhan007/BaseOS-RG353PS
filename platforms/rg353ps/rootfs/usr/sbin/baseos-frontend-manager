@@ -190,9 +190,13 @@ case "$cmd" in
         rm -rf -- "$compat_dir"
         removed_label=COMPAT
       else
+        disabled_dir=$ENTRY_ROOT/.baseos/compat-disabled
+        [ ! -L "$disabled_dir" ] || { echo "refusing symlinked compatibility disable directory" >&2; exit 1; }
+        disabled_marker=$disabled_dir/$ENTRY_PACKAGE
+        [ ! -L "$disabled_marker" ] || { echo "refusing symlinked compatibility disable marker" >&2; exit 1; }
         rm -rf -- "$expected_dir"
         rm -rf -- "$compat_dir"
-        rm -f -- "$ENTRY_ROOT/.baseos/compat-disabled/$ENTRY_PACKAGE"
+        rm -f -- "$disabled_marker"
         removed_label=COMPAT_PROGRAM
       fi
     else

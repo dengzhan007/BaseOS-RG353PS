@@ -116,10 +116,26 @@ diagnostic() {
     # storage mode requested from this menu died instantly with a "PARTITION
     # BUSY" until the export helper learned to chdir out on its own.
     cd / 2>/dev/null || :
-    /usr/sbin/rg353ps-control-center &
+    BASEOS_DIAGNOSTIC_SUPERVISED=1 /usr/sbin/rg353ps-control-center &
     DIAGNOSTIC_PID=$!
     while kill -0 "$DIAGNOSTIC_PID" 2>/dev/null; do
       if [ -e /run/baseos-usb-storage.request ]; then
+        # Diagnostics opened from the selector can acknowledge the pause
+        # themselves. Give that nested process a short window before stopping
+        # the top-level diagnostic UI.
+        i=0
+        while [ ! -e /run/baseos-frontend-paused ] &&
+              [ -e /run/baseos-usb-storage.request ] && [ "$i" -lt 20 ]; do
+          sleep 0.1
+          i=$((i+1))
+        done
+        if [ -e /run/baseos-frontend-paused ]; then
+          log "nested selector diagnostics acknowledged the USB pause; keeping the selector chain alive"
+          while [ -e /run/baseos-usb-storage.request ]; do sleep 0.1; done
+          log "nested diagnostic USB storage finished; returning to the existing selector"
+          continue
+        fi
+        [ -e /run/baseos-usb-storage.request ] || continue
         log "USB storage requested while diagnostic UI is active"
         kill -TERM "$DIAGNOSTIC_PID" 2>/dev/null || :
         i=0
@@ -478,7 +494,8 @@ BASEOS_BOOT=/mnt/boot
 # BASEOS_FRONTEND_ROOT is a compatibility contract for historical launchers:
 # it is the selected card root, not an isolated Frontends/<name> program folder.
 # The latter has its own explicit BASEOS_FRONTEND_PROGRAM_ROOT variable.
-BASEOS_FRONTEND_ROOT=${FRONTEND_CARD_ROOT:-$TF1}
+BASEOS_CARD_ROOT=${FRONTEND_CARD_ROOT:-$TF1}
+BASEOS_FRONTEND_ROOT=$BASEOS_CARD_ROOT
 BASEOS_PACKAGE_ID=${FRONTEND_PACKAGE_ID:-}
 BASEOS_PROFILE_ID=${FRONTEND_PROFILE_ID:-}
 BASEOS_PROFILE_DEFAULTS=${FRONTEND_PROFILE_CONFIG:-}
@@ -487,10 +504,9 @@ BASEOS_COMPAT_PROGRAM_DIR=${BASEOS_COMPAT_PROGRAM_DIR:-}
 BASEOS_FRONTEND_PATHMAP_ID=${FRONTEND_PATHMAP_ID:-$SELECTED}
 BASEOS_FRONTEND_PROGRAM_ROOT=${FRONTEND_PROGRAM_ROOT:-$FRONTEND_ROOT}
 BASEOS_INSTANCE_ID=$SELECTED
-BASEOS_CARD_ROOT=$TF1
-BASEOS_GAMES_DIR=$TF1/Games
+BASEOS_GAMES_DIR=$BASEOS_CARD_ROOT/Games
 if [ "${FRONTEND_PACKAGE_MODE:-no}" = yes ]; then
-  BASEOS_INSTANCE_DIR="$TF1/.baseos/instances/$SELECTED"
+  BASEOS_INSTANCE_DIR="$BASEOS_CARD_ROOT/.baseos/instances/$SELECTED"
   BASEOS_DATA_DIR="$BASEOS_INSTANCE_DIR/data"
   BASEOS_USERDATA_DIR="$BASEOS_INSTANCE_DIR/userdata"
   BASEOS_PROFILE_CONFIG="$BASEOS_INSTANCE_DIR/config/profile.conf"
@@ -525,12 +541,12 @@ export BASEOS_DATA_DIR BASEOS_USERDATA_DIR BASEOS_LAUNCHER
 # the card's .baseos directory, never inside or alongside frontend source files.
 # For legacy/compat frontends, expose expected card-root paths while they run.
 if [ -x /usr/sbin/baseos-frontend-paths ] && [ -n "$BASEOS_FRONTEND_PATHMAP_ID" ]; then
-  if /usr/sbin/baseos-frontend-paths scan "$TF1" "$BASEOS_FRONTEND_PATHMAP_ID" "$BASEOS_FRONTEND_PROGRAM_ROOT"; then
-    BASEOS_FRONTEND_PATHMAP="$TF1/.baseos/frontend-paths/$BASEOS_FRONTEND_PATHMAP_ID.conf"
+  if /usr/sbin/baseos-frontend-paths scan "$BASEOS_CARD_ROOT" "$BASEOS_FRONTEND_PATHMAP_ID" "$BASEOS_FRONTEND_PROGRAM_ROOT"; then
+    BASEOS_FRONTEND_PATHMAP="$BASEOS_CARD_ROOT/.baseos/frontend-paths/$BASEOS_FRONTEND_PATHMAP_ID.conf"
     export BASEOS_FRONTEND_PATHMAP
     case "$FRONTEND_SCAN_KIND" in
       legacy|compat-package)
-        if /usr/sbin/baseos-frontend-paths apply "$TF1" "$BASEOS_FRONTEND_PROGRAM_ROOT" "$BASEOS_FRONTEND_PATHMAP" "$BASEOS_USERDATA_DIR"; then
+        if /usr/sbin/baseos-frontend-paths apply "$BASEOS_CARD_ROOT" "$BASEOS_FRONTEND_PROGRAM_ROOT" "$BASEOS_FRONTEND_PATHMAP" "$BASEOS_USERDATA_DIR"; then
           log "applied BaseOS shared-path map for $BASEOS_FRONTEND_PATHMAP_ID"
         else
           log "WARNING: could not apply BaseOS shared-path map for $BASEOS_FRONTEND_PATHMAP_ID"

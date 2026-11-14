@@ -11,6 +11,7 @@ PROGRAM=$CARD/Frontends/NextUI
 USERDATA=$PROGRAM/.baseos/userdata
 mkdir -p "$PROGRAM/.system/h700/cores" "$PROGRAM/Tools/rg353ps" "$USERDATA" "$CARD/Games/FC"
 : > "$PROGRAM/.system/h700/cores/.keep"
+printf '%s\n' 'test-core-binary' > "$PROGRAM/.system/h700/cores/test_libretro.so"
 : > "$PROGRAM/Tools/rg353ps/.keep"
 printf '%s\n' "test-rom" > "$CARD/Games/FC/test.rom"
 
@@ -60,5 +61,23 @@ done
 [ -f "$PROGRAM/Tools/rg353ps/.keep" ] || fail "frontend Tools files were modified"
 [ -f "$CARD/Games/FC/test.rom" ] || fail "shared Games data was modified"
 [ -f "$MAP" ] || fail "persistent path-map config was removed during cleanup"
+[ -f "$CARD/.baseos/shared/cores/rg353ps/test_libretro.so" ] || fail "frontend core was not imported into the shared library"
 
-echo "PASS: BaseOS generated, preserved, applied and cleaned legacy frontend path maps"
+sed 's/^games_target=.*/games_target=Games/' "$MAP" > "$MAP.tmp"
+mv "$MAP.tmp" "$MAP"
+mkdir -p "$CARD/Roms" "$CARD/ROMs" "$CARD/roms"
+: > "$CARD/Roms/.keep"
+: > "$CARD/ROMs/.keep"
+: > "$CARD/roms/.keep"
+sh "$HELPER" apply "$CARD" "$PROGRAM" "$MAP" "$USERDATA" || fail "Games-target compatibility apply failed"
+for alias in Roms ROMs roms; do
+  [ -L "$CARD/$alias" ] || fail "legacy ROM alias missing for games_target=Games: $alias"
+  [ "$(readlink "$CARD/$alias")" = "$CARD/Games" ] || fail "$alias does not point to canonical Games"
+  [ -f "$CARD/$alias/FC/test.rom" ] || fail "$alias cannot see the shared Games library"
+done
+sh "$HELPER" cleanup "$CARD" || fail "Games-target compatibility cleanup failed"
+for alias in Roms ROMs roms; do
+  [ ! -L "$CARD/$alias" ] || fail "temporary legacy ROM alias survived cleanup: $alias"
+done
+
+echo "PASS: BaseOS path maps share frontend cores and preserve legacy ROM paths"

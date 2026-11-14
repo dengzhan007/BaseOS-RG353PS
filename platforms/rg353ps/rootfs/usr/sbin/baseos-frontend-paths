@@ -77,6 +77,75 @@ has_core_files() {
   return 1
 }
 
+core_platform() {
+  # The library is keyed to the hardware running this BaseOS image, not the
+  # folder spelling used by an upstream frontend (some bundles say h700).
+  valid_core_target "$1" || return 1
+  printf '%s' rg353ps
+}
+
+copy_core_set() {
+  ccs_root=$1 ccs_source=$2 ccs_dest=$3
+  safe_dir "$ccs_source" || return 0
+  case "$ccs_source" in
+    "$ccs_root"/*)
+      ccs_relative=${ccs_source#"$ccs_root"/}
+      safe_relative_path "$ccs_root" "$ccs_relative" || return 0
+      ;;
+    *) return 0 ;;
+  esac
+  has_core_files "$ccs_source" || return 0
+  [ ! -L "$ccs_dest" ] || return 1
+  mkdir -p "$ccs_dest" || return 1
+  for ccs_file in "$ccs_source"/*_libretro.so; do
+    [ -f "$ccs_file" ] && [ ! -L "$ccs_file" ] || continue
+    ccs_name=${ccs_file##*/}
+    ccs_target=$ccs_dest/$ccs_name
+    [ ! -e "$ccs_target" ] && [ ! -L "$ccs_target" ] || continue
+    ccs_tmp=$ccs_dest/.$ccs_name.baseos-tmp.$
+    [ ! -L "$ccs_tmp" ] || continue
+    rm -f -- "$ccs_tmp"
+    if cp -p "$ccs_file" "$ccs_tmp"; then
+      if [ ! -e "$ccs_target" ] && [ ! -L "$ccs_target" ]; then
+        mv "$ccs_tmp" "$ccs_target" || rm -f -- "$ccs_tmp"
+      else
+        rm -f -- "$ccs_tmp"
+      fi
+    else
+      rm -f -- "$ccs_tmp"
+    fi
+  done
+  has_core_files "$ccs_dest"
+}
+
+seed_shared_cores() {
+  ssc_root=$1 ssc_program=$2 ssc_core_rel=$3 ssc_platform=$4
+  ssc_shared=$ssc_root/.baseos/shared/cores/$ssc_platform
+  [ ! -L "$ssc_root/.baseos/shared" ] &&
+    [ ! -L "$ssc_root/.baseos/shared/cores" ] &&
+    [ ! -L "$ssc_shared" ] || {
+      log "refusing symlinked shared-core library path"
+      return 1
+    }
+  mkdir -p "$ssc_shared" || return 1
+  # The active frontend is authoritative first. Then collect additional
+  # platform cores from other installed bundles on the same device card.
+  copy_core_set "$ssc_root" "$ssc_program/$ssc_core_rel" "$ssc_shared" || :
+  for ssc_frontend in "$ssc_root/Frontends"/*; do
+    [ -d "$ssc_frontend" ] && [ ! -L "$ssc_frontend" ] || continue
+    for ssc_system in .system SYSTEM System; do
+      for ssc_platform_dir in rg353ps h700 cores; do
+        if [ "$ssc_platform_dir" = cores ]; then
+          ssc_candidate=$ssc_frontend/$ssc_system/cores
+        else
+          ssc_candidate=$ssc_frontend/$ssc_system/$ssc_platform_dir/cores
+        fi
+        copy_core_set "$ssc_root" "$ssc_candidate" "$ssc_shared" || :
+      done
+    done
+  done
+  has_core_files "$ssc_shared"
+}
 safe_relative_path() {
   srp_root=$1 srp_rel=$2
   case "$srp_rel" in
@@ -167,6 +236,10 @@ scan_map() {
     sm_cores=$sm_system/h700/cores
   elif [ -n "$sm_system" ] && [ -d "$sm_program/$sm_system/cores" ]; then
     sm_cores=$sm_system/cores
+  elif [ -n "$sm_system" ]; then
+    # RG353PS is this BaseOS target. Declare the directory even when a
+    # frontend does not bundle its own cores; BaseOS can provide the shared set.
+    sm_cores=$sm_system/rg353ps/cores
   fi
 
   mkdir -p "$sm_dir"
@@ -288,16 +361,12 @@ add_core_mount() {
     return 1
   }
   acm_target=$acm_program/$acm_rel
-  if has_core_files "$acm_target"; then
-    log "frontend already has cores at $acm_target; keeping its supplied core set"
-    return 0
-  fi
   mkdir -p "${acm_target%/*}" "$acm_target" || return 1
   [ ! -L "$acm_target" ] || return 1
   printf 'M|%s|%s\n' "$acm_target" "$acm_source" >> "$acm_state"
   sync
   if mount --bind "$acm_source" "$acm_target"; then
-    log "shared BaseOS cores mapped to $acm_target"
+    log "shared BaseOS core library mounted at $acm_target (frontend files remain underneath)"
     return 0
   fi
   # Remove the intent row if the bind did not happen.
@@ -307,14 +376,24 @@ add_core_mount() {
 }
 
 find_shared_cores() {
-  fsc_root=$1
-  for fsc_dir in "$fsc_root/.baseos/shared/cores/slot-rg353ps" "$fsc_root/System"; do
+  fsc_root=$1 fsc_platform=$2
+  for fsc_dir in "$fsc_root/.baseos/shared/cores/$fsc_platform"; do
     [ -d "$fsc_dir" ] && [ ! -L "$fsc_dir" ] || continue
     if has_core_files "$fsc_dir"; then
       printf '%s' "$fsc_dir"
       return 0
     fi
   done
+  if [ "$fsc_platform" = rg353ps ]; then
+    for fsc_dir in "$fsc_root/.baseos/shared/cores/slot-rg353ps" \
+                   "$fsc_root/System/rg353ps/cores" "$fsc_root/System"; do
+      [ -d "$fsc_dir" ] && [ ! -L "$fsc_dir" ] || continue
+      if has_core_files "$fsc_dir"; then
+        printf '%s' "$fsc_dir"
+        return 0
+      fi
+    done
+  fi
   return 1
 }
 
@@ -358,6 +437,13 @@ apply_map() {
   done
 
   add_alias "$ap_root" "$ap_games" "$ap_root/Games" "$ap_state"
+  # Games is canonical. When explicitly selected as the frontend-facing
+  # target, still expose common legacy spellings such as NextUI's Roms/.
+  if [ "$ap_games" = Games ]; then
+    add_alias "$ap_root" Roms "$ap_root/Games" "$ap_state"
+    add_alias "$ap_root" ROMs "$ap_root/Games" "$ap_state"
+    add_alias "$ap_root" roms "$ap_root/Games" "$ap_state"
+  fi
   add_alias "$ap_root" "$ap_saves" "$ap_root/Saves" "$ap_state"
   add_alias "$ap_root" "$ap_bios" "$ap_root/Bios" "$ap_state"
   add_alias "$ap_root" "$ap_cheats" "$ap_root/Cheats" "$ap_state"
@@ -368,11 +454,17 @@ apply_map() {
   [ -z "$ap_emus" ] || add_alias "$ap_root" "$ap_emus" "$ap_program/$ap_emus" "$ap_state"
   [ -z "$ap_userdata" ] || [ -z "$4" ] || add_alias "$ap_root" "$ap_userdata" "$4" "$ap_state"
   if [ -n "$ap_cores" ]; then
-    ap_core_source=$(find_shared_cores "$ap_root" || :)
+    ap_core_platform=$(core_platform "$ap_cores" || :)
+    if [ -n "$ap_core_platform" ]; then
+      seed_shared_cores "$ap_root" "$ap_program" "$ap_cores" "$ap_core_platform" || :
+      ap_core_source=$(find_shared_cores "$ap_root" "$ap_core_platform" || :)
+    else
+      ap_core_source=
+    fi
     if [ -n "$ap_core_source" ]; then
       add_core_mount "$ap_program" "$ap_cores" "$ap_core_source" "$ap_state" || :
     else
-      log "no BaseOS shared core pack found; leaving frontend core directory unchanged"
+      log "no shared core binaries found for platform ${ap_core_platform:-unknown}; leaving frontend core directory unchanged"
     fi
   fi
   [ -s "$ap_state" ] || rm -f "$ap_state"

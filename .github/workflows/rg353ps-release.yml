@@ -126,6 +126,7 @@ jobs:
           sh tests/test-frontend-manager.sh
           sh tests/test-frontend-compat.sh
           sh tests/test-frontend-paths.sh
+          sh tests/test-rg353ps-diagnostic-usb.sh
           sh tests/test-rg353ps-usb-mtp.sh
           sh tests/test-rg353ps-update-splash.sh
 

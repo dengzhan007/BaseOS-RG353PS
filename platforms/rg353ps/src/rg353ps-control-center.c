@@ -22,6 +22,8 @@
 #define MAX_INPUTS 64
 #define PATH_LEN 256
 #define NAME_LEN 128
+#define USB_REQUEST_PATH "/run/baseos-usb-storage.request"
+#define USB_PAUSED_PATH "/run/baseos-frontend-paused"
 
 enum input_role { ROLE_OTHER = 0, ROLE_GAME, ROLE_FUNCTION, ROLE_STICK, ROLE_VOLUME, ROLE_POWER };
 enum screen_id { SCREEN_HOME = 0, SCREEN_CONTROLS, SCREEN_AUDIO, SCREEN_WIFI, SCREEN_SYSTEM, SCREEN_HELP };
@@ -389,6 +391,73 @@ static void open_frontend_selector(void)
     render();
 }
 
+static void request_usb_storage(void) {
+    const char *supervised = getenv("BASEOS_DIAGNOSTIC_SUPERVISED");
+    int direct_pause = return_to_selector &&
+                       (supervised == NULL || strcmp(supervised, "1") != 0);
+    pid_t child;
+    int status = 0, child_done = 0, request_seen = 0;
+
+    child = fork();
+    if (child < 0) {
+        (void)snprintf(last_event, sizeof(last_event), "Could not request USB storage mode");
+        render();
+        return;
+    }
+    if (child == 0) {
+        (void)chdir("/");
+        execl("/usr/sbin/baseos-usb-storage", "baseos-usb-storage", (char *)NULL);
+        _exit(127);
+    }
+    if (!direct_pause) {
+        (void)snprintf(last_event, sizeof(last_event),
+                       "USB storage requested; waiting for safe frontend shutdown");
+        render();
+        return;
+    }
+    /* Selector-launched diagnostics have no session-supervisor pause loop.
+     * Own the same request/pause handshake here; leave the exported volume
+     * as the working directory before acknowledging that it is safe to unmount. */
+    (void)chdir("/");
+    (void)snprintf(last_event, sizeof(last_event),
+                   "USB storage requested; preparing diagnostic pause");
+    render();
+    for (int i = 0; i < 150; ++i) {
+        pid_t waited = waitpid(child, &status, WNOHANG);
+        if (waited == child) { child_done = 1; break; }
+        if (waited < 0 && errno != EINTR) { child_done = 1; status = 127 << 8; break; }
+        if (access(USB_REQUEST_PATH, F_OK) == 0) { request_seen = 1; break; }
+        (void)usleep(100000);
+    }
+    if (request_seen) {
+        int pause_fd = open(USB_PAUSED_PATH, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+        if (pause_fd < 0) {
+            (void)kill(child, SIGTERM);
+            while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+            (void)snprintf(last_event, sizeof(last_event),
+                           "USB storage aborted: could not acknowledge diagnostic pause");
+        } else {
+            (void)close(pause_fd);
+            while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+            (void)unlink(USB_PAUSED_PATH);
+            (void)unlink(USB_REQUEST_PATH);
+            if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+                (void)snprintf(last_event, sizeof(last_event),
+                               "USB storage session finished; diagnostics resumed");
+            else
+                (void)snprintf(last_event, sizeof(last_event),
+                               "USB storage failed; inspect /mnt/boot/rg353ps-usb-storage.log");
+        }
+    } else {
+        if (!child_done) {
+            (void)kill(child, SIGTERM);
+            while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+        }
+        (void)snprintf(last_event, sizeof(last_event),
+                       "USB storage did not reach the pause handshake; local storage was not exported");
+    }
+    render();
+}
 static void select_menu_item(void)
 {
     switch (selected_item) {
@@ -400,19 +469,9 @@ static void select_menu_item(void)
     case 5:
         open_frontend_selector();
         return;
-    case 6: {
-        pid_t child = fork();
-        if (child == 0) {
-            execl("/usr/sbin/baseos-usb-storage", "baseos-usb-storage", (char *)NULL);
-            _exit(127);
-        }
-        if (child < 0)
-            (void)snprintf(last_event, sizeof(last_event), "Could not request USB storage mode");
-        else
-            (void)snprintf(last_event, sizeof(last_event), "USB storage requested; waiting for safe frontend shutdown");
-        render();
+    case 6:
+        request_usb_storage();
         return;
-    }
     case 7:
         running = 0;
         return;

@@ -441,6 +441,7 @@ static void open_diagnostics(void)
     }
     if (child == 0) {
         (void)setenv("BASEOS_RETURN_TO_SELECTOR", "1", 1);
+        (void)setenv("BASEOS_DIAGNOSTIC_SUPERVISED", "0", 1);
         execl("/usr/sbin/rg353ps-control-center", "rg353ps-control-center", (char *)NULL);
         _exit(127);
     }
@@ -450,6 +451,10 @@ static void open_diagnostics(void)
             render();
             return;
         }
+    }
+    if (access("/run/baseos-frontend-selection", F_OK) == 0) {
+        running = 0;
+        return;
     }
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
         (void)snprintf(status_line, sizeof(status_line), "Diagnostics returned with an error.");

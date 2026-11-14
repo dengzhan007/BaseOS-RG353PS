@@ -98,4 +98,52 @@ sh "$HELPER" cleanup "$ROOT_CARD" || fail "root-layout path-map cleanup failed"
 [ ! -L "$ROOT_CARD/Roms" ] || fail "root-layout temporary Roms alias survived cleanup"
 [ -f "$ROOT_CARD/Games/FC/root.rom" ] || fail "root-layout cleanup modified shared Games"
 
+# Simulate an exFAT card: symlink creation fails, so BaseOS must fall
+# back to a bind-mounted alias. The fake mount command uses a symlink only as
+# a test stand-in for the kernel mount operation.
+FALLBACK_CARD=$TMP/fallback-card
+FAKE_BIN=$TMP/fake-bin
+mkdir -p "$FALLBACK_CARD/.system/rg353ps/cores" "$FALLBACK_CARD/Games/FC" \
+  "$FALLBACK_CARD/Roms" "$FAKE_BIN"
+printf '%s\\n' "fallback-rom" > "$FALLBACK_CARD/Games/FC/fallback.rom"
+sh "$HELPER" scan "$FALLBACK_CARD" NextUIExfat "$FALLBACK_CARD" || \
+  fail "exFAT fallback path-map scan failed"
+FALLBACK_MAP=$FALLBACK_CARD/.baseos/frontend-paths/NextUIExfat.conf
+cat > "$FAKE_BIN/ln" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = "-s" ]; then
+  echo "ln: symbolic links not supported by test filesystem" >&2
+  exit 1
+fi
+exec /bin/ln "$@"
+EOF
+cat > "$FAKE_BIN/mount" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = "--bind" ]; then
+  source=$2
+  target=$3
+  rmdir "$target" 2>/dev/null || exit 1
+  /bin/ln -s "$source" "$target"
+  exit $?
+fi
+exec /bin/mount "$@"
+EOF
+chmod +x "$FAKE_BIN/ln" "$FAKE_BIN/mount"
+PATH="$FAKE_BIN:$PATH" sh "$HELPER" apply "$FALLBACK_CARD" "$FALLBACK_CARD" "$FALLBACK_MAP" || \
+  fail "exFAT bind-mount fallback apply failed"
+[ -L "$FALLBACK_CARD/Roms" ] || fail "exFAT fallback did not activate the ROM alias"
+[ "$(readlink "$FALLBACK_CARD/Roms")" = "$FALLBACK_CARD/Games" ] || \
+  fail "exFAT fallback ROM alias points to the wrong directory"
+grep -F -q "B|$FALLBACK_CARD/Roms|$FALLBACK_CARD/Games" \
+  "$FALLBACK_CARD/.baseos/frontend-paths/active" || \
+  fail "exFAT fallback did not record bind-alias cleanup state"
+# Simulate an interrupted/unmounted alias: cleanup must remove only the empty
+# mountpoint left by the recorded bind alias and preserve the canonical ROM.
+rm -f "$FALLBACK_CARD/Roms"
+mkdir "$FALLBACK_CARD/Roms"
+sh "$HELPER" cleanup "$FALLBACK_CARD" || fail "exFAT fallback stale-alias cleanup failed"
+[ ! -e "$FALLBACK_CARD/Roms" ] || fail "exFAT fallback cleanup left an empty mountpoint"
+[ -f "$FALLBACK_CARD/Games/FC/fallback.rom" ] || \
+  fail "exFAT fallback cleanup modified canonical Games data"
+
 echo "PASS: BaseOS path maps share frontend cores and preserve legacy ROM paths"

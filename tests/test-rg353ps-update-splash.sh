@@ -13,8 +13,11 @@ require() {
 }
 
 require 'unset BASEOS_CUSTOM_SPLASH BASEOS_CUSTOM_SPLASH_ONLY'
-require '[ -x /usr/bin/fbsplash ] && /usr/bin/fbsplash "$1"'
 require '[ -x /usr/bin/baseos-splash ] && /usr/bin/baseos-splash --important "$1" "UPDATING SYSTEM"'
+if grep -Fq '/usr/bin/fbsplash "$1"' "$UPDATE"; then
+  echo "progress update must not redraw the full-screen background on every step" >&2
+  exit 1
+fi
 require 'paint() { update_progress $(( $1 + ($2 - $1) * $3 / total_mb )); }'
 require 'update_progress "$WRITE_FROM"'
 require 'update_progress "$COMMIT_STAGE"'
@@ -25,4 +28,4 @@ if grep -Fq 'paint() { splash' "$UPDATE"; then
   exit 1
 fi
 
-echo "PASS: update progress shows the illuminated BaseOS wordmark plus bottom status bar"
+echo "PASS: update progress updates only the bottom status pill without full-screen flicker"

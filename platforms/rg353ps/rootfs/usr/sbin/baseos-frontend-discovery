@@ -233,6 +233,9 @@ baseos_frontend_consider_package() {
 
 baseos_frontend_consider_adapter() {
   bfc_dir=$1 bfc_root=$2 bfc_preference=$3
+  bfc_id=${bfc_dir##*/}
+  # Keep runtime discovery consistent with the selector's disable operation.
+  [ ! -e "$bfc_root/.baseos/frontends-disabled/$bfc_id" ] || return 0
   baseos_frontend_load_manifest "$bfc_dir" || return 0
   [ "$bfc_preference" = auto ] || [ "$BASEOS_ADAPTER_ID" = "$bfc_preference" ] || return 0
   baseos_frontend_record_candidate "$BASEOS_ADAPTER_ID" "$bfc_root" "$BASEOS_ADAPTER_DIR" "$BASEOS_ADAPTER_LAUNCHER" legacy
@@ -327,6 +330,13 @@ baseos_frontend_tree_changed_since() {
         [ -f "$bft_adapter/manifest.conf" ] && [ "$bft_adapter/manifest.conf" -nt "$bft_cache" ] && return 0
       done
     done
+    bft_disabled="$bft_container/.baseos/frontends-disabled"
+    if [ -d "$bft_disabled" ]; then
+      [ "$bft_disabled" -nt "$bft_cache" ] && return 0
+      for bft_marker in "$bft_disabled"/*; do
+        [ -e "$bft_marker" ] && [ "$bft_marker" -nt "$bft_cache" ] && return 0
+      done
+    fi
   done
   return 1
 }

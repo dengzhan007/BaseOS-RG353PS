@@ -133,8 +133,10 @@ scan_root() {
     sr_display_name=$sr_name
     sr_display_bytes=$(printf '%s' "$sr_display_name" | wc -c | tr -d ' ')
     [ "$sr_display_bytes" -le 120 ] || sr_display_name=$sr_id
+    # Keep generating/updating the sidecar while disabled. The runtime
+    # discovery helper filters it using the tombstone; the selector needs the
+    # preserved manifest to render an Enable action without rebuilding guesses.
     sr_disabled=$sr_root/.baseos/compat-disabled/$sr_id
-    [ ! -e "$sr_disabled" ] || continue
     sr_sidecar=$sr_root/.baseos/compat/$sr_id
     if [ -e "$sr_sidecar" ] && [ ! -d "$sr_sidecar" ]; then
       echo "compat: refusing non-directory sidecar $sr_sidecar" >&2

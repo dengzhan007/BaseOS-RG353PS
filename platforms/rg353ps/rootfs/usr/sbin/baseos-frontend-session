@@ -218,6 +218,13 @@ if is_mounted "$TF1"; then
   mkdir -p "$TF1/Games" "$TF1/Frontends" 2>/dev/null || :
 fi
 
+# Build BaseOS-owned compatibility packages for ordinary frontend folders.
+# This only writes metadata below .baseos/compat; the frontend program tree is
+# left unchanged. The helper does not hash frontend payloads on normal boots.
+if [ -x /usr/sbin/baseos-frontend-compat ]; then
+  /usr/sbin/baseos-frontend-compat scan "$TF2" "$TF1" || log "WARNING: legacy frontend compatibility scan failed"
+fi
+
 # force_diagnostic is an explicit troubleshooting override and therefore
 # takes precedence over the optional frontend selector.
 if [ "$(setting force_diagnostic no)" = "yes" ]; then
@@ -300,16 +307,20 @@ scan_root() {
     ADAPTER_VOLUME_OWNER=$BASEOS_SCAN_VOLUME_OWNER ADAPTER_POWER_OWNER=$BASEOS_SCAN_POWER_OWNER
     FRONTEND_PACKAGE_MODE=no FRONTEND_PACKAGE_ID= FRONTEND_PROFILE_ID=
     FRONTEND_PROFILE_CONFIG= FRONTEND_PACKAGE_DIR=
-    if [ "$BASEOS_SCAN_KIND" = package ]; then
+    FRONTEND_COMPAT_MODE=no
+    BASEOS_COMPAT_PROGRAM_DIR=
+    if [ "$BASEOS_SCAN_KIND" = package ] || [ "$BASEOS_SCAN_KIND" = compat-package ]; then
       FRONTEND_PACKAGE_MODE=yes
       FRONTEND_PACKAGE_ID=$BASEOS_SCAN_PACKAGE_ID
       FRONTEND_PROFILE_ID=$BASEOS_SCAN_PROFILE_ID
       FRONTEND_PROFILE_CONFIG=$BASEOS_SCAN_PROFILE_CONFIG
       FRONTEND_PACKAGE_DIR=$BASEOS_SCAN_PACKAGE_DIR
-      # A package folder rename may resolve a previously pinned ID through
-      # previous_package_id. Persist the new composite ID so later boots and
-      # the selector use the canonical identity.
-      if [ "$FRONTEND_PREFERENCE" != auto ] && [ "$SELECTED" != "$FRONTEND_PREFERENCE" ] &&
+      if [ "$BASEOS_SCAN_KIND" = compat-package ]; then
+        FRONTEND_COMPAT_MODE=yes
+        BASEOS_COMPAT_PROGRAM_DIR=$BASEOS_SCAN_COMPAT_PROGRAM_DIR
+      fi
+      if [ "$BASEOS_SCAN_KIND" = package ] && [ "$FRONTEND_PREFERENCE" != auto ] &&
+         [ "$SELECTED" != "$FRONTEND_PREFERENCE" ] &&
          [ -x /usr/sbin/baseos-frontend-manager ]; then
         if /usr/sbin/baseos-frontend-manager set-default "$SELECTED" >/dev/null 2>&1; then
           log "migrated frontend_id from $FRONTEND_PREFERENCE to $SELECTED"
@@ -449,6 +460,7 @@ BASEOS_PACKAGE_ID=${FRONTEND_PACKAGE_ID:-}
 BASEOS_PROFILE_ID=${FRONTEND_PROFILE_ID:-}
 BASEOS_PROFILE_DEFAULTS=${FRONTEND_PROFILE_CONFIG:-}
 BASEOS_PACKAGE_DIR=${FRONTEND_PACKAGE_DIR:-}
+BASEOS_COMPAT_PROGRAM_DIR=${BASEOS_COMPAT_PROGRAM_DIR:-}
 BASEOS_INSTANCE_ID=$SELECTED
 BASEOS_CARD_ROOT=$TF1
 BASEOS_GAMES_DIR=$TF1/Games
@@ -476,7 +488,7 @@ fi
 BASEOS_LAUNCHER=$LAUNCHER
 export PLATFORM BASEOS_FRONTEND_ID BASEOS_SYSTEM_ROOT BASEOS_BOOT
 export BASEOS_FRONTEND_ROOT BASEOS_PACKAGE_ID BASEOS_PROFILE_ID BASEOS_PROFILE_CONFIG BASEOS_PROFILE_DEFAULTS
-export BASEOS_PACKAGE_DIR BASEOS_INSTANCE_ID BASEOS_INSTANCE_DIR BASEOS_CARD_ROOT BASEOS_GAMES_DIR
+export BASEOS_PACKAGE_DIR BASEOS_COMPAT_PROGRAM_DIR BASEOS_INSTANCE_ID BASEOS_INSTANCE_DIR BASEOS_CARD_ROOT BASEOS_GAMES_DIR
 export BASEOS_DATA_DIR BASEOS_USERDATA_DIR BASEOS_LAUNCHER
 # Mesa's on-disk program cache keeps GL program compilation out of later starts.
 # It was never enabled on purpose: it follows $XDG_CACHE_HOME, then $HOME, and the

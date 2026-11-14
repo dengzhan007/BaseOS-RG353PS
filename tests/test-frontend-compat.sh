@@ -102,8 +102,11 @@ grep -F -q '|compat|enabled' "$CATALOG" || fail "re-enabled compatibility status
 baseos_frontend_scan_root "$TF1" NextUI--default || fail "re-enabled compatibility frontend was not discoverable"
 
 # X action explicitly deletes the original program directory after confirmation,
-# along with its BaseOS compatibility metadata and disable marker.
+# along with its BaseOS compatibility metadata, disable marker and path map.
+mkdir -p "$TF1/.baseos/frontend-paths"
+printf '%s\n' 'paths_api=1' 'frontend_id=NextUI' > "$TF1/.baseos/frontend-paths/NextUI.conf"
 run_manager delete-compat NextUI--default
+[ ! -e "$TF1/.baseos/frontend-paths/NextUI.conf" ] || fail "full compatibility deletion left its BaseOS path map"
 [ ! -e "$TF1/Frontends/NextUI" ] || fail "full compatibility deletion left the original program directory"
 [ ! -e "$TF1/.baseos/compat/NextUI" ] || fail "full compatibility deletion left sidecar metadata"
 [ ! -e "$TF1/.baseos/compat-disabled/NextUI" ] || fail "full compatibility deletion left disable marker"

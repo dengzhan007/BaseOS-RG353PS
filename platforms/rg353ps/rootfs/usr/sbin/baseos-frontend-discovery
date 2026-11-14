@@ -75,6 +75,28 @@ baseos_frontend_load_package() {
 
   bfl_id=$bfl_package_id--$bfl_profile_id
   baseos_frontend_valid_id "$bfl_id" || return 1
+
+  BASEOS_PACKAGE_KIND=managed
+  BASEOS_COMPAT_SOURCE=
+  BASEOS_COMPAT_ENTRYPOINT=
+  BASEOS_COMPAT_PROGRAM_DIR=
+  baseos_frontend_read_value "$bfl_manifest" compat_api ""
+  if [ "$BASEOS_VALUE" = 1 ]; then
+    baseos_frontend_read_value "$bfl_manifest" compat_source ""
+    bfl_compat_source=$BASEOS_VALUE
+    case "$bfl_compat_source" in ''|.|..|*/*|*'|'*) return 1 ;; esac
+    [ -d "$bfl_root/Frontends/$bfl_compat_source" ] &&
+      [ ! -L "$bfl_root/Frontends/$bfl_compat_source" ] || return 1
+    BASEOS_PACKAGE_KIND=compat
+    BASEOS_COMPAT_SOURCE=$bfl_compat_source
+    BASEOS_COMPAT_PROGRAM_DIR=$bfl_root/Frontends/$bfl_compat_source
+    BASEOS_PACKAGE_DIR=$BASEOS_COMPAT_PROGRAM_DIR
+    baseos_frontend_read_value "$bfl_manifest" compat_entrypoint ""
+    BASEOS_COMPAT_ENTRYPOINT=$BASEOS_VALUE
+  else
+    BASEOS_PACKAGE_DIR=$bfl_dir
+  fi
+
   BASEOS_ADAPTER_API=1
   BASEOS_ADAPTER_PRIORITY=$bfl_priority
   BASEOS_ADAPTER_VOLUME_OWNER=$bfl_volume_owner
@@ -85,7 +107,6 @@ baseos_frontend_load_package() {
   BASEOS_PACKAGE_ID=$bfl_package_id
   BASEOS_PROFILE_ID=$bfl_profile_id
   BASEOS_PROFILE_CONFIG=$bfl_profile
-  BASEOS_PACKAGE_DIR=$bfl_dir
   if [ "$bfl_package_name" = "$bfl_profile_name" ]; then
     BASEOS_FRONTEND_NAME=$bfl_package_name
   else
@@ -151,6 +172,10 @@ baseos_frontend_record_candidate() {
     BASEOS_SCAN_PROFILE_ID=${BASEOS_PROFILE_ID:-}
     BASEOS_SCAN_PROFILE_CONFIG=${BASEOS_PROFILE_CONFIG:-}
     BASEOS_SCAN_PACKAGE_DIR=${BASEOS_PACKAGE_DIR:-}
+    BASEOS_SCAN_PACKAGE_KIND=${BASEOS_PACKAGE_KIND:-managed}
+    BASEOS_SCAN_COMPAT_SOURCE=${BASEOS_COMPAT_SOURCE:-}
+    BASEOS_SCAN_COMPAT_PROGRAM_DIR=${BASEOS_COMPAT_PROGRAM_DIR:-}
+    BASEOS_SCAN_COMPAT_ENTRYPOINT=${BASEOS_COMPAT_ENTRYPOINT:-}
     BASEOS_SCAN_NAME=${BASEOS_FRONTEND_NAME:-$bfr_id}
   fi
 }
@@ -179,7 +204,9 @@ baseos_frontend_consider_package() {
   elif [ "$bcp_preference" != auto ]; then
     [ "$BASEOS_ADAPTER_ID" = "$bcp_preference" ] || return 0
   fi
-  baseos_frontend_record_candidate "$BASEOS_ADAPTER_ID" "$bcp_root" "$BASEOS_ADAPTER_DIR" "$BASEOS_ADAPTER_LAUNCHER" package
+  bcp_kind=package
+  [ "${BASEOS_PACKAGE_KIND:-managed}" = compat ] && bcp_kind=compat-package
+  baseos_frontend_record_candidate "$BASEOS_ADAPTER_ID" "$bcp_root" "$BASEOS_ADAPTER_DIR" "$BASEOS_ADAPTER_LAUNCHER" "$bcp_kind"
 }
 
 baseos_frontend_consider_adapter() {
@@ -189,12 +216,11 @@ baseos_frontend_consider_adapter() {
   baseos_frontend_record_candidate "$BASEOS_ADAPTER_ID" "$bfc_root" "$BASEOS_ADAPTER_DIR" "$BASEOS_ADAPTER_LAUNCHER" legacy
 }
 
-baseos_frontend_scan_packages() {
-  bsp_root=$1 bsp_preference=$2
-  bsp_parent=$bsp_root/Frontends
+baseos_frontend_scan_package_parent() {
+  bsp_root=$1 bsp_parent=$2 bsp_preference=$3
   [ -d "$bsp_parent" ] || return 0
   for bsp_dir in "$bsp_parent"/*; do
-    [ -d "$bsp_dir" ] || continue
+    [ -d "$bsp_dir" ] && [ ! -L "$bsp_dir" ] || continue
     [ -f "$bsp_dir/baseos-frontend.conf" ] || continue
     [ -d "$bsp_dir/profiles" ] || continue
     for bsp_profile in "$bsp_dir"/profiles/*.conf; do
@@ -202,6 +228,12 @@ baseos_frontend_scan_packages() {
       baseos_frontend_consider_package "$bsp_root" "$bsp_dir" "$bsp_profile" "$bsp_preference"
     done
   done
+}
+
+baseos_frontend_scan_packages() {
+  bsp_root=$1 bsp_preference=$2
+  baseos_frontend_scan_package_parent "$bsp_root" "$bsp_root/Frontends" "$bsp_preference"
+  baseos_frontend_scan_package_parent "$bsp_root" "$bsp_root/.baseos/compat" "$bsp_preference"
 }
 
 baseos_frontend_scan_container() {
@@ -225,6 +257,8 @@ baseos_frontend_scan_root() {
   BASEOS_SCAN_VOLUME_OWNER=system BASEOS_SCAN_POWER_OWNER=system
   BASEOS_SCAN_KIND=legacy BASEOS_SCAN_PACKAGE_ID= BASEOS_SCAN_PROFILE_ID=
   BASEOS_SCAN_PROFILE_CONFIG= BASEOS_SCAN_PACKAGE_DIR= BASEOS_SCAN_NAME=
+  BASEOS_SCAN_PACKAGE_KIND=managed BASEOS_SCAN_COMPAT_SOURCE=
+  BASEOS_SCAN_COMPAT_PROGRAM_DIR= BASEOS_SCAN_COMPAT_ENTRYPOINT=
   baseos_frontend_scan_container "$bfs_root" "$bfs_preference"
   for bfs_nested in "$bfs_root"/*; do
     [ -d "$bfs_nested" ] || continue
@@ -240,8 +274,8 @@ baseos_frontend_tree_changed_since() {
   [ -f "$bft_cache" ] || return 0
   for bft_container in "$bft_root" "$bft_root"/*; do
     [ -d "$bft_container" ] || continue
-    bft_packages=$bft_container/Frontends
-    if [ -d "$bft_packages" ]; then
+    for bft_packages in "$bft_container/Frontends" "$bft_container/.baseos/compat"; do
+      [ -d "$bft_packages" ] || continue
       [ "$bft_packages" -nt "$bft_cache" ] && return 0
       for bft_package in "$bft_packages"/*; do
         [ -d "$bft_package" ] || continue
@@ -249,8 +283,18 @@ baseos_frontend_tree_changed_since() {
         for bft_file in "$bft_package/baseos-frontend.conf" "$bft_package/launch.sh" "$bft_package/profiles" "$bft_package"/profiles/*.conf; do
           [ -e "$bft_file" ] && [ "$bft_file" -nt "$bft_cache" ] && return 0
         done
+        if [ -f "$bft_package/baseos-frontend.conf" ]; then
+          baseos_frontend_read_value "$bft_package/baseos-frontend.conf" compat_source ""
+          bft_compat_source=$BASEOS_VALUE
+          baseos_frontend_read_value "$bft_package/baseos-frontend.conf" compat_entrypoint ""
+          bft_compat_entrypoint=$BASEOS_VALUE
+          if [ -n "$bft_compat_source" ] && [ -n "$bft_compat_entrypoint" ]; then
+            bft_source_file="$bft_container/Frontends/$bft_compat_source/$bft_compat_entrypoint"
+            [ -e "$bft_source_file" ] && [ "$bft_source_file" -nt "$bft_cache" ] && return 0
+          fi
+        fi
       done
-    fi
+    done
     for bft_parent in "$bft_container/.baseos/frontends" "$bft_container/baseos/frontends"; do
       [ -d "$bft_parent" ] || continue
       [ "$bft_parent" -nt "$bft_cache" ] && return 0

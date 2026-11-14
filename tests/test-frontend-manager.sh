@@ -222,10 +222,11 @@ run_manager disable-legacy nextui
 [ -f "$LEGACY_ADAPTER/launch.sh" ] || fail "disabling legacy adapter deleted its original files"
 [ -f "$LEGACY_ROOT/.system/rg353ps/nextui.elf" ] || fail "disabling legacy adapter touched shared frontend payload"
 run_manager catalog
-! grep -F -q 'nextui|' "$CATALOG" || fail "disabled legacy adapter remained in selector catalog"
-[ "$(sed -n 's/^frontend_id=//p' "$CONFIG" | tail -n 1)" != nextui ] || fail "disabled default adapter was left pinned"
-run_manager catalog
 grep -F -q 'nextui|nextui|nextui|legacy|' "$CATALOG" || fail "disabled legacy adapter disappeared from selector catalog"
+grep -F -q '|legacy-adapter|disabled' "$CATALOG" || fail "legacy adapter disabled status was not exposed"
+[ "$(sed -n 's/^frontend_id=//p' "$CONFIG" | tail -n 1)" != nextui ] || fail "disabled default adapter was left pinned"
+. "$DISCOVERY"
+baseos_frontend_scan_root "$TF1" nextui && fail "disabled legacy adapter remained discoverable at boot"
 grep -F -q '|legacy-adapter|disabled' "$CATALOG" || fail "legacy adapter disabled status was not exposed"
 run_manager enable-legacy nextui
 [ ! -e "$LEGACY_ROOT/.baseos/frontends-disabled/nextui" ] || fail "re-enabling legacy adapter left its marker"

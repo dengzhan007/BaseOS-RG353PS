@@ -5,7 +5,7 @@ HERE=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 DISCOVERY="$HERE/platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-discovery"
 MANAGER="$HERE/platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-manager"
 HELPER="$HERE/platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-compat"
-TMP=${TMPDIR:-/tmp}/baseos-compat-test-$
+TMP=${dollar}{TMPDIR:-/tmp}/baseos-compat-test-$
 trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 TF1=$TMP/card
 TF2=$TMP/tf2

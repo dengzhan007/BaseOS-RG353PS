@@ -208,6 +208,7 @@ cleanup_aliases() {
   ca_dir=$ca_root/.baseos/frontend-paths
   ca_state=$(state_file "$ca_root")
   [ -f "$ca_state" ] && [ ! -L "$ca_state" ] || return 0
+  ca_failed=no
   while IFS='|' read -r ca_type ca_name ca_source; do
     [ -n "$ca_type" ] || continue
     # Accept the original two-column alias state for cards that were updated
@@ -231,6 +232,7 @@ cleanup_aliases() {
         if grep -F -q " $ca_name " /proc/mounts; then
           umount "$ca_name" 2>/dev/null || {
             log "WARNING: could not unmount shared-core view $ca_name"
+            ca_failed=yes
             continue
           }
           log "unmounted shared-core view $ca_name"
@@ -238,6 +240,9 @@ cleanup_aliases() {
         ;;
     esac
   done < "$ca_state"
+  if [ "$ca_failed" = yes ]; then
+    return 1
+  fi
   rm -f -- "$ca_state"
   return 0
 }

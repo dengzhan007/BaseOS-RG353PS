@@ -93,10 +93,12 @@ scan_root() {
     [ -f "$sr_dir/baseos-frontend.conf" ] && continue
     resolve_entrypoint "$sr_dir" || continue
     sr_name=${sr_dir##*/}
+    case "$sr_name" in .*|.|..) continue ;; esac
     normalise_id "$sr_name" || continue
     sr_id=$COMPAT_ID
     sr_display_name=$sr_name
-    [ "${#sr_display_name}" -le 120 ] || sr_display_name=$sr_id
+    sr_display_bytes=$(printf '%s' "$sr_display_name" | wc -c | tr -d ' ')
+    [ "$sr_display_bytes" -le 120 ] || sr_display_name=$sr_id
     sr_disabled=$sr_root/.baseos/compat-disabled/$sr_id
     [ ! -e "$sr_disabled" ] || continue
     sr_sidecar=$sr_root/.baseos/compat/$sr_id

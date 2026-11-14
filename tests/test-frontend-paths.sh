@@ -129,7 +129,13 @@ fi
 exec /bin/mount "$@"
 EOF
 chmod +x "$FAKE_BIN/ln" "$FAKE_BIN/mount"
-PATH="$FAKE_BIN:$PATH" sh "$HELPER" apply "$FALLBACK_CARD" "$FALLBACK_CARD" "$FALLBACK_MAP" || \
+# The production helper deliberately resets PATH; create a test-only copy with
+# the fake command directory prepended to exercise the unsupported-symlink case.
+FALLBACK_HELPER=$TMP/baseos-frontend-paths-fallback
+sed "s#^PATH=/sbin:/bin:/usr/sbin:/usr/bin#PATH=$FAKE_BIN:/sbin:/bin:/usr/sbin:/usr/bin#" \
+  "$HELPER" > "$FALLBACK_HELPER"
+chmod +x "$FALLBACK_HELPER"
+sh "$FALLBACK_HELPER" apply "$FALLBACK_CARD" "$FALLBACK_CARD" "$FALLBACK_MAP" || \
   fail "exFAT bind-mount fallback apply failed"
 [ -L "$FALLBACK_CARD/Roms" ] || fail "exFAT fallback did not activate the ROM alias"
 [ "$(readlink "$FALLBACK_CARD/Roms")" = "$FALLBACK_CARD/Games" ] || \

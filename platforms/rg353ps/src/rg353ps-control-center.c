@@ -217,13 +217,10 @@ static void render_home(void)
     printf("  Volume +/- keys adjust RK817 playback level.\n");
     printf("  Short Power press shows system information.\n");
     printf("  Hold Power for 2 seconds to shut down cleanly.\n");
-    printf("  Frontend selector: select its menu item to choose or enable a frontend.
-");
-    printf("  USB storage: select the last regular menu item, then connect the PC data cable.
-");
+    printf("  Frontend selector: select its menu item to choose or enable a frontend.\\n");
+    printf("  USB storage: select its menu item, then connect the PC data cable.\\n");
     if (return_to_selector)
-        printf("  Return to frontend selector: select the final menu item.
-");
+        printf("  Return to frontend selector: select the final menu item.\\n");
 }
 
 static void render_controls(void)

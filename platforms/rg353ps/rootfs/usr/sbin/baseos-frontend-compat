@@ -77,6 +77,8 @@ resolve_entrypoint() {
 scan_root() {
   sr_root=$1
   [ -d "$sr_root/Frontends" ] && [ ! -L "$sr_root/Frontends" ] || return 0
+  [ ! -L "$sr_root/.baseos" ] || return 0
+  [ ! -L "$sr_root/.baseos/compat" ] || return 0
   for sr_dir in "$sr_root"/Frontends/*; do
     [ -d "$sr_dir" ] && [ ! -L "$sr_dir" ] || continue
     [ -f "$sr_dir/baseos-frontend.conf" ] && continue
@@ -100,6 +102,10 @@ scan_root() {
         continue
       fi
     fi
+    [ ! -L "$sr_sidecar/profiles" ] || continue
+    [ ! -L "$sr_manifest" ] || continue
+    [ ! -L "$sr_sidecar/launch.sh" ] || continue
+    [ ! -L "$sr_sidecar/profiles/default.conf" ] || continue
     mkdir -p "$sr_sidecar/profiles" || continue
     sr_program_quote=$(shell_quote "$sr_dir")
     sr_entry_quote=$(shell_quote "$COMPAT_ENTRY")

@@ -14,8 +14,8 @@ valid_profile_id() { baseos_frontend_valid_id "$1" && [ "${#1}" -le 22 ]; }
 
 run_compat_scan() {
   compat_tool=${BASEOS_COMPAT_TOOL:-/usr/sbin/baseos-frontend-compat}
-  [ -x "$compat_tool" ] || return 0
-  "$compat_tool" scan "$TF2" "$TF1"
+  [ -f "$compat_tool" ] || return 0
+  /bin/sh "$compat_tool" scan "$TF2" "$TF1"
 }
 
 build_catalog() {
@@ -158,6 +158,8 @@ case "$cmd" in
       [ "$remove_action" = uninstall-compat ] || [ "$remove_action" = delete-compat ] || {
         echo "compatibility entries require uninstall-compat or delete-compat" >&2; exit 1;
       }
+      [ ! -L "$ENTRY_ROOT/.baseos" ] || { echo "refusing symlinked .baseos directory" >&2; exit 1; }
+      [ ! -L "$ENTRY_ROOT/.baseos/compat" ] || { echo "refusing symlinked compatibility directory" >&2; exit 1; }
       compat_dir=$ENTRY_ROOT/.baseos/compat/$ENTRY_PACKAGE
       compat_manifest=$compat_dir/baseos-frontend.conf
       [ "$ENTRY_DIR" = "$ENTRY_ROOT/Frontends/$(sed -n 's/^compat_source=//p' "$compat_manifest" 2>/dev/null | head -1)" ] || {

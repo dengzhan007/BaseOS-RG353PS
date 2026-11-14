@@ -211,6 +211,9 @@ run_manager delete-legacy-adapter nextui
 [ ! -e "$LEGACY_ROOT" ] || fail "confirmed legacy frontend deletion left its bundle directory"
 [ ! -e "$LEGACY_ROOT/.system/rg353ps/nextui.elf" ] || fail "legacy frontend deletion left bundled .system payload"
 [ ! -e "$LEGACY_ROOT/Tools/rg353ps/tool" ] || fail "legacy frontend deletion left bundled Tools payload"
+[ -d "$TF1/Frontends" ] || fail "legacy frontend deletion removed the Frontends container"
+[ -d "$PACKAGE" ] || fail "legacy frontend deletion removed the separate Slot frontend"
+[ -d "$RENAMED_PACKAGE" ] || fail "legacy frontend deletion removed the separate LUCKLUCK-SLOT frontend"
 [ -f "$TF1/Games/game.rom" ] || fail "legacy frontend deletion removed shared Games"
 [ -f "$TF1/Saves/game.srm" ] || fail "legacy frontend deletion removed shared Saves"
 

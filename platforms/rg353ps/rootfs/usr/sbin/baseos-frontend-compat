@@ -1,0 +1,149 @@
+#!/bin/sh
+# Generate BaseOS-owned compatibility packages for ordinary frontend folders.
+# The frontend program directory is never modified.
+set -eu
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH
+. "\${BASEOS_DISCOVERY_LIB:-/usr/sbin/baseos-frontend-discovery}"
+
+TF1=\${BASEOS_FRONTEND_TF1:-/mnt/SDCARD}
+TF2=\${BASEOS_FRONTEND_TF2:-/mnt/TF2}
+
+normalise_id() {
+  ni_raw=$1
+  case "$ni_raw" in ''|*'|'*) return 1 ;; esac
+  printf '%s' "$ni_raw" | LC_ALL=C grep -q '[[:cntrl:]]' && return 1
+  ni_id=$(printf '%s' "$ni_raw" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-' | tr -s '-')
+  ni_id=$(printf '%s' "$ni_id" | sed 's/^[._-]*//; s/[._-]*$//; s/--*/-/g')
+  [ -n "$ni_id" ] || return 1
+  if [ "\${#ni_id}" -gt 22 ]; then
+    ni_hash=$(printf '%s' "$ni_raw" | cksum | awk '{print $1}')
+    ni_prefix=$(printf '%s' "$ni_id" | cut -c1-11)
+    ni_id=$ni_prefix-$ni_hash
+  fi
+  baseos_frontend_valid_id "$ni_id" || return 1
+  [ "\${#ni_id}" -le 22 ] || return 1
+  case "$ni_id" in *--*) return 1 ;; esac
+  COMPAT_ID=$ni_id
+  return 0
+}
+
+shell_quote() {
+  printf "'"
+  printf '%s' "$1" | sed "s/'/'\\\\''/g"
+  printf "'"
+}
+
+write_if_changed() {
+  wic_path=$1
+  wic_tmp=$wic_path.tmp
+  cat > "$wic_tmp"
+  if [ -f "$wic_path" ] && cmp -s "$wic_path" "$wic_tmp"; then
+    rm -f "$wic_tmp"
+  else
+    mv -f "$wic_tmp" "$wic_path"
+  fi
+}
+
+resolve_entrypoint() {
+  re_dir=$1
+  COMPAT_ENTRY=
+  COMPAT_MODE=
+  for re_name in launch.sh start.sh run.sh frontend.sh; do
+    if [ -f "$re_dir/$re_name" ] && [ ! -L "$re_dir/$re_name" ]; then
+      COMPAT_ENTRY=$re_name
+      COMPAT_MODE=sh
+      return 0
+    fi
+  done
+  for re_name in .tmp_update/updater .tmp_update/launch.sh; do
+    if [ -f "$re_dir/$re_name" ] && [ ! -L "$re_dir/$re_name" ]; then
+      COMPAT_ENTRY=$re_name
+      COMPAT_MODE=sh
+      return 0
+    fi
+  done
+  re_slug=$(basename "$re_dir" | LC_ALL=C tr 'A-Z' 'a-z')
+  for re_name in "$re_slug.elf" frontend.elf; do
+    if [ -f "$re_dir/$re_name" ] && [ ! -L "$re_dir/$re_name" ]; then
+      COMPAT_ENTRY=$re_name
+      COMPAT_MODE=exec
+      return 0
+    fi
+  done
+  return 1
+}
+
+scan_root() {
+  sr_root=$1
+  [ -d "$sr_root/Frontends" ] && [ ! -L "$sr_root/Frontends" ] || return 0
+  for sr_dir in "$sr_root"/Frontends/*; do
+    [ -d "$sr_dir" ] && [ ! -L "$sr_dir" ] || continue
+    [ -f "$sr_dir/baseos-frontend.conf" ] && continue
+    resolve_entrypoint "$sr_dir" || continue
+    sr_name=\${sr_dir##*/}
+    normalise_id "$sr_name" || continue
+    sr_id=$COMPAT_ID
+    sr_disabled=$sr_root/.baseos/compat-disabled/$sr_id
+    [ ! -e "$sr_disabled" ] || continue
+    sr_sidecar=$sr_root/.baseos/compat/$sr_id
+    if [ -e "$sr_sidecar" ] && [ ! -d "$sr_sidecar" ]; then
+      echo "compat: refusing non-directory sidecar $sr_sidecar" >&2
+      continue
+    fi
+    [ ! -L "$sr_sidecar" ] || continue
+    sr_manifest=$sr_sidecar/baseos-frontend.conf
+    if [ -r "$sr_manifest" ]; then
+      baseos_frontend_read_value "$sr_manifest" compat_source ""
+      if [ -n "$BASEOS_VALUE" ] && [ "$BASEOS_VALUE" != "$sr_name" ]; then
+        echo "compat: ID collision for $sr_name ($sr_id already maps to $BASEOS_VALUE)" >&2
+        continue
+      fi
+    fi
+    mkdir -p "$sr_sidecar/profiles" || continue
+    sr_program_quote=$(shell_quote "$sr_dir")
+    sr_entry_quote=$(shell_quote "$COMPAT_ENTRY")
+    sr_mode_quote=$(shell_quote "$COMPAT_MODE")
+    sr_stat=$(stat -c '%Y:%s' "$sr_dir/$COMPAT_ENTRY" 2>/dev/null || echo unknown)
+    {
+      printf '%s\n' 'package_api=1'
+      printf 'display_name=%s\n' "$sr_name"
+      printf '%s\n' 'compat_api=1'
+      printf 'compat_source=%s\n' "$sr_name"
+      printf 'compat_entrypoint=%s\n' "$COMPAT_ENTRY"
+      printf 'compat_mode=%s\n' "$COMPAT_MODE"
+      printf 'compat_entrypoint_stat=%s\n' "$sr_stat"
+      printf '%s\n' 'priority=100' 'volume_owner=system' 'power_owner=system'
+    } | write_if_changed "$sr_manifest"
+    {
+      printf '%s\n' '#!/bin/sh' 'set -eu'
+      printf 'BASEOS_COMPAT_PROGRAM_DIR=%s\n' "$sr_program_quote"
+      printf 'BASEOS_COMPAT_ENTRYPOINT=%s\n' "$sr_entry_quote"
+      printf 'BASEOS_COMPAT_MODE=%s\n' "$sr_mode_quote"
+      printf '%s\n' 'export BASEOS_COMPAT_PROGRAM_DIR'
+      printf 'cd "$BASEOS_COMPAT_PROGRAM_DIR"\n'
+      printf '%s\n' 'case "$BASEOS_COMPAT_MODE" in'
+      printf '%s\n' '  sh) exec /bin/sh "$BASEOS_COMPAT_PROGRAM_DIR/$BASEOS_COMPAT_ENTRYPOINT" ;;'
+      printf '%s\n' '  exec) target="$BASEOS_COMPAT_PROGRAM_DIR/$BASEOS_COMPAT_ENTRYPOINT"; [ -x "$target" ] || chmod 0755 "$target"; exec "$target" ;;'
+      printf '%s\n' '  *) echo "unsupported compatibility launch mode" >&2; exit 126 ;;'
+      printf '%s\n' 'esac'
+    } | write_if_changed "$sr_sidecar/launch.sh"
+    {
+      printf '%s\n' 'profile_api=1'
+      printf 'display_name=%s\n' "$sr_name"
+      printf '%s\n' 'priority=100'
+    } | write_if_changed "$sr_sidecar/profiles/default.conf"
+  done
+}
+
+case "\${1:-scan}" in
+  scan)
+    shift || :
+    if [ "$#" -eq 0 ]; then set -- "$TF2" "$TF1"; fi
+    for root in "$@"; do scan_root "$root"; done
+    ;;
+  *)
+    echo "usage: baseos-frontend-compat [scan [TF2_ROOT TF1_ROOT]]" >&2
+    exit 2
+    ;;
+esac

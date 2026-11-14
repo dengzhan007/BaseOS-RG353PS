@@ -178,6 +178,9 @@ baseos_frontend_scan_root "$TF1" "slot-rg353ps--640-native-alt" || fail "recreat
 
 # A legacy archive is installed as one independent directory under
 # Frontends/<name>/. The adapter, .system and Tools all belong to this bundle.
+SIBLING_FRONTEND=$TF1/Frontends/KeepOtherFrontend
+mkdir -p "$SIBLING_FRONTEND"
+printf 'sibling frontend must survive\n' > "$SIBLING_FRONTEND/marker"
 LEGACY_ROOT=$TF1/Frontends/NextUI
 LEGACY_ADAPTER=$LEGACY_ROOT/.baseos/frontends/nextui
 mkdir -p "$LEGACY_ADAPTER" "$LEGACY_ROOT/.system/rg353ps" "$LEGACY_ROOT/Tools/rg353ps"
@@ -212,7 +215,7 @@ run_manager delete-legacy-adapter nextui
 [ ! -e "$LEGACY_ROOT/.system/rg353ps/nextui.elf" ] || fail "legacy frontend deletion left bundled .system payload"
 [ ! -e "$LEGACY_ROOT/Tools/rg353ps/tool" ] || fail "legacy frontend deletion left bundled Tools payload"
 [ -d "$TF1/Frontends" ] || fail "legacy frontend deletion removed the Frontends container"
-[ -d "$PACKAGE" ] || fail "legacy frontend deletion removed the separate Slot frontend"
+[ -f "$SIBLING_FRONTEND/marker" ] || fail "legacy frontend deletion removed a separate frontend directory"
 [ -d "$RENAMED_PACKAGE" ] || fail "legacy frontend deletion removed the separate LUCKLUCK-SLOT frontend"
 [ -f "$TF1/Games/game.rom" ] || fail "legacy frontend deletion removed shared Games"
 [ -f "$TF1/Saves/game.srm" ] || fail "legacy frontend deletion removed shared Saves"

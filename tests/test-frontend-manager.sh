@@ -59,6 +59,11 @@ grep -F -q 'debug=no' "$CONFIG" || fail "unrelated debug setting was lost"
 grep -F -q 'usb_diagnostics=no' "$CONFIG" || fail "unrelated USB setting was lost"
 grep -F -q '# Preserve unrelated card settings.' "$CONFIG" || fail "user comment was lost"
 
+# Removing one profile must retain the package-level path map while
+# another profile from the same frontend package remains installed.
+mkdir -p "$TF1/.baseos/frontend-paths"
+printf '%s\n' 'paths_api=1' 'frontend_id=slot-rg353ps' > "$TF1/.baseos/frontend-paths/slot-rg353ps.conf"
+
 # Removing the current default profile must leave the package and select
 # the remaining profile as the new default.
 run_manager set-default slot-rg353ps--640-native
@@ -67,6 +72,7 @@ run_manager uninstall slot-rg353ps--640-native
 [ -f "$PACKAGE/profiles/640x480.conf" ] || fail "other profile was removed"
 [ ! -e "$PACKAGE/profiles/640-native.conf" ] || fail "selected profile was not removed"
 [ -f "$TF1/.baseos/instances/slot-rg353ps--640-native/data/marker" ] || fail "profile instance data was deleted"
+[ -f "$TF1/.baseos/frontend-paths/slot-rg353ps.conf" ] || fail "removing one profile deleted the package-level path map"
 [ -f "$TF1/Games/game.rom" ] || fail "shared ROM was deleted"
 [ -f "$TF1/Saves/game.srm" ] || fail "shared save was deleted"
 grep -F -q 'frontend_id=slot-rg353ps--640x480' "$CONFIG" || fail "remaining profile was not selected as new default"
@@ -75,6 +81,7 @@ grep -F -q 'frontend_id=slot-rg353ps--640x480' "$CONFIG" || fail "remaining prof
 run_manager uninstall slot-rg353ps--640x480
 [ ! -e "$PACKAGE" ] || fail "empty package directory was not removed"
 [ "$(sed -n 's/^frontend_id=//p' "$CONFIG")" = auto ] || fail "removed default was not reset to auto"
+[ ! -e "$TF1/.baseos/frontend-paths/slot-rg353ps.conf" ] || fail "removing the last profile left its package-level path map"
 [ -f "$TF1/.baseos/instances/slot-rg353ps--640-native/data/marker" ] || fail "last-profile removal deleted instance data"
 [ -f "$TF1/Games/game.rom" ] || fail "last-profile removal deleted shared ROM"
 [ -f "$TF1/Saves/game.srm" ] || fail "last-profile removal deleted shared save"
@@ -98,8 +105,10 @@ profile_api=1
 display_name=Two
 EOF
 printf 'preserve full package instance\n' > "$TF1/.baseos/instances/full-frontend--one/data/marker"
+printf '%s\n' 'paths_api=1' 'frontend_id=full-frontend' > "$TF1/.baseos/frontend-paths/full-frontend.conf"
 run_manager set-default full-frontend--one
 run_manager uninstall-package full-frontend--one
+[ ! -e "$TF1/.baseos/frontend-paths/full-frontend.conf" ] || fail "full managed package uninstall left its path map"
 [ ! -e "$FULL_PACKAGE" ] || fail "full frontend uninstall left its package directory"
 [ -f "$TF1/.baseos/instances/full-frontend--one/data/marker" ] || fail "full frontend uninstall deleted instance data"
 [ "$(sed -n 's/^frontend_id=//p' "$CONFIG")" = auto ] || fail "full frontend uninstall did not reset the removed default"

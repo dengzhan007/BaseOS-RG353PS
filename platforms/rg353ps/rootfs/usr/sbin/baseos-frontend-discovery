@@ -197,6 +197,12 @@ baseos_frontend_record_candidate() {
 baseos_frontend_consider_package() {
   bcp_root=$1 bcp_dir=$2 bcp_profile=$3 bcp_preference=$4
   baseos_frontend_load_package "$bcp_root" "$bcp_dir" "$bcp_profile" || return 0
+  # Explicitly disabled managed profiles stay in the selector catalog but are
+  # omitted from automatic and pinned boot discovery.
+  if [ "${BASEOS_PACKAGE_KIND:-managed}" != compat ] &&
+     [ -e "$bcp_root/.baseos/frontend-disabled/$BASEOS_ADAPTER_ID" ]; then
+    return 0
+  fi
   # Keep disabled auto-compat packages catalogued, but never launch them.
   if [ "${BASEOS_PACKAGE_KIND:-managed}" = compat ] &&
      [ -e "$bcp_root/.baseos/compat-disabled/$BASEOS_PACKAGE_ID" ]; then
@@ -342,13 +348,14 @@ baseos_frontend_tree_changed_since() {
         [ -f "$bft_adapter/manifest.conf" ] && [ "$bft_adapter/manifest.conf" -nt "$bft_cache" ] && return 0
       done
     done
-    bft_disabled="$bft_container/.baseos/frontends-disabled"
-    if [ -d "$bft_disabled" ]; then
-      [ "$bft_disabled" -nt "$bft_cache" ] && return 0
-      for bft_marker in "$bft_disabled"/*; do
-        [ -e "$bft_marker" ] && [ "$bft_marker" -nt "$bft_cache" ] && return 0
-      done
-    fi
+    for bft_disabled in "$bft_container/.baseos/frontends-disabled" "$bft_container/.baseos/frontend-disabled" "$bft_container/.baseos/compat-disabled"; do
+      if [ -d "$bft_disabled" ]; then
+        [ "$bft_disabled" -nt "$bft_cache" ] && return 0
+        for bft_marker in "$bft_disabled"/*; do
+          [ -e "$bft_marker" ] && [ "$bft_marker" -nt "$bft_cache" ] && return 0
+        done
+      fi
+    done
   done
   return 1
 }

@@ -185,7 +185,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       --source /baseos-src/rg353ps-ui.h
     psfaddtable "$RAW_FONT" "$FONT_TABLE" "$FINAL_FONT"
     psfgettable -i "$FINAL_FONT" -ot "$FONT_TABLE_CHECK"
-    python3 - "$FINAL_FONT" "$FONT_TABLE_CHECK" <<'PY_FONT_VALIDATE'
+    python3 - "$FINAL_FONT" "$FONT_TABLE_CHECK" <<PY_FONT_VALIDATE
 import struct
 import sys
 from pathlib import Path
@@ -234,7 +234,7 @@ WenQuanYi Zen Hei CJK console-font subset
 Copyright (C) 2007-2009 Qianqian Fang and the WenQuanYi Project Board of Trustees.
 Source: https://github.com/anthonyfok/fonts-wqy-zenhei
 License: GNU General Public License, version 2 (GPL-2.0).
-Only the 16x16 PSF2 glyph subset required by BaseOS console menus is included.
+Only the 18x20 PSF2 glyph subset required by BaseOS console menus is included.
 EOF_FONT_NOTICE
     gcc -std=c11 -O2 -Wall -Wextra -Werror -static -I/baseos-src \
       -o "$R/usr/sbin/rg353ps-control-center" /src/rg353ps-control-center.c

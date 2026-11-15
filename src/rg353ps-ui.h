@@ -157,7 +157,7 @@ static void baseos_ui_load_console_font(void)
         if (errno != EINTR) return;
     }
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-        static const char message[] = "<3>BaseOS: setfont failed loading the RG353PS console font\\n";
+        static const char message[] = "<3>BaseOS: setfont failed loading the RG353PS console font\n";
         int log_fd = open("/dev/kmsg", O_WRONLY | O_CLOEXEC);
         if (log_fd >= 0) {
             (void)write(log_fd, message, sizeof(message) - 1);

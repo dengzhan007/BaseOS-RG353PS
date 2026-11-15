@@ -109,6 +109,9 @@ jobs:
           sh -n platforms/rg353ps/build-firmware.sh
           sh -n platforms/rg353ps/build-kernel.sh
           sh -n platforms/rg353ps/build-rootfs.sh
+          test -x platforms/rg353ps/build-rootfs.sh
+          test -x platforms/rg353ps/build-image.sh
+          test -x platforms/rg353ps/build-update.sh
           sh -n platforms/rg353ps/build-image.sh
           sh -n platforms/rg353ps/build-update.sh
           sh -n platforms/rg353ps/rootfs/usr/sbin/baseos-update

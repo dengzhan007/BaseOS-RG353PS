@@ -15,11 +15,12 @@ from pathlib import Path
 
 control, selector = (Path(p).read_text() for p in sys.argv[1:])
 
-def check_handoff(source, fn, label):
+def check_handoff(source, fn, end_fn, label):
     start = source.find(fn)
-    if start < 0:
-        raise SystemExit("FAIL: missing " + label + " function")
-    body = source[start:]
+    end = source.find(end_fn, start + len(fn))
+    if start < 0 or end < 0:
+        raise SystemExit("FAIL: missing " + label + " function boundary")
+    body = source[start:end]
     close = body.find("close_inputs();")
     fork = body.find("child = fork();")
     wait = body.find("waitpid(child, &status, 0)")
@@ -27,8 +28,10 @@ def check_handoff(source, fn, label):
     if min(close, fork, wait, reopen) < 0 or not close < fork < wait < reopen:
         raise SystemExit("FAIL: incorrect evdev handoff in " + label)
 
-check_handoff(control, "static void open_frontend_selector(void)", "diagnostics -> selector")
-check_handoff(selector, "static void open_diagnostics(void)", "selector -> diagnostics")
+check_handoff(control, "static void open_frontend_selector(void)",
+              "static void request_usb_storage", "diagnostics -> selector")
+check_handoff(selector, "static void open_diagnostics(void)",
+              "static void choose_launch", "selector -> diagnostics")
 
 assert "return entry_count + 2;" in selector, "selector must always show diagnostics/return and language rows"
 assert "static int return_to_diagnostics;" in selector
@@ -48,6 +51,10 @@ grep -Fq 'exfatprogs kbd' "$BUILDER" ||
   fail "target rootfs does not include setfont"
 grep -Fq 'baseos-cjk-16.psf' "$BUILDER" ||
   fail "compact CJK console font is not generated"
+grep -Fq -- '--source /baseos-src/rg353ps-ui.h' "$BUILDER" ||
+  fail "shared language labels are missing from the generated font"
+grep -Fq 'test -x "$R/usr/sbin/setfont"' "$BUILDER" ||
+  fail "rootfs build does not verify the setfont executable"
 grep -Fq -- '-I/baseos-src' "$BUILDER" ||
   fail "BaseOS shared UI header is not included when compiling terminal UIs"
 grep -Fq 'ui_language=' "$UI" ||

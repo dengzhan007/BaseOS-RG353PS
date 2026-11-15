@@ -155,6 +155,10 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       echo "SFTP subsystem is missing from target rootfs" >&2
       exit 1
     }
+    test -x "$R/usr/sbin/setfont" || {
+      echo "kbd setfont utility is missing from target rootfs" >&2
+      exit 1
+    }
     # Generate a compact 16x16 PSF2 font from the UI's actual CJK strings.
     # The full WQY outline font and Pillow stay in this build container only;
     # only the 512-glyph bitmap subset is installed in the target rootfs.
@@ -163,7 +167,8 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       --font /usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc \
       --output "$R/usr/share/consolefonts/baseos-cjk-16.psf" \
       --source /src/rg353ps-control-center.c \
-      --source /src/rg353ps-frontend-selector.c
+      --source /src/rg353ps-frontend-selector.c \
+      --source /baseos-src/rg353ps-ui.h
     test -s "$R/usr/share/consolefonts/baseos-cjk-16.psf" || {
       echo "BaseOS CJK console font was not generated" >&2
       exit 1

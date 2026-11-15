@@ -184,7 +184,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       --source /src/rg353ps-frontend-selector.c \
       --source /baseos-src/rg353ps-ui.h
     psfaddtable "$RAW_FONT" "$FONT_TABLE" "$FINAL_FONT"
-    psfgettable -i "$FINAL_FONT" -ot "$FONT_TABLE_CHECK"
+    psfgettable "$FINAL_FONT" "$FONT_TABLE_CHECK"
     python3 - "$FINAL_FONT" "$FONT_TABLE_CHECK" <<PY_FONT_VALIDATE
 import struct
 import sys
@@ -201,29 +201,26 @@ assert char_size == height * ((width + 7) // 8), "invalid PSF2 glyph stride"
 assert len(data) > header_size + glyphs * char_size, "PSF2 Unicode table is empty"
 
 mapping = {}
-for line in table_path.read_text(encoding="utf-8").splitlines():
+for line in table_path.read_text(encoding="ascii").splitlines():
     fields = line.split()
-    if len(fields) < 2:
+    if len(fields) < 2 or fields[0].startswith("#"):
         continue
     try:
         slot = int(fields[0], 0)
     except ValueError:
         continue
-    for raw in fields[1:]:
-        for item in raw.split(","):
-            try:
-                codepoint = int(item, 0)
-            except ValueError:
-                try:
-                    codepoint = int(item, 10)
-                except ValueError:
-                    continue
-            mapping[codepoint] = slot
+    for token in fields[1:]:
+        if token.startswith("U+") and len(token) >= 6:
+            codepoint = int(token[2:], 16)
+        else:
+            raise AssertionError(f"unexpected kbd Unicode table token: {token!r}")
+        previous = mapping.setdefault(codepoint, slot)
+        assert previous == slot, f"Unicode U+{codepoint:04X} mapped to multiple glyphs"
 
 assert mapping.get(ord("@")) == 32, "ASCII @ does not map to its own glyph slot"
 assert mapping.get(ord("A")) == 33, "ASCII A does not map to its own glyph slot"
-assert 0x4E2D in mapping, "Chinese glyph U+4E2D is missing"
-assert 0x6587 in mapping, "Chinese glyph U+6587 is missing"
+assert mapping.get(0x4E2D) is not None, "Chinese glyph U+4E2D is missing"
+assert mapping.get(0x6587) is not None, "Chinese glyph U+6587 is missing"
 assert mapping[ord("@")] != mapping[ord("A")], "ASCII map collapsed multiple characters"
 print(f"Verified PSF2 {width}x{height}, {glyphs} glyphs, {len(mapping)} Unicode mappings")
 PY_FONT_VALIDATE

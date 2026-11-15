@@ -72,8 +72,10 @@ grep -Fq 'ui_language=' "$UI" ||
 
 grep -Fq "psfaddtable" "$BUILDER" ||
   fail "font Unicode map is not produced with kbd psfaddtable"
-grep -Fq "psfgettable" "$BUILDER" ||
+grep -Fq 'psfgettable "$FINAL_FONT" "$FONT_TABLE_CHECK"' "$BUILDER" ||
   fail "generated font Unicode map is not round-trip verified"
+grep -Fq "U+{ord(ch):04X}" "$ROOT/tools/mkconsolefont.py" ||
+  fail "font mapping table does not use kbd U+ Unicode syntax"
 grep -Fq "ASCII @ does not map to its own glyph slot" "$BUILDER" ||
   fail "font validation does not verify ASCII glyph indices"
 grep -Fq "GLYPH_COUNT = 256" "$ROOT/tools/mkconsolefont.py" ||

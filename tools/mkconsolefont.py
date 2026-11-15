@@ -99,7 +99,7 @@ def main() -> int:
     output.write_bytes(header + glyph_data)
     with table_output.open("w", encoding="ascii", newline="\n") as table:
         for index, ch in enumerate(chars):
-            table.write(f"{index} 0x{ord(ch):04X}\n")
+            table.write(f"{index} U+{ord(ch):04X}\n")
 
     print(
         f"Created {output}: {FONT_WIDTH}x{FONT_HEIGHT}, {GLYPH_COUNT} glyph slots, "

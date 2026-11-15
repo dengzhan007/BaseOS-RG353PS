@@ -12,8 +12,28 @@ CONFIG=$TF1/baseos.conf
 valid_package_id() { baseos_frontend_valid_id "$1" && [ "${#1}" -le 22 ]; }
 valid_profile_id() { baseos_frontend_valid_id "$1" && [ "${#1}" -le 22 ]; }
 
+# Match the legacy updater layouts already accepted by baseos-frontend-session.
+# The selector uses one stable ID; the session still applies TF2-first precedence.
+has_legacy_updater() {
+  hlu_root=$1
+  if [ -f "$hlu_root/.tmp_update/updater" ] ||
+     [ -d "$hlu_root/miyoo355/app/.tmp_update" ] ||
+     [ -f "$hlu_root/MinUI.zip" ]; then
+    return 0
+  fi
+  for hlu_nested in "$hlu_root"/*; do
+    [ -d "$hlu_nested" ] || continue
+    if [ -f "$hlu_nested/.tmp_update/updater" ] ||
+       [ -d "$hlu_nested/miyoo355/app/.tmp_update" ] ||
+       [ -f "$hlu_nested/MinUI.zip" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 build_catalog() {
-  catalog_tmp=$CATALOG.$$
+  catalog_tmp=$CATALOG.tmp
   : > "$catalog_tmp"
   for catalog_root in "$TF2" "$TF1"; do
     [ -d "$catalog_root/Frontends" ] || continue
@@ -33,6 +53,21 @@ build_catalog() {
       done
     done
   done
+  # NextUI/MinUI updater installations predate package manifests. Keep
+  # them selectable as a legacy frontend instead of silently dropping them
+  # from the new selector. The runtime retains its existing TF2-first scan.
+  legacy_root=
+  for legacy_candidate_root in "$TF2" "$TF1"; do
+    if has_legacy_updater "$legacy_candidate_root"; then
+      legacy_root=$legacy_candidate_root
+      break
+    fi
+  done
+  if [ -n "$legacy_root" ]; then
+    printf '%s|%s|%s|%s|%s|%s|%s|%s\n' \
+      "legacy-updater" "NextUI / MinUI (legacy updater)" \
+      "legacy-updater" "updater" "$legacy_root" "-" "-" "0" >> "$catalog_tmp"
+  fi
   mv -f "$catalog_tmp" "$CATALOG"
 }
 
@@ -54,7 +89,7 @@ find_catalog_entry() {
 write_default() {
   default_id=$1
   case "$default_id" in
-    auto) ;;
+    auto|legacy-updater) ;;
     *--*)
       valid_package_id "${default_id%%--*}" || return 1
       default_profile=${default_id#*--}

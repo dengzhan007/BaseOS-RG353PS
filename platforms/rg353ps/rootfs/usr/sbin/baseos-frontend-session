@@ -107,25 +107,56 @@ diagnostic() {
   # No frontend is running, so the power key belongs to rg353ps-hotkeyd again.
   release_power_owner
   log "starting built-in diagnostic UI"
-  # Keep this supervisor alive in diagnostic mode too, so the Function/Mode
-  # USB-storage hotkey can safely stop the UI and unmount the data card.
+  # Keep the supervisor alive while diagnostics runs. It handles USB export and
+  # opens the selector on request, so the UI never competes with another reader
+  # of the same evdev devices.
   while :; do
-    # Start the UI from "/" so anything it forks inherits a cwd outside the
-    # adapter directory. The adapter can live on BASEOS_DATA, and a helper
-    # forked with a cwd on the volume it is about to export cannot unmount it:
-    # storage mode requested from this menu died instantly with a "PARTITION
-    # BUSY" until the export helper learned to chdir out on its own.
     cd / 2>/dev/null || :
     /usr/sbin/rg353ps-control-center &
     DIAGNOSTIC_PID=$!
     while kill -0 "$DIAGNOSTIC_PID" 2>/dev/null; do
+      if [ -e /run/baseos-frontend-select.request ]; then
+        rm -f /run/baseos-frontend-select.request
+        log "frontend selector requested from diagnostic UI"
+        kill -TERM "$DIAGNOSTIC_PID" 2>/dev/null || :
+        i=0
+        while kill -0 "$DIAGNOSTIC_PID" 2>/dev/null && [ "$i" -lt 15 ]; do
+          sleep 0.1
+          i=$((i + 1))
+        done
+        if kill -0 "$DIAGNOSTIC_PID" 2>/dev/null; then
+          kill -KILL "$DIAGNOSTIC_PID" 2>/dev/null || :
+        fi
+        wait "$DIAGNOSTIC_PID" 2>/dev/null || :
+        cd /
+        rm -f /run/baseos-frontend-selection
+        if [ -x /usr/sbin/baseos-frontend-manager ] &&
+           [ -x /usr/sbin/rg353ps-frontend-selector ] &&
+           /usr/sbin/baseos-frontend-manager catalog >/dev/null 2>&1; then
+          /usr/sbin/rg353ps-frontend-selector || log "frontend selector returned an error"
+        else
+          log "frontend selector components are unavailable"
+        fi
+        if [ -s /run/baseos-frontend-selection ]; then
+          read -r selected_from_diagnostics < /run/baseos-frontend-selection || selected_from_diagnostics=
+          if [ "$selected_from_diagnostics" = "__baseos_diagnostics__" ]; then
+            rm -f /run/baseos-frontend-selection
+            log "returning to built-in diagnostics"
+          elif [ -n "$selected_from_diagnostics" ]; then
+            log "frontend selected from diagnostics: $selected_from_diagnostics"
+            return 10
+          fi
+        fi
+        # Cancel or selecting Diagnostics keeps the diagnostic UI available.
+        break
+      fi
       if [ -e /run/baseos-usb-storage.request ]; then
         log "USB storage requested while diagnostic UI is active"
         kill -TERM "$DIAGNOSTIC_PID" 2>/dev/null || :
         i=0
         while kill -0 "$DIAGNOSTIC_PID" 2>/dev/null && [ "$i" -lt 15 ]; do
           sleep 0.1
-          i=$((i+1))
+          i=$((i + 1))
         done
         if kill -0 "$DIAGNOSTIC_PID" 2>/dev/null; then
           kill -KILL "$DIAGNOSTIC_PID" 2>/dev/null || :
@@ -230,14 +261,25 @@ if [ -e /run/baseos-frontend-select.boot-request ]; then
   rm -f /run/baseos-frontend-select.boot-request
   rm -f /run/baseos-frontend-selection
   if [ -x /usr/sbin/baseos-frontend-manager ] && [ -x /usr/sbin/rg353ps-frontend-selector ]; then
-    if /usr/sbin/baseos-frontend-manager catalog && [ -s /run/baseos-frontend-catalog ]; then
+    if /usr/sbin/baseos-frontend-manager catalog >/dev/null 2>&1; then
       log "opening frontend selector from boot L1/R1 request"
       /usr/sbin/rg353ps-frontend-selector || log "frontend selector returned an error"
     else
-      log "frontend selector requested but no managed frontend profiles were found"
+      log "frontend catalog could not be built"
     fi
   else
     log "frontend selector components are missing; continuing with configured frontend"
+  fi
+fi
+
+# The built-in diagnostics page is a selectable system destination,
+# not a persistent frontend_id. Selecting it opens diagnostics; selecting a
+# frontend from that page leaves a one-shot selection for the code below.
+if [ -s /run/baseos-frontend-selection ]; then
+  read -r boot_selected < /run/baseos-frontend-selection || boot_selected=
+  if [ "$boot_selected" = "__baseos_diagnostics__" ]; then
+    rm -f /run/baseos-frontend-selection
+    diagnostic
   fi
 fi
 
@@ -419,6 +461,10 @@ if [ -z "$LAUNCHER" ]; then
   log "no usable frontend found on TF2 or TF1; falling back to diagnostics"
   log "inspect $DETECTION_LOG; install a valid adapter or a supported legacy package on a user-data card"
   diagnostic
+  # The diagnostics menu can return a one-time frontend choice. Re-enter the
+  # supervisor so card priority, mounts, profile setup and cache rules are
+  # applied exactly as on a normal boot.
+  [ -s /run/baseos-frontend-selection ] && exec /usr/sbin/baseos-frontend-session
 fi
 write_selection_cache
 
@@ -766,6 +812,9 @@ kill_tree() {
   for child in $children; do kill_tree "$signal" "$child"; done
   kill -"$signal" "$pid" 2>/dev/null || :
 }
+# Frontend output must never inherit the boot console. Apply this at the
+# supervisor boundary so every adapter (including legacy updater-based ones)
+# and all of its children inherit silent stdout/stderr without frontend changes.
 if [ "$LAUNCH_MODE" = "exec" ]; then
   [ -f "$LAUNCHER" ] || { log "legacy updater vanished: $LAUNCHER"; diagnostic; }
   [ -x "$LAUNCHER" ] || chmod 0755 "$LAUNCHER" 2>/dev/null || :

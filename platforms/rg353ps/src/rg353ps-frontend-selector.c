@@ -19,6 +19,9 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+#include <rg353ps-ui.h>
+
+#define T(en, zh) baseos_ui_text((en), (zh))
 
 #define MAX_INPUTS 32
 #define MAX_FRONTENDS 64
@@ -66,11 +69,11 @@ static char current_default_id[ID_LEN] = "auto";
 static struct termios saved_termios;
 static int termios_saved;
 static int stdin_active;
-static int show_diagnostics_entry = 1;
+static int return_to_diagnostics;
 
 static int visible_item_count(void)
 {
-    return entry_count + (show_diagnostics_entry ? 1 : 0);
+    return entry_count + 2; /* diagnostics/return row plus language toggle */
 }
 
 static void stop_running(int sig)
@@ -279,26 +282,28 @@ static int write_selection(const char *id)
 
 static void adjust_scroll(void)
 {
-    const int visible = 10;
-    if (selected_item < scroll_offset) scroll_offset = selected_item;
-    if (selected_item >= scroll_offset + visible) scroll_offset = selected_item - visible + 1;
+    const int visible = 6;
+    if (entry_count <= visible) {
+        scroll_offset = 0;
+        return;
+    }
+    if (selected_item >= entry_count) {
+        scroll_offset = entry_count - visible;
+    } else {
+        if (selected_item < scroll_offset) scroll_offset = selected_item;
+        if (selected_item >= scroll_offset + visible) scroll_offset = selected_item - visible + 1;
+    }
     if (scroll_offset < 0) scroll_offset = 0;
+    if (scroll_offset > entry_count - visible) scroll_offset = entry_count - visible;
 }
 
 static void render_header(const char *title)
 {
     (void)printf("\033[2J\033[H\033[?25l");
-    (void)printf("\033[1;36m+------------------------------------------------------------------------------+\033[0m\n");
-    (void)printf("\033[1;36m| %-76.76s |\033[0m\n", title);
-    (void)printf("\033[1;36m+------------------------------------------------------------------------------+\033[0m\n");
-}
-
-static int count_package_profiles(const char *package_id)
-{
-    int count = 0;
-    for (int i = 0; i < entry_count; ++i)
-        if (strcmp(entries[i].package_id, package_id) == 0) ++count;
-    return count;
+    (void)printf("\033[1;36m========================================\033[0m\n");
+    (void)printf("\033[1;36m");
+    baseos_ui_print_line(title, 38);
+    (void)printf("\033[0m----------------------------------------\n");
 }
 
 static void render(void)
@@ -307,125 +312,100 @@ static void render(void)
     if (confirming_uninstall) {
         struct frontend_entry *entry =
             selected_item >= 0 && selected_item < entry_count ? &entries[selected_item] : NULL;
-        render_header("BaseOS  |  Confirm removal");
+        render_header(T("Confirm removal", "确认卸载"));
         if (entry == NULL) {
-            (void)printf("\n  No frontend package is selected.\n");
+            baseos_ui_print_line(T("No frontend selected.", "没有选择前端。"), 38);
         } else {
-            (void)printf("\n  Package: %-62.62s\n", entry->package_id);
+            printf("%s: ", T("Package", "前端"));
+            baseos_ui_print_line(entry->package_id, 29);
+            printf("%s: ", T("Profile", "配置"));
+            baseos_ui_print_line(entry->profile_id, 29);
             if (entry->disabled)
-                (void)printf("  STATUS: DISABLED (files are preserved)\n");
-            (void)printf("  Selected profile: %-53.53s\n", entry->profile_id);
-            (void)printf("  Profiles in this package: %-46d\n", count_package_profiles(entry->package_id));
-            if (strcmp(entry->kind, "compat") == 0) {
-                if (uninstall_package_action) {
-                    (void)printf("\n  DELETE THE ORIGINAL FRONTEND PROGRAM DIRECTORY.\n");
-                    (void)printf("  This permanently removes:\n  %s\n", entry->package_dir);
-                } else {
-                    (void)printf("\n  REMOVE BASEOS COMPATIBILITY ONLY.\n");
-                    (void)printf("  The original program directory and all files stay in place.\n");
-                    (void)printf("  The disabled entry and generated metadata remain available for re-enable.\n");
-                }
-            } else if (strcmp(entry->kind, "legacy-adapter") == 0) {
-                if (uninstall_package_action && entry_is_frontend_bundle(entry)) {
-                    (void)printf("\n  DELETE THE COMPLETE LEGACY FRONTEND DIRECTORY.\n");
-                    (void)printf("  This removes the complete bundle:\n  %s\n", entry->root);
-                    (void)printf("  Including .baseos/, .system/, Tools/ and its other contents.\n");
-                    (void)printf("  Games/, Saves/ and other Frontends/ entries stay untouched.\n");
-                } else if (uninstall_package_action) {
-                    (void)printf("\n  DELETE ONLY THE LEGACY ADAPTER DIRECTORY.\n");
-                    (void)printf("  This removes:\n  %s\n", entry->package_dir);
-                    (void)printf("  No isolated Frontends/<name>/ bundle was detected.\n");
-                } else {
-                    (void)printf("\n  DISABLE THIS LEGACY ADAPTER.\n");
-                    (void)printf("  The adapter and all original files are preserved.\n");
-                }
-            } else if (uninstall_package_action) {
-                (void)printf("\n  REMOVE THE ENTIRE MANAGED FRONTEND PACKAGE.\n");
-                (void)printf("  All profiles and the shared program payload will be deleted.\n");
+                baseos_ui_print_line(T("Status: DISABLED", "状态：已禁用"), 38);
+            if (uninstall_package_action) {
+                baseos_ui_print_line(T("DELETE complete frontend program.", "删除整个前端程序目录。"), 38);
+                printf("  ");
+                baseos_ui_print_line(entry->package_dir, 34);
             } else {
-                (void)printf("\n  Remove only the selected profile/configuration.\n");
-                (void)printf("  The shared program remains if other profiles still exist.\n");
+                baseos_ui_print_line(T("Remove this profile only.", "仅删除当前配置。"), 38);
+                baseos_ui_print_line(T("Shared program/data are kept.", "保留共享程序和数据。"), 38);
             }
-            (void)printf("  All instance settings/data, Games/, Saves/ and shared cores stay.\n");
+            printf("%s: %d\n", T("Profiles", "配置数"), count_package_profiles(entry->package_id));
+            baseos_ui_print_line(T("Games, Saves and shared cores stay.", "Games、存档和共享核心保留。"), 38);
         }
-        (void)printf("\n  A: confirm removal     B: cancel\n");
+        baseos_ui_print_line(T("A: confirm    B: cancel", "A：确认    B：取消"), 38);
         fflush(stdout);
         return;
     }
 
-    render_header("BaseOS  |  Frontend selector");
-    (void)printf("\n  Select a frontend profile. Profiles from one package use separate settings.\n");
-    (void)printf("  \033[1;33mDEFAULT STARTUP: %-60.60s\033[0m\n\n", current_default_label());
+    render_header(T("BaseOS / Frontend selector", "BaseOS / 前端选择器"));
+    printf("%s: ", T("Default", "默认启动"));
+    baseos_ui_print_line(current_default_label(), 30);
+    printf("%s: %d\n", T("Profiles", "已安装配置"), entry_count);
+
     if (entry_count == 0) {
-        (void)printf("  No compatible frontend folders or managed packages were found.\n");
-        (void)printf("  Extract a package into /mnt/SDCARD/Frontends/<package-id>/.\n");
+        baseos_ui_print_line(T("No compatible frontend found.", "没有找到可用前端。"), 38);
+        baseos_ui_print_line(T("Install under Frontends/.", "请安装到 Frontends/ 目录。"), 38);
     } else {
-        (void)printf("  INSTALLED PROFILES\n");
-        for (int i = scroll_offset; i < entry_count && i < scroll_offset + 10; ++i) {
-            if (entries[i].disabled) {
-                if (i == selected_item)
-                    (void)printf("  \033[1;32m>\033[0m \033[1;31m[DISABLED]\033[0m %-62.62s\n",
-                                 entries[i].label);
-                else
-                    (void)printf("    \033[1;31m[DISABLED]\033[0m %-62.62s\n",
-                                 entries[i].label);
-            } else if (entry_is_default(&entries[i])) {
-                if (i == selected_item)
-                    (void)printf("  \033[1;32m>\033[0m \033[1;33m[DEFAULT]\033[0m %-62.62s\n",
-                                 entries[i].label);
-                else
-                    (void)printf("    \033[1;33m[DEFAULT]\033[0m %-62.62s\n",
-                                 entries[i].label);
-            } else if (i == selected_item) {
-                (void)printf("  \033[1;32m> %-72.72s\033[0m\n", entries[i].label);
-            } else {
-                (void)printf("    %-72.72s\n", entries[i].label);
-            }
-            (void)printf("      package=%-24.24s profile=%-18.18s source=%s type=%s\n",
-                         entries[i].package_id, entries[i].profile_id,
-                         (strncmp(entries[i].root, "/mnt/TF2/", 9) == 0 ||
-                          strcmp(entries[i].root, "/mnt/TF2") == 0) ? "TF2" : "TF1",
-                         strcmp(entries[i].kind, "compat") == 0 ? "compat" :
-                         strcmp(entries[i].kind, "legacy-adapter") == 0 ? "legacy adapter" : "managed");
+        int end = scroll_offset + 6;
+        if (end > entry_count) end = entry_count;
+        for (int i = scroll_offset; i < end; ++i) {
+            printf("%s ", i == selected_item ? "\033[1;32m>" : " ");
+            if (entries[i].disabled)
+                printf("\033[1;31m%s\033[0m ", T("[DISABLED]", "[禁用]"));
+            else if (entry_is_default(&entries[i]))
+                printf("\033[1;33m%s\033[0m ", T("[DEFAULT]", "[默认]"));
+            baseos_ui_print_line(entries[i].label, 29);
+            printf("  ");
+            baseos_ui_print_cells(entries[i].package_id, 15);
+            printf(" / ");
+            baseos_ui_print_line(entries[i].profile_id, 13);
+            if (i == selected_item) printf("\033[0m");
+        }
+        if (entry_count > 6) {
+            printf("  %s %d-%d/%d\n", T("Showing", "显示"),
+                   scroll_offset + 1, end, entry_count);
         }
     }
 
-    if (show_diagnostics_entry && entry_count >= scroll_offset &&
-        entry_count < scroll_offset + 10) {
-        if (selected_item == entry_count)
-            (void)printf("  \033[1;32m> %-72.72s\033[0m\n", "BaseOS Diagnostics");
-        else
-            (void)printf("    %-72.72s\n", "BaseOS Diagnostics");
-    }
+    printf("----------------------------------------\n");
+    printf("%s ", selected_item == entry_count ? "\033[1;32m>" : " ");
+    baseos_ui_print_line(
+        return_to_diagnostics ? T("Return to diagnostics", "返回诊断页面")
+                              : T("BaseOS Diagnostics", "BaseOS 诊断页面"), 34);
+    if (selected_item == entry_count) printf("\033[0m");
+    printf("%s ", selected_item == entry_count + 1 ? "\033[1;32m>" : " ");
+    baseos_ui_print_line(baseos_ui_language_label(), 34);
+    if (selected_item == entry_count + 1) printf("\033[0m");
 
     if (selected_item >= 0 && selected_item < entry_count) {
-        (void)printf("\n  Selected ID: %s\n", entries[selected_item].id);
-        (void)printf("  A: launch once    START: set default + launch\n");
-        (void)printf("  SELECT / E: %s frontend (same control for every frontend type)\n",
-                     entries[selected_item].disabled ? "ENABLE" : "DISABLE");
-        if (strcmp(entries[selected_item].kind, "compat") == 0) {
-            (void)printf("  X: DELETE original frontend program directory\n");
-        } else if (strcmp(entries[selected_item].kind, "legacy-adapter") == 0) {
-            if (entry_is_frontend_bundle(&entries[selected_item]))
-                (void)printf("  X: DELETE complete frontend directory (.system/, Tools/ included)\n");
-            else
-                (void)printf("  X: DELETE adapter directory only (no bundle root found)\n");
-        } else {
-            (void)printf("  Y: remove selected profile\n");
-            (void)printf("  X: uninstall entire frontend package\n");
-        }
-    } else if (show_diagnostics_entry && selected_item == entry_count) {
-        (void)printf("\n  Selected action: BaseOS Diagnostics\n");
-        (void)printf("  A / START: open diagnostics; choose Return to frontend selector to come back\n");
+        printf("%s ", T("A: launch", "A：启动"));
+        printf(" %s\n", T("START: set default", "START：设为默认"));
+        printf("%s ", T("SELECT: enable/disable", "SELECT：启用/禁用"));
+        printf(" %s\n", T("X: uninstall", "X：卸载"));
+        if (strcmp(entries[selected_item].kind, "managed") == 0)
+            baseos_ui_print_line(T("Y: remove profile", "Y：删除配置"), 38);
+    } else if (selected_item == entry_count) {
+        baseos_ui_print_line(
+            return_to_diagnostics ? T("A: return to diagnostics", "A：返回诊断页面")
+                                  : T("A: open diagnostics", "A：打开诊断页面"), 38);
+    } else if (selected_item == entry_count + 1) {
+        baseos_ui_print_line(T("A: switch interface language", "A：切换界面语言"), 38);
     }
-    (void)printf("  B: return to the previous page / configured default frontend\n");
-    if (entry_count > 10)
-        (void)printf("  Showing %d-%d of %d frontend profiles\n", scroll_offset + 1,
-                     scroll_offset + 10 < entry_count ? scroll_offset + 10 : entry_count,
-                     entry_count);
-    (void)printf("\n  %s\n", status_line);
-    (void)printf("  D-pad UP/DOWN to move.\n");
+
+    printf("%s: ", T("Status", "状态"));
+    baseos_ui_print_line(status_line, 31);
+    baseos_ui_print_line(T("UP/DOWN: move    B: back", "上下：移动    B：返回"), 38);
     fflush(stdout);
+}
+
+static void close_inputs(void)
+{
+    for (int i = 0; i < input_count; ++i) {
+        if (inputs[i].fd >= 0) (void)close(inputs[i].fd);
+        inputs[i].fd = -1;
+    }
+    input_count = 0;
 }
 
 static void open_diagnostics(void)
@@ -433,8 +413,12 @@ static void open_diagnostics(void)
     pid_t child;
     int status = 0;
 
+    /* The waiting selector must not accumulate gamepad events while the
+     * diagnostics child owns the controller. */
+    close_inputs();
     child = fork();
     if (child < 0) {
+        discover_inputs();
         (void)snprintf(status_line, sizeof(status_line), "Could not start diagnostics.");
         render();
         return;
@@ -447,6 +431,7 @@ static void open_diagnostics(void)
     }
     while (waitpid(child, &status, 0) < 0) {
         if (errno != EINTR) {
+            discover_inputs();
             (void)snprintf(status_line, sizeof(status_line), "Diagnostics wait failed.");
             render();
             return;
@@ -456,6 +441,7 @@ static void open_diagnostics(void)
         running = 0;
         return;
     }
+    discover_inputs();
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
         (void)snprintf(status_line, sizeof(status_line), "Diagnostics returned with an error.");
     else
@@ -467,8 +453,24 @@ static void open_diagnostics(void)
 
 static void choose_launch(int set_default)
 {
-    if (show_diagnostics_entry && selected_item == entry_count) {
-        open_diagnostics();
+    if (selected_item == entry_count) {
+        if (return_to_diagnostics) {
+            /* Return to the diagnostic menu that opened this nested selector. */
+            running = 0;
+        } else {
+            open_diagnostics();
+        }
+        return;
+    }
+    if (selected_item == entry_count + 1) {
+        if (baseos_ui_toggle_language() == 0) {
+            (void)snprintf(status_line, sizeof(status_line), "%s",
+                T("Language changed.", "界面语言已切换。"));
+        } else {
+            (void)snprintf(status_line, sizeof(status_line), "%s",
+                T("Could not save ui_language.", "无法保存语言设置。"));
+        }
+        render();
         return;
     }
     if (entry_count <= 0 || selected_item < 0 || selected_item >= entry_count) return;
@@ -681,8 +683,11 @@ int main(void)
     (void)signal(SIGTERM, stop_running);
     (void)signal(SIGHUP, stop_running);
     (void)unlink(SELECTION_PATH);
-    show_diagnostics_entry = !(getenv("BASEOS_SELECTOR_RETURN_TO_DIAGNOSTICS") != NULL &&
-                               strcmp(getenv("BASEOS_SELECTOR_RETURN_TO_DIAGNOSTICS"), "1") == 0);
+    return_to_diagnostics = getenv("BASEOS_SELECTOR_RETURN_TO_DIAGNOSTICS") != NULL &&
+                            strcmp(getenv("BASEOS_SELECTOR_RETURN_TO_DIAGNOSTICS"), "1") == 0;
+    baseos_ui_init();
+    (void)snprintf(status_line, sizeof(status_line), "%s",
+                   T("Choose a frontend profile.", "请选择一个前端配置。"));
     load_current_default();
     (void)load_catalog();
     discover_inputs();

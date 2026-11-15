@@ -39,7 +39,13 @@ assert "static int return_to_diagnostics;" in selector
 assert "if (return_to_diagnostics)" in selector, "nested selector must return to its diagnostics parent"
 assert "show_diagnostics_entry" not in selector, "diagnostics row must not disappear in nested selector"
 assert "case 7:" in control and "baseos_ui_toggle_language()" in control
-assert "case 8:" in control, "nested diagnostics must retain the explicit return action"
+assert "#define MENU_COUNT 8" in control, "diagnostics must not render the duplicate bottom return row"
+assert "case 8:" not in control, "duplicate return-to-selector menu action must be removed"
+assert '"Return to frontend selector"' not in control and '"返回前端选择器"' not in control
+assert "return return_to_selector ? MENU_COUNT : MENU_COUNT - 1;" not in control
+assert 'case 5:\n        /* When nested under the selector' in control
+assert 'if (return_to_selector) {\n            running = 0;\n            return;\n        }\n        open_frontend_selector();' in control, "nested diagnostics must resume the existing selector"
+assert "open_frontend_selector();" in control, "standalone diagnostics must retain frontend selector access"
 assert "baseos_ui_toggle_language()" in selector, "selector language row must be interactive"
 assert "baseos_ui_load_language();" in control, "diagnostic parent does not reload language changed by nested selector"
 assert "baseos_ui_load_language();" in selector, "selector parent does not reload language changed by diagnostics"

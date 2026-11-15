@@ -53,7 +53,7 @@ static struct termios saved_termios;
 static int termios_saved;
 static int return_to_selector;
 
-#define MENU_COUNT 9
+#define MENU_COUNT 8
 
 static const char *menu_item_label(int index)
 {
@@ -66,16 +66,13 @@ static const char *menu_item_label(int index)
     case 5: return T("Frontend selector", "前端选择器");
     case 6: return T("USB mass-storage mode", "USB 大容量存储");
     case 7: return baseos_ui_language_label();
-    case 8: return T("Return to frontend selector", "返回前端选择器");
     default: return "";
     }
 }
 
 static int visible_menu_count(void)
 {
-    /* Language is always visible; the return action exists only when launched
-     * as a child of the frontend selector. */
-    return return_to_selector ? MENU_COUNT : MENU_COUNT - 1;
+    return MENU_COUNT;
 }
 
 static void stop_running(int sig)
@@ -493,6 +490,12 @@ static void select_menu_item(void)
     case 3: current_screen = SCREEN_SYSTEM; break;
     case 4: current_screen = SCREEN_HELP; break;
     case 5:
+        /* When nested under the selector, close diagnostics to resume that
+         * existing selector instead of launching a second selector instance. */
+        if (return_to_selector) {
+            running = 0;
+            return;
+        }
         open_frontend_selector();
         return;
     case 6:

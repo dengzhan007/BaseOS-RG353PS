@@ -76,6 +76,10 @@ grep -Fq "psfgettable" "$BUILDER" ||
   fail "generated font Unicode map is not round-trip verified"
 grep -Fq "ASCII @ does not map to its own glyph slot" "$BUILDER" ||
   fail "font validation does not verify ASCII glyph indices"
+grep -Fq "GLYPH_COUNT = 256" "$ROOT/tools/mkconsolefont.py" ||
+  fail "console font must remain in 256-glyph mode" ||
+
+  fail "font validation does not verify ASCII glyph indices"
 grep -Fq 'L1/R1: shoulder buttons' "$CONTROL" ||
   fail "button help page does not explain L1/R1 shoulder buttons"
 grep -Fq 'L1/R1：左/右肩键' "$CONTROL" ||

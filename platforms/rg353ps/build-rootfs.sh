@@ -196,7 +196,7 @@ assert len(data) >= 32, "PSF2 header is truncated"
 magic, version, header_size, flags, glyphs, char_size, height, width = struct.unpack("<8I", data[:32])
 assert magic == 0x864AB572 and version == 0, "invalid PSF2 signature/version"
 assert header_size >= 32 and flags & 1, "PSF2 Unicode table is missing"
-assert (width, height, glyphs) == (18, 20, 512), "unexpected console font geometry"
+assert (width, height, glyphs) == (18, 20, 256), "unexpected console font geometry"
 assert char_size == height * ((width + 7) // 8), "invalid PSF2 glyph stride"
 assert len(data) > header_size + glyphs * char_size, "PSF2 Unicode table is empty"
 

@@ -22,6 +22,7 @@
 #define MAX_INPUTS 64
 #define PATH_LEN 256
 #define NAME_LEN 128
+#define FRONTEND_SELECTOR_REQUEST "/run/baseos-frontend-select.request"
 
 enum input_role { ROLE_OTHER = 0, ROLE_GAME, ROLE_FUNCTION, ROLE_STICK, ROLE_VOLUME, ROLE_POWER };
 enum screen_id { SCREEN_HOME = 0, SCREEN_CONTROLS, SCREEN_AUDIO, SCREEN_WIFI, SCREEN_SYSTEM, SCREEN_HELP };
@@ -53,6 +54,7 @@ static const char *menu_items[] = {
     "Wi-Fi status",
     "System and power information",
     "Control mapping help",
+    "Frontend selector",
     "USB mass-storage mode (connect data cable)"
 };
 #define MENU_COUNT ((int)(sizeof(menu_items) / sizeof(menu_items[0])))
@@ -299,6 +301,7 @@ static void render_help(void)
     printf("  Power button      Short press opens system information\n");
     printf("  FUNCTION          Toggle the live controller monitor\n");
     printf("\n  This step verifies physical-to-kernel input mapping and screen response.\n");
+    printf("  Frontend selector: select it from this menu to launch another frontend or return to diagnostics.\n");
     printf("  USB storage: select the last item, or hold FUNCTION and plug in the data cable.\n");
     printf("  Emulation hotkeys, ROM browsing and game launching are not implemented.\n");
     printf("\n  B (bottom / BTN_SOUTH) returns to menu.\n");
@@ -337,6 +340,19 @@ static void select_menu_item(void)
     case 3: current_screen = SCREEN_SYSTEM; break;
     case 4: current_screen = SCREEN_HELP; break;
     case 5: {
+        int fd = open(FRONTEND_SELECTOR_REQUEST, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        if (fd >= 0) {
+            (void)write(fd, "1\n", 2);
+            (void)close(fd);
+            (void)snprintf(last_event, sizeof(last_event), "Opening frontend selector");
+            render();
+        } else {
+            (void)snprintf(last_event, sizeof(last_event), "Could not request the frontend selector");
+            render();
+        }
+        return;
+    }
+    case 6: {
         pid_t child = fork();
         if (child == 0) {
             execl("/usr/sbin/baseos-usb-storage", "baseos-usb-storage", (char *)NULL);

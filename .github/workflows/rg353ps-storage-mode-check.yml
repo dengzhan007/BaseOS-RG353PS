@@ -101,6 +101,8 @@ jobs:
           sh tests/test-frontend-paths.sh
           sh tests/test-rg353ps-diagnostic-usb.sh
           sh tests/test-rg353ps-update-splash.sh
+          sh tests/test-rg353ps-ui-navigation.sh
+          python3 -m py_compile tools/mkconsolefont.py
           gcc -std=c11 -O2 -Wall -Wextra -Werror -Isrc -fsyntax-only platforms/rg353ps/src/rg353ps-control-center.c
           gcc -std=c11 -O2 -Wall -Wextra -Werror -Isrc -fsyntax-only platforms/rg353ps/src/rg353ps-frontend-selector.c
           sh -n platforms/rg353ps/build-rootfs.sh

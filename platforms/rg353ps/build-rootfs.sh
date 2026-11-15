@@ -231,6 +231,8 @@ assert any(glyph(64)), "ASCII @ bitmap is empty"
 assert any(glyph(65)), "ASCII A bitmap is empty"
 assert glyph(64) != glyph(65), "ASCII @ and A bitmaps collapsed to the same glyph"
 assert mapping[0x0020] != mapping[0x0040] != mapping[0x0041]
+assert any(glyph(mapping[0x4E2D])), "Chinese glyph U+4E2D bitmap is empty"
+assert any(glyph(mapping[0x6587])), "Chinese glyph U+6587 bitmap is empty"
 print(f"Verified PSF2 {width}x{height}, {glyphs} glyphs, {len(mapping)} Unicode mappings")
 PY_FONT_VALIDATE
     rm -f "$RAW_FONT" "$FONT_TABLE" "$FONT_TABLE_CHECK"

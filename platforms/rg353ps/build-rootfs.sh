@@ -170,10 +170,11 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     }
     mkdir -p "$R/usr/share/licenses/baseos-cjk-console-font"
     cat > "$R/usr/share/licenses/baseos-cjk-console-font/NOTICE" <<'EOF_FONT_NOTICE'
-This 16x16 PSF2 console-font subset is rasterized from WenQuanYi Zen Hei.
-Upstream font: https://github.com/anthonyfok/fonts-wqy-zenhei
+WenQuanYi Zen Hei CJK console-font subset
+Copyright (C) 2007-2009 Qianqian Fang and the WenQuanYi Project Board of Trustees.
+Source: https://github.com/anthonyfok/fonts-wqy-zenhei
 License: GNU General Public License, version 2 (GPL-2.0).
-Only the glyph subset required by the BaseOS console menus is included.
+Only the 16x16 PSF2 glyph subset required by BaseOS console menus is included.
 EOF_FONT_NOTICE
     gcc -std=c11 -O2 -Wall -Wextra -Werror -static -I/baseos-src \
       -o "$R/usr/sbin/rg353ps-control-center" /src/rg353ps-control-center.c

@@ -501,6 +501,29 @@ for normal operation. A program that explicitly opens and writes to
 for its own display output. Kernel console routing is separate and remains on
 the serial console as configured by the boot image.
 
+## Diagnostic and frontend-selector navigation
+
+The diagnostic menu and frontend selector share one persistent
+`ui_language=` setting in `/mnt/SDCARD/baseos.conf`. New installations
+default to Simplified Chinese; select the language row and press A to switch
+between Chinese and English. The choice is kept on the user-data card across
+reboots and updates.
+
+The RG353PS console UI uses a generated 16×16 PSF2 font. The build takes only
+the glyphs used by these two menus from WenQuanYi Zen Hei and packages the
+small bitmap subset, not the full outline font. It also installs the Linux
+`setfont` utility needed to load the font on tty1. The WenQuanYi-derived
+subset is distributed under GPL-2.0; see the font notice installed at
+`/usr/share/licenses/baseos-cjk-console-font/NOTICE`.
+
+When one console UI opens the other, the parent closes its evdev descriptors
+before waiting for its child, then reopens input devices after the child
+returns. This ensures only the visible page consumes gamepad events and stops
+queued button presses from triggering another menu action after navigation.
+The selector always retains a bottom navigation row: it opens BaseOS
+Diagnostics on a normal entry, or returns to the diagnostic page when it was
+opened from that page.
+
 Legacy adapters receive private directories under
 `<frontend-root>/.baseos/data` and `<frontend-root>/.baseos/userdata`.
 Managed package profiles receive independent directories under

@@ -40,9 +40,9 @@ baseos_frontend_load_package() {
   case "$bfl_package_id:$bfl_profile_id" in *--*) return 1 ;; esac
   [ "${#bfl_package_id}" -le 22 ] || return 1
   [ "${#bfl_profile_id}" -le 22 ] || return 1
-  [ -f "$bfl_dir/baseos-frontend.conf" ] || return 1
-  [ -f "$bfl_dir/launch.sh" ] || return 1
-  [ -f "$bfl_profile" ] || return 1
+  [ -f "$bfl_dir/baseos-frontend.conf" ] && [ ! -L "$bfl_dir/baseos-frontend.conf" ] || return 1
+  [ -f "$bfl_dir/launch.sh" ] && [ ! -L "$bfl_dir/launch.sh" ] || return 1
+  [ -f "$bfl_profile" ] && [ ! -L "$bfl_profile" ] || return 1
 
   bfl_manifest=$bfl_dir/baseos-frontend.conf
   baseos_frontend_read_value "$bfl_manifest" package_api ""
@@ -75,6 +75,38 @@ baseos_frontend_load_package() {
 
   bfl_id=$bfl_package_id--$bfl_profile_id
   baseos_frontend_valid_id "$bfl_id" || return 1
+
+  BASEOS_PACKAGE_KIND=managed
+  BASEOS_COMPAT_SOURCE=
+  BASEOS_COMPAT_ENTRYPOINT=
+  BASEOS_COMPAT_PROGRAM_DIR=
+  baseos_frontend_read_value "$bfl_manifest" compat_api ""
+  if [ "$BASEOS_VALUE" = 1 ]; then
+    baseos_frontend_read_value "$bfl_manifest" compat_source ""
+    bfl_compat_source=$BASEOS_VALUE
+    case "$bfl_compat_source" in ''|.|..|*/*|*'|'*) return 1 ;; esac
+    [ -d "$bfl_root/Frontends/$bfl_compat_source" ] &&
+      [ ! -L "$bfl_root/Frontends/$bfl_compat_source" ] || return 1
+    BASEOS_PACKAGE_KIND=compat
+    BASEOS_COMPAT_SOURCE=$bfl_compat_source
+    BASEOS_COMPAT_PROGRAM_DIR=$bfl_root/Frontends/$bfl_compat_source
+    BASEOS_PACKAGE_DIR=$BASEOS_COMPAT_PROGRAM_DIR
+    baseos_frontend_read_value "$bfl_manifest" compat_entrypoint ""
+    BASEOS_COMPAT_ENTRYPOINT=$BASEOS_VALUE
+    case "$BASEOS_COMPAT_ENTRYPOINT" in
+      launch.sh|start.sh|run.sh|frontend.sh|.tmp_update/updater|.tmp_update/launch.sh|frontend.elf|*.elf) ;;
+      *) return 1 ;;
+    esac
+    case "$BASEOS_COMPAT_ENTRYPOINT" in
+      */*) [ "$BASEOS_COMPAT_ENTRYPOINT" = .tmp_update/updater ] ||
+           [ "$BASEOS_COMPAT_ENTRYPOINT" = .tmp_update/launch.sh ] || return 1 ;;
+    esac
+    [ -f "$BASEOS_COMPAT_PROGRAM_DIR/$BASEOS_COMPAT_ENTRYPOINT" ] &&
+      [ ! -L "$BASEOS_COMPAT_PROGRAM_DIR/$BASEOS_COMPAT_ENTRYPOINT" ] || return 1
+  else
+    BASEOS_PACKAGE_DIR=$bfl_dir
+  fi
+
   BASEOS_ADAPTER_API=1
   BASEOS_ADAPTER_PRIORITY=$bfl_priority
   BASEOS_ADAPTER_VOLUME_OWNER=$bfl_volume_owner
@@ -85,7 +117,6 @@ baseos_frontend_load_package() {
   BASEOS_PACKAGE_ID=$bfl_package_id
   BASEOS_PROFILE_ID=$bfl_profile_id
   BASEOS_PROFILE_CONFIG=$bfl_profile
-  BASEOS_PACKAGE_DIR=$bfl_dir
   if [ "$bfl_package_name" = "$bfl_profile_name" ]; then
     BASEOS_FRONTEND_NAME=$bfl_package_name
   else
@@ -132,6 +163,10 @@ baseos_frontend_load_manifest() {
   BASEOS_PROFILE_ID=
   BASEOS_PROFILE_CONFIG=
   BASEOS_PACKAGE_DIR=
+  BASEOS_PACKAGE_KIND=legacy
+  BASEOS_COMPAT_SOURCE=
+  BASEOS_COMPAT_ENTRYPOINT=
+  BASEOS_COMPAT_PROGRAM_DIR=
   BASEOS_FRONTEND_NAME=$bfa_id
   return 0
 }
@@ -151,6 +186,10 @@ baseos_frontend_record_candidate() {
     BASEOS_SCAN_PROFILE_ID=${BASEOS_PROFILE_ID:-}
     BASEOS_SCAN_PROFILE_CONFIG=${BASEOS_PROFILE_CONFIG:-}
     BASEOS_SCAN_PACKAGE_DIR=${BASEOS_PACKAGE_DIR:-}
+    BASEOS_SCAN_PACKAGE_KIND=${BASEOS_PACKAGE_KIND:-managed}
+    BASEOS_SCAN_COMPAT_SOURCE=${BASEOS_COMPAT_SOURCE:-}
+    BASEOS_SCAN_COMPAT_PROGRAM_DIR=${BASEOS_COMPAT_PROGRAM_DIR:-}
+    BASEOS_SCAN_COMPAT_ENTRYPOINT=${BASEOS_COMPAT_ENTRYPOINT:-}
     BASEOS_SCAN_NAME=${BASEOS_FRONTEND_NAME:-$bfr_id}
   fi
 }
@@ -158,7 +197,26 @@ baseos_frontend_record_candidate() {
 baseos_frontend_consider_package() {
   bcp_root=$1 bcp_dir=$2 bcp_profile=$3 bcp_preference=$4
   baseos_frontend_load_package "$bcp_root" "$bcp_dir" "$bcp_profile" || return 0
-  if [ "$bcp_preference" != auto ] && [ "$BASEOS_ADAPTER_ID" != "$bcp_preference" ]; then
+  # Explicitly disabled managed profiles stay in the selector catalog but are
+  # omitted from automatic and pinned boot discovery.
+  if [ "${BASEOS_PACKAGE_KIND:-managed}" != compat ] &&
+     [ -e "$bcp_root/.baseos/frontend-disabled/$BASEOS_ADAPTER_ID" ]; then
+    return 0
+  fi
+  # Keep disabled auto-compat packages catalogued, but never launch them.
+  if [ "${BASEOS_PACKAGE_KIND:-managed}" = compat ] &&
+     [ -e "$bcp_root/.baseos/compat-disabled/$BASEOS_PACKAGE_ID" ]; then
+    return 0
+  fi
+  if [ "$bcp_preference" = "$BASEOS_PACKAGE_ID" ] &&
+     [ "${BASEOS_PACKAGE_KIND:-managed}" = compat ]; then
+    # Keep an existing simple frontend_id working after a plain folder is
+    # automatically wrapped. An explicit legacy adapter with the same ID wins.
+    if [ -f "$bcp_root/.baseos/frontends/$BASEOS_PACKAGE_ID/launch.sh" ] ||
+       [ -f "$bcp_root/baseos/frontends/$BASEOS_PACKAGE_ID/launch.sh" ]; then
+      return 0
+    fi
+  elif [ "$bcp_preference" != auto ] && [ "$BASEOS_ADAPTER_ID" != "$bcp_preference" ]; then
     # A package may declare one previous package ID when its folder/identity
     # is renamed. Preserve the selected profile across that one-time migration.
     case "$bcp_preference" in *--*) bcp_old_package=${bcp_preference%%--*}; bcp_old_profile=${bcp_preference#*--} ;; *) return 0 ;; esac
@@ -179,22 +237,26 @@ baseos_frontend_consider_package() {
   elif [ "$bcp_preference" != auto ]; then
     [ "$BASEOS_ADAPTER_ID" = "$bcp_preference" ] || return 0
   fi
-  baseos_frontend_record_candidate "$BASEOS_ADAPTER_ID" "$bcp_root" "$BASEOS_ADAPTER_DIR" "$BASEOS_ADAPTER_LAUNCHER" package
+  bcp_kind=package
+  [ "${BASEOS_PACKAGE_KIND:-managed}" = compat ] && bcp_kind=compat-package
+  baseos_frontend_record_candidate "$BASEOS_ADAPTER_ID" "$bcp_root" "$BASEOS_ADAPTER_DIR" "$BASEOS_ADAPTER_LAUNCHER" "$bcp_kind"
 }
 
 baseos_frontend_consider_adapter() {
   bfc_dir=$1 bfc_root=$2 bfc_preference=$3
+  bfc_id=${bfc_dir##*/}
+  # Keep runtime discovery consistent with the selector's disable operation.
+  [ ! -e "$bfc_root/.baseos/frontends-disabled/$bfc_id" ] || return 0
   baseos_frontend_load_manifest "$bfc_dir" || return 0
   [ "$bfc_preference" = auto ] || [ "$BASEOS_ADAPTER_ID" = "$bfc_preference" ] || return 0
   baseos_frontend_record_candidate "$BASEOS_ADAPTER_ID" "$bfc_root" "$BASEOS_ADAPTER_DIR" "$BASEOS_ADAPTER_LAUNCHER" legacy
 }
 
-baseos_frontend_scan_packages() {
-  bsp_root=$1 bsp_preference=$2
-  bsp_parent=$bsp_root/Frontends
+baseos_frontend_scan_package_parent() {
+  bsp_root=$1 bsp_parent=$2 bsp_preference=$3
   [ -d "$bsp_parent" ] || return 0
   for bsp_dir in "$bsp_parent"/*; do
-    [ -d "$bsp_dir" ] || continue
+    [ -d "$bsp_dir" ] && [ ! -L "$bsp_dir" ] || continue
     [ -f "$bsp_dir/baseos-frontend.conf" ] || continue
     [ -d "$bsp_dir/profiles" ] || continue
     for bsp_profile in "$bsp_dir"/profiles/*.conf; do
@@ -202,6 +264,12 @@ baseos_frontend_scan_packages() {
       baseos_frontend_consider_package "$bsp_root" "$bsp_dir" "$bsp_profile" "$bsp_preference"
     done
   done
+}
+
+baseos_frontend_scan_packages() {
+  bsp_root=$1 bsp_preference=$2
+  baseos_frontend_scan_package_parent "$bsp_root" "$bsp_root/Frontends" "$bsp_preference"
+  baseos_frontend_scan_package_parent "$bsp_root" "$bsp_root/.baseos/compat" "$bsp_preference"
 }
 
 baseos_frontend_scan_container() {
@@ -225,10 +293,19 @@ baseos_frontend_scan_root() {
   BASEOS_SCAN_VOLUME_OWNER=system BASEOS_SCAN_POWER_OWNER=system
   BASEOS_SCAN_KIND=legacy BASEOS_SCAN_PACKAGE_ID= BASEOS_SCAN_PROFILE_ID=
   BASEOS_SCAN_PROFILE_CONFIG= BASEOS_SCAN_PACKAGE_DIR= BASEOS_SCAN_NAME=
+  BASEOS_SCAN_PACKAGE_KIND=managed BASEOS_SCAN_COMPAT_SOURCE=
+  BASEOS_SCAN_COMPAT_PROGRAM_DIR= BASEOS_SCAN_COMPAT_ENTRYPOINT=
   baseos_frontend_scan_container "$bfs_root" "$bfs_preference"
   for bfs_nested in "$bfs_root"/*; do
-    [ -d "$bfs_nested" ] || continue
+    [ -d "$bfs_nested" ] && [ ! -L "$bfs_nested" ] || continue
     baseos_frontend_scan_container "$bfs_nested" "$bfs_preference"
+  done
+  # Historical frontend archives are often installed as a self-contained
+  # directory under Frontends/<name>/. Their adapter lives one level deeper
+  # than the older root/wrapper layouts, beside .system/ and Tools/.
+  for bfs_frontend in "$bfs_root"/Frontends/*; do
+    [ -d "$bfs_frontend" ] && [ ! -L "$bfs_frontend" ] || continue
+    baseos_frontend_scan_container "$bfs_frontend" "$bfs_preference"
   done
   [ -n "$BASEOS_SCAN_ID" ]
 }
@@ -238,10 +315,10 @@ baseos_frontend_tree_changed_since() {
   bft_root=$1
   bft_cache=$2
   [ -f "$bft_cache" ] || return 0
-  for bft_container in "$bft_root" "$bft_root"/*; do
+  for bft_container in "$bft_root" "$bft_root"/* "$bft_root"/Frontends/*; do
     [ -d "$bft_container" ] || continue
-    bft_packages=$bft_container/Frontends
-    if [ -d "$bft_packages" ]; then
+    for bft_packages in "$bft_container/Frontends" "$bft_container/.baseos/compat"; do
+      [ -d "$bft_packages" ] || continue
       [ "$bft_packages" -nt "$bft_cache" ] && return 0
       for bft_package in "$bft_packages"/*; do
         [ -d "$bft_package" ] || continue
@@ -249,8 +326,18 @@ baseos_frontend_tree_changed_since() {
         for bft_file in "$bft_package/baseos-frontend.conf" "$bft_package/launch.sh" "$bft_package/profiles" "$bft_package"/profiles/*.conf; do
           [ -e "$bft_file" ] && [ "$bft_file" -nt "$bft_cache" ] && return 0
         done
+        if [ -f "$bft_package/baseos-frontend.conf" ]; then
+          baseos_frontend_read_value "$bft_package/baseos-frontend.conf" compat_source ""
+          bft_compat_source=$BASEOS_VALUE
+          baseos_frontend_read_value "$bft_package/baseos-frontend.conf" compat_entrypoint ""
+          bft_compat_entrypoint=$BASEOS_VALUE
+          if [ -n "$bft_compat_source" ] && [ -n "$bft_compat_entrypoint" ]; then
+            bft_source_file="$bft_container/Frontends/$bft_compat_source/$bft_compat_entrypoint"
+            [ -e "$bft_source_file" ] && [ "$bft_source_file" -nt "$bft_cache" ] && return 0
+          fi
+        fi
       done
-    fi
+    done
     for bft_parent in "$bft_container/.baseos/frontends" "$bft_container/baseos/frontends"; do
       [ -d "$bft_parent" ] || continue
       [ "$bft_parent" -nt "$bft_cache" ] && return 0
@@ -260,6 +347,14 @@ baseos_frontend_tree_changed_since() {
         [ -f "$bft_adapter/launch.sh" ] && [ "$bft_adapter/launch.sh" -nt "$bft_cache" ] && return 0
         [ -f "$bft_adapter/manifest.conf" ] && [ "$bft_adapter/manifest.conf" -nt "$bft_cache" ] && return 0
       done
+    done
+    for bft_disabled in "$bft_container/.baseos/frontends-disabled" "$bft_container/.baseos/frontend-disabled" "$bft_container/.baseos/compat-disabled"; do
+      if [ -d "$bft_disabled" ]; then
+        [ "$bft_disabled" -nt "$bft_cache" ] && return 0
+        for bft_marker in "$bft_disabled"/*; do
+          [ -e "$bft_marker" ] && [ "$bft_marker" -nt "$bft_cache" ] && return 0
+        done
+      fi
     done
   done
   return 1

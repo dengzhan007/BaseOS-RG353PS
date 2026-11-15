@@ -18,10 +18,15 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+#include <rg353ps-ui.h>
+
+#define T(en, zh) baseos_ui_text((en), (zh))
 
 #define MAX_INPUTS 64
 #define PATH_LEN 256
 #define NAME_LEN 128
+#define USB_REQUEST_PATH "/run/baseos-usb-storage.request"
+#define USB_PAUSED_PATH "/run/baseos-frontend-paused"
 
 enum input_role { ROLE_OTHER = 0, ROLE_GAME, ROLE_FUNCTION, ROLE_STICK, ROLE_VOLUME, ROLE_POWER };
 enum screen_id { SCREEN_HOME = 0, SCREEN_CONTROLS, SCREEN_AUDIO, SCREEN_WIFI, SCREEN_SYSTEM, SCREEN_HELP };
@@ -46,16 +51,29 @@ static int joy_y_direction;
 static char last_event[160] = "Waiting for controller input...";
 static struct termios saved_termios;
 static int termios_saved;
+static int return_to_selector;
 
-static const char *menu_items[] = {
-    "Controller / live input monitor",
-    "Audio device inventory",
-    "Wi-Fi status",
-    "System and power information",
-    "Control mapping help",
-    "USB mass-storage mode (connect data cable)"
-};
-#define MENU_COUNT ((int)(sizeof(menu_items) / sizeof(menu_items[0])))
+#define MENU_COUNT 8
+
+static const char *menu_item_label(int index)
+{
+    switch (index) {
+    case 0: return T("Controller input test", "手柄输入测试");
+    case 1: return T("Audio devices", "音频设备信息");
+    case 2: return T("Wi-Fi status", "Wi-Fi 状态");
+    case 3: return T("System and power", "系统与电源信息");
+    case 4: return T("Button mapping help", "按键说明");
+    case 5: return T("Frontend selector", "前端选择器");
+    case 6: return T("USB mass-storage mode", "USB 大容量存储");
+    case 7: return baseos_ui_language_label();
+    default: return "";
+    }
+}
+
+static int visible_menu_count(void)
+{
+    return MENU_COUNT;
+}
 
 static void stop_running(int sig)
 {
@@ -159,20 +177,20 @@ static int read_value(const char *path, char *dst, size_t dst_len)
 
 static void print_file(const char *path, int max_lines, int *row)
 {
-    FILE *fp;
+    FILE *fp = fopen(path, "r");
     char line[160];
     int count = 0;
-    fp = fopen(path, "r");
     if (fp == NULL) {
-        printf("\033[%d;3H  %s: unavailable\n", *row, path);
+        printf("  %s: %s\n", path, T("unavailable", "不可用"));
         ++(*row);
         return;
     }
-    while (count < max_lines && *row < 27 && fgets(line, sizeof(line), fp) != NULL) {
+    while (count < max_lines && *row < 25 && fgets(line, sizeof(line), fp) != NULL) {
         size_t len = strlen(line);
         while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
             line[--len] = '\0';
-        printf("\033[%d;3H  %-74.74s\n", *row, line);
+        printf("  ");
+        baseos_ui_print_line(line, 34);
         ++(*row);
         ++count;
     }
@@ -181,127 +199,131 @@ static void print_file(const char *path, int max_lines, int *row)
 
 static void render_header(const char *title)
 {
-    printf("\033[2J\033[H\033[?25l");
-    printf("\033[1;36m+------------------------------------------------------------------------------+\033[0m\n");
-    printf("\033[1;36m| %-76.76s |\033[0m\n", title);
-    printf("\033[1;36m+------------------------------------------------------------------------------+\033[0m\n");
+    printf("\033%%G\033[2J\033[H\033[?25l");
+    printf("\033[1;36m==================================\033[0m\n");
+    printf("\033[1;36m");
+    baseos_ui_print_line(title, 34);
+    printf("\033[0m----------------------------------\n");
+}
+
+static void print_last_input(void)
+{
+    printf("  %s", T("Last:", "最近按键："));
+    baseos_ui_print_line(last_event, 27);
 }
 
 static void render_home(void)
 {
     char operstate[64], battery[64];
-    render_header("BaseOS RG353PS  |  Interactive hardware bring-up");
+    render_header(T("BaseOS RG353PS / Diagnostics", "BaseOS RG353PS / 系统诊断"));
     (void)read_value("/sys/class/net/wlan0/operstate", operstate, sizeof(operstate));
     (void)read_value("/sys/class/power_supply/battery/capacity", battery, sizeof(battery));
 
-    printf("\n  This is a controller-responsive diagnostic menu, not the final game UI.\n\n");
-    printf("  D-pad UP/DOWN or left stick selects; A (right / BTN_EAST) opens.\n");
-    printf("  B (bottom / BTN_SOUTH) returns. FUNCTION toggles the live input monitor.\n\n");
-    printf("  \033[1;33mMENU\033[0m\n");
-    for (int i = 0; i < MENU_COUNT; ++i) {
-        if (i == selected_item) printf("  \033[1;32m > %-70.70s\033[0m\n", menu_items[i]);
-        else printf("    %-70.70s\n", menu_items[i]);
+    baseos_ui_print_line(T("D-pad to move, A to open, B to back.",
+                          "方向键移动，A 确认，B 返回。"), 34);
+    baseos_ui_print_line(T("FUNCTION toggles live input monitor.",
+                          "功能键切换实时输入监视。"), 34);
+    printf("\n");
+    for (int i = 0; i < visible_menu_count(); ++i) {
+        printf("%s ", i == selected_item ? "\033[1;32m>" : " ");
+        baseos_ui_print_line(menu_item_label(i), 32);
+        if (i == selected_item) printf("\033[0m");
     }
-    printf("\n  Input devices: %d     Button events: %d     Function presses: %d\n",
-           input_count, key_count, function_count);
-    printf("  Wi-Fi: %-12.12s     Battery: %-5.5s%%\n", operstate, battery);
-    printf("  Last input: %-68.68s\n", last_event);
-    printf("  Volume +/- keys adjust RK817 playback level.\n");
-    printf("  Short Power press shows system information.\n");
-    printf("  Hold Power for 2 seconds to shut down cleanly.\n");
-    printf("  USB storage: select the last item, then connect the PC data cable.\n");
+    printf("----------------------------------\n");
+    printf("Wi-Fi: ");
+    baseos_ui_print_cells(operstate, 10);
+    printf("  %s: ", T("Battery", "电量"));
+    baseos_ui_print_line(battery, 5);
+    printf("%s:%d  %s:%d\n", T("Keys", "按键"), key_count,
+           T("Function", "功能键"), function_count);
+    print_last_input();
 }
 
 static void render_controls(void)
 {
-    render_header("Controller monitor  |  live evdev input");
-    printf("\n  DEVICE MAPPING\n");
-    printf("    Game controls : gpio-keys-control\n");
-    printf("    Function key  : adc-keys\n");
-    printf("    Analog sticks : adc-joystick\n");
-    printf("\n  BUTTONS (raw Linux input event names)\n");
-    printf("    D-pad: BTN_DPAD_UP / DOWN / LEFT / RIGHT\n");
-    printf("    Nintendo layout: A=right (BTN_EAST), B=bottom (BTN_SOUTH)\n");
-    printf("    X=top (BTN_NORTH), Y=left (BTN_WEST)\n");
-    printf("    Extra: BTN_TL / TR / TL2 / TR2 / THUMBL / THUMBR / START / SELECT\n");
-    printf("    Function: %s\n", function_count > 0 ? "detected" : "press Function to test");
-    printf("\n  ANALOG AXES (expected idle around 511; observed range 15..1023)\n");
-    printf("    L X=%4d  Y=%4d      R X=%4d  Y=%4d\n", axis_x, axis_y, axis_rx, axis_ry);
-    printf("\n  LAST EVENT\n");
-    printf("    \033[1;33m%-72.72s\033[0m\n", last_event);
-    printf("\n  Counters: game key-downs=%d   function key-downs=%d   all input events=%d\n",
-           key_count, function_count, event_count);
-    printf("\n  B (bottom / BTN_SOUTH) returns. FUNCTION toggles the monitor.\n");
+    render_header(T("Controller input test", "手柄输入测试"));
+    baseos_ui_print_line(T("D-pad: move    A: confirm", "方向键：移动    A：确认"), 34);
+    baseos_ui_print_line(T("B: back        FUNCTION: monitor", "B：返回        功能键：监视"), 34);
+    baseos_ui_print_line(T("L1/R1: shoulder buttons", "L1/R1：肩键输入"), 34);
+    printf("\n");
+    printf("L X:%d Y:%d  R X:%d Y:%d\n", axis_x, axis_y, axis_rx, axis_ry);
+    printf("%s:%d  %s:%d\n", T("Key downs", "按键次数"), key_count,
+           T("Events", "事件"), event_count);
+    printf("%s:%d\n", T("Function presses", "功能键次数"), function_count);
+    print_last_input();
 }
 
 static void render_audio(void)
 {
-    int row = 7;
-    render_header("Audio diagnostics");
-    printf("\n  ALSA card enumeration (this screen does not play any sound):\n");
-    print_file("/proc/asound/cards", 5, &row);
-    ++row;
-    printf("\033[%d;3HPCM devices:\n", row++);
-    print_file("/proc/asound/pcm", 6, &row);
-    printf("\n  Volume +/- keys move the 'BaseOS Master' softvol control by 5%%.\n");
-    printf("  The hardware DAC stays at 0 dB; 0..100 maps to -48..0 dB.\n");
-    printf("  Serial shell: amixer sget 'BaseOS Master'\n");
-    printf("  No sound is played automatically.\n");
-    printf("\n  B (bottom / BTN_SOUTH) returns to menu.\n");
+    int row = 0;
+    render_header(T("Audio devices", "音频设备信息"));
+    baseos_ui_print_line(T("ALSA sound cards:", "ALSA 声卡："), 34);
+    print_file("/proc/asound/cards", 4, &row);
+    baseos_ui_print_line(T("PCM devices:", "PCM 设备："), 34);
+    print_file("/proc/asound/pcm", 5, &row);
+    baseos_ui_print_line(T("Volume +/- adjusts BaseOS Master.", "音量 +/- 调节 BaseOS Master。"), 34);
+    baseos_ui_print_line(T("This screen does not play sound.", "此页面不会自动播放声音。"), 34);
+    baseos_ui_print_line(T("B: back", "B：返回"), 34);
 }
 
 static void render_wifi(void)
 {
     char value[128];
-    int row = 11;
-    render_header("Wi-Fi diagnostics");
+    int row = 0;
+    render_header(T("Wi-Fi status", "Wi-Fi 状态"));
     (void)read_value("/sys/class/net/wlan0/operstate", value, sizeof(value));
-    printf("\n  Interface state: %s\n", value);
+    printf("%s: ", T("Interface", "网卡状态"));
+    baseos_ui_print_line(value, 26);
     (void)read_value("/sys/class/net/wlan0/address", value, sizeof(value));
-    printf("  MAC address:     %s\n", value);
+    printf("MAC: ");
+    baseos_ui_print_line(value, 30);
     (void)read_value("/sys/class/rfkill/rfkill0/state", value, sizeof(value));
-    printf("  rfkill WLAN state (1=unblocked): %s\n", value);
-    printf("\n  Kernel wireless status:\n");
-    print_file("/proc/net/wireless", 5, &row);
-    printf("\n  No access point association is started by this screen.\n");
-    printf("  Serial shell: iw dev\n");
-    printf("\n  B (bottom / BTN_SOUTH) returns to menu.\n");
+    printf("rfkill: ");
+    baseos_ui_print_line(value, 26);
+    baseos_ui_print_line(T("Kernel wireless:", "内核无线信息："), 34);
+    print_file("/proc/net/wireless", 4, &row);
+    baseos_ui_print_line(T("BaseOS does not join an AP here.", "此页面不会连接 Wi-Fi。"), 34);
+    baseos_ui_print_line(T("B: back", "B：返回"), 34);
 }
 
 static void render_system(void)
 {
     char value[128];
-    int row = 15;
-    render_header("System and power information");
+    int row = 0;
+    render_header(T("System and power", "系统与电源信息"));
     (void)read_value("/proc/device-tree/model", value, sizeof(value));
-    printf("\n  Device: %s\n", value);
+    printf("%s: ", T("Device", "设备"));
+    baseos_ui_print_line(value, 28);
     (void)read_value("/proc/uptime", value, sizeof(value));
-    printf("  Uptime: %s seconds\n", value);
+    printf("%s: ", T("Uptime", "运行时间"));
+    baseos_ui_print_line(value, 27);
     (void)read_value("/sys/class/power_supply/battery/status", value, sizeof(value));
-    printf("  Battery status: %s\n", value);
+    printf("%s: ", T("Battery", "电池"));
+    baseos_ui_print_line(value, 28);
     (void)read_value("/sys/class/power_supply/battery/capacity", value, sizeof(value));
-    printf("  Battery capacity: %s%%\n", value);
+    printf("%s: ", T("Charge", "电量"));
+    baseos_ui_print_line(value, 28);
     (void)read_value("/sys/class/thermal/thermal_zone0/temp", value, sizeof(value));
-    printf("  CPU temperature: %s millidegrees C\n", value);
-    printf("\n  Memory summary:\n");
-    print_file("/proc/meminfo", 4, &row);
-    printf("\n  B (bottom / BTN_SOUTH) returns to menu.\n");
+    printf("%s: ", T("CPU temp", "CPU 温度"));
+    baseos_ui_print_line(value, 28);
+    baseos_ui_print_line(T("Memory:", "内存："), 34);
+    print_file("/proc/meminfo", 3, &row);
+    baseos_ui_print_line(T("B: back", "B：返回"), 34);
 }
 
 static void render_help(void)
 {
-    render_header("Control mapping help");
-    printf("\n  D-pad UP/DOWN     Move menu selection\n");
-    printf("  Left stick UP/DOWN also moves selection when crossing the dead zone\n");
-    printf("  A on the right (BTN_EAST)  Select/open an item\n");
-    printf("  B at the bottom (BTN_SOUTH) Back to the main menu\n");
-    printf("  Volume +/-        Adjust RK817 playback volume\n");
-    printf("  Power button      Short press opens system information\n");
-    printf("  FUNCTION          Toggle the live controller monitor\n");
-    printf("\n  This step verifies physical-to-kernel input mapping and screen response.\n");
-    printf("  USB storage: select the last item, or hold FUNCTION and plug in the data cable.\n");
-    printf("  Emulation hotkeys, ROM browsing and game launching are not implemented.\n");
-    printf("\n  B (bottom / BTN_SOUTH) returns to menu.\n");
+    render_header(T("Button mapping", "按键说明"));
+    baseos_ui_print_line(T("D-pad / left stick: move", "方向键 / 左摇杆：移动"), 34);
+    baseos_ui_print_line(T("A (right): select / open", "A（右侧）：确认 / 打开"), 34);
+    baseos_ui_print_line(T("B (bottom): back", "B（下方）：返回"), 34);
+    baseos_ui_print_line(T("L1/R1: shoulder buttons", "L1/R1：左/右肩键"), 34);
+    baseos_ui_print_line(T("FUNCTION: live input monitor", "功能键：实时输入监视"), 34);
+    baseos_ui_print_line(T("Volume +/-: adjust volume", "音量 +/-：调节音量"), 34);
+    baseos_ui_print_line(T("Short Power: system information", "短按电源键：系统信息"), 34);
+    baseos_ui_print_line(T("Hold Power 2s: clean shutdown", "长按电源键 2 秒：关机"), 34);
+    baseos_ui_print_line(T("FUNCTION + Power at boot: USB", "开机时按住功能键：USB 存储"), 34);
+    baseos_ui_print_line(T("B: back", "B：返回"), 34);
 }
 
 static void render(void)
@@ -315,19 +337,150 @@ static void render(void)
     case SCREEN_HOME:
     default: render_home(); break;
     }
-    if (current_screen != SCREEN_HOME && current_screen != SCREEN_CONTROLS)
-        printf("\n  Last input: %-68.68s\n", last_event);
     fflush(stdout);
 }
 
 static void navigate_menu(int delta)
 {
+    int count = visible_menu_count();
     selected_item += delta;
-    if (selected_item < 0) selected_item = MENU_COUNT - 1;
-    if (selected_item >= MENU_COUNT) selected_item = 0;
+    if (selected_item < 0) selected_item = count - 1;
+    if (selected_item >= count) selected_item = 0;
     if (current_screen == SCREEN_HOME) render();
 }
 
+static void close_inputs(void)
+{
+    for (int i = 0; i < input_count; ++i) {
+        if (inputs[i].fd >= 0) (void)close(inputs[i].fd);
+        inputs[i].fd = -1;
+    }
+    input_count = 0;
+}
+
+static void open_frontend_selector(void)
+{
+    pid_t child;
+    int status = 0;
+
+    /* Only the active child may read gamepad events while a nested UI runs.
+     * Otherwise queued presses are replayed by this parent after waitpid(). */
+    close_inputs();
+    (void)unlink("/run/baseos-frontend-selection");
+    child = fork();
+    if (child < 0) {
+        discover_inputs();
+        (void)snprintf(last_event, sizeof(last_event), "Could not start frontend selector");
+        render();
+        return;
+    }
+    if (child == 0) {
+        pid_t manager;
+        int manager_status = 0;
+        (void)setenv("BASEOS_SELECTOR_RETURN_TO_DIAGNOSTICS", "1", 1);
+        manager = fork();
+        if (manager < 0) _exit(127);
+        if (manager == 0) {
+            execl("/usr/sbin/baseos-frontend-manager", "baseos-frontend-manager",
+                  "catalog", (char *)NULL);
+            _exit(127);
+        }
+        while (waitpid(manager, &manager_status, 0) < 0) {
+            if (errno != EINTR) _exit(127);
+        }
+        if (!WIFEXITED(manager_status) || WEXITSTATUS(manager_status) != 0)
+            _exit(1);
+        execl("/usr/sbin/rg353ps-frontend-selector", "rg353ps-frontend-selector", (char *)NULL);
+        _exit(127);
+    }
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno != EINTR) {
+            discover_inputs();
+            (void)snprintf(last_event, sizeof(last_event), "Frontend selector wait failed");
+            render();
+            return;
+        }
+    }
+    if (access("/run/baseos-frontend-selection", F_OK) == 0) {
+        running = 0;
+        return;
+    }
+    discover_inputs();
+    baseos_ui_load_language();
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        (void)snprintf(last_event, sizeof(last_event), "Frontend selector failed; returned to diagnostics");
+    else
+        (void)snprintf(last_event, sizeof(last_event), "Returned from frontend selector");
+    render();
+}
+
+static void request_usb_storage(void) {
+    const char *supervised = getenv("BASEOS_DIAGNOSTIC_SUPERVISED");
+    int direct_pause = return_to_selector &&
+                       (supervised == NULL || strcmp(supervised, "1") != 0);
+    pid_t child;
+    int status = 0, child_done = 0, request_seen = 0;
+
+    child = fork();
+    if (child < 0) {
+        (void)snprintf(last_event, sizeof(last_event), "Could not request USB storage mode");
+        render();
+        return;
+    }
+    if (child == 0) {
+        (void)chdir("/");
+        execl("/usr/sbin/baseos-usb-storage", "baseos-usb-storage", (char *)NULL);
+        _exit(127);
+    }
+    if (!direct_pause) {
+        (void)snprintf(last_event, sizeof(last_event),
+                       "USB storage requested; waiting for safe frontend shutdown");
+        render();
+        return;
+    }
+    /* Selector-launched diagnostics have no session-supervisor pause loop.
+     * Own the same request/pause handshake here; leave the exported volume
+     * as the working directory before acknowledging that it is safe to unmount. */
+    (void)chdir("/");
+    (void)snprintf(last_event, sizeof(last_event),
+                   "USB storage requested; preparing diagnostic pause");
+    render();
+    for (int i = 0; i < 150; ++i) {
+        pid_t waited = waitpid(child, &status, WNOHANG);
+        if (waited == child) { child_done = 1; break; }
+        if (waited < 0 && errno != EINTR) { child_done = 1; status = 127 << 8; break; }
+        if (access(USB_REQUEST_PATH, F_OK) == 0) { request_seen = 1; break; }
+        (void)usleep(100000);
+    }
+    if (request_seen) {
+        int pause_fd = open(USB_PAUSED_PATH, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+        if (pause_fd < 0) {
+            (void)kill(child, SIGTERM);
+            while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+            (void)snprintf(last_event, sizeof(last_event),
+                           "USB storage aborted: could not acknowledge diagnostic pause");
+        } else {
+            (void)close(pause_fd);
+            while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+            (void)unlink(USB_PAUSED_PATH);
+            (void)unlink(USB_REQUEST_PATH);
+            if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+                (void)snprintf(last_event, sizeof(last_event),
+                               "USB storage session finished; diagnostics resumed");
+            else
+                (void)snprintf(last_event, sizeof(last_event),
+                               "USB storage failed; inspect /mnt/boot/rg353ps-usb-storage.log");
+        }
+    } else {
+        if (!child_done) {
+            (void)kill(child, SIGTERM);
+            while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+        }
+        (void)snprintf(last_event, sizeof(last_event),
+                       "USB storage did not reach the pause handshake; local storage was not exported");
+    }
+    render();
+}
 static void select_menu_item(void)
 {
     switch (selected_item) {
@@ -336,19 +489,27 @@ static void select_menu_item(void)
     case 2: current_screen = SCREEN_WIFI; break;
     case 3: current_screen = SCREEN_SYSTEM; break;
     case 4: current_screen = SCREEN_HELP; break;
-    case 5: {
-        pid_t child = fork();
-        if (child == 0) {
-            execl("/usr/sbin/baseos-usb-storage", "baseos-usb-storage", (char *)NULL);
-            _exit(127);
+    case 5:
+        /* When nested under the selector, close diagnostics to resume that
+         * existing selector instead of launching a second selector instance. */
+        if (return_to_selector) {
+            running = 0;
+            return;
         }
-        if (child < 0)
-            (void)snprintf(last_event, sizeof(last_event), "Could not request USB storage mode");
+        open_frontend_selector();
+        return;
+    case 6:
+        request_usb_storage();
+        return;
+    case 7:
+        if (baseos_ui_toggle_language() == 0)
+            (void)snprintf(last_event, sizeof(last_event), "%s",
+                baseos_ui_language_zh ? "已切换为简体中文。" : "Language changed to English.");
         else
-            (void)snprintf(last_event, sizeof(last_event), "USB storage requested; waiting for safe frontend shutdown");
+            (void)snprintf(last_event, sizeof(last_event), "%s",
+                T("Could not save ui_language in baseos.conf.", "无法保存语言设置。"));
         render();
         return;
-    }
     default: current_screen = SCREEN_HOME; break;
     }
     render();
@@ -512,6 +673,10 @@ int main(void)
     (void)signal(SIGINT, stop_running);
     (void)signal(SIGTERM, stop_running);
     (void)signal(SIGHUP, stop_running);
+    return_to_selector = getenv("BASEOS_RETURN_TO_SELECTOR") != NULL &&
+                         strcmp(getenv("BASEOS_RETURN_TO_SELECTOR"), "1") == 0;
+    baseos_ui_init();
+    if (selected_item >= visible_menu_count()) selected_item = 0;
     discover_inputs();
 
     if (isatty(STDIN_FILENO) && tcgetattr(STDIN_FILENO, &saved_termios) == 0) {

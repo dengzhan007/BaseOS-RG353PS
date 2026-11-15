@@ -61,6 +61,29 @@ baseos_frontend_scan_root "$TMP/card" gamma || fail "nested adapter not found"
 baseos_frontend_scan_root "$TMP/card" -bad && fail "invalid adapter ID accepted"
 baseos_frontend_scan_root "$TMP/card" unsupported && fail "unsupported API accepted"
 
+# A selector disable marker hides the adapter at runtime without deleting it.
+mkdir -p "$TMP/card/.baseos/frontends-disabled"
+: > "$TMP/card/.baseos/frontends-disabled/alpha"
+baseos_frontend_scan_root "$TMP/card" alpha && fail "disabled adapter was still selectable at runtime"
+rm -f "$TMP/card/.baseos/frontends-disabled/alpha"
+baseos_frontend_scan_root "$TMP/card" alpha || fail "adapter did not return after re-enabling"
+
+# A complete legacy frontend may live under Frontends/<name>/, not directly
+# under the card root or its first-level wrapper. Discovery must reach it.
+NESTED_ROOT=$TMP/card/Frontends/NextUI
+NESTED_ADAPTER=$NESTED_ROOT/.baseos/frontends/nextui
+mkdir -p "$NESTED_ADAPTER" "$NESTED_ROOT/.system/rg353ps" "$NESTED_ROOT/Tools/rg353ps"
+: > "$NESTED_ADAPTER/launch.sh"
+cat > "$NESTED_ADAPTER/manifest.conf" <<'EOF'
+adapter_api=1
+priority=150
+volume_owner=system
+power_owner=system
+EOF
+baseos_frontend_scan_root "$TMP/card" nextui || fail "legacy adapter under Frontends/<name>/ was not discovered"
+[ "$BASEOS_SCAN_ROOT" = "$NESTED_ROOT" ] || fail "nested legacy adapter returned the wrong frontend bundle root"
+[ "$BASEOS_SCAN_DIR" = "$NESTED_ADAPTER" ] || fail "nested legacy adapter returned the wrong adapter directory"
+
 # Cached selection stays fast until one of the adapter trees changes.
 CACHE=$TMP/selection-cache
 : > "$CACHE"
@@ -73,4 +96,20 @@ touch "$CACHE"
 sleep 1
 printf '%s\n' 'priority=500' >> "$TMP/card/.baseos/frontends/alpha/manifest.conf"
 baseos_frontend_tree_changed_since "$TMP/card" "$CACHE" || fail "manifest update did not invalidate cache"
+touch "$CACHE"
+sleep 1
+mkdir -p "$TMP/card/Frontends/ExtraFrontend/.baseos/frontends/extra"
+: > "$TMP/card/Frontends/ExtraFrontend/.baseos/frontends/extra/launch.sh"
+baseos_frontend_tree_changed_since "$TMP/card" "$CACHE" || fail "new nested frontend bundle did not invalidate cache"
+# The supervisor must suppress stdout/stderr for both direct updater launches
+# and script adapters; child processes inherit these redirected descriptors.
+SESSION="$HERE/platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session"
+grep -Fq '"$LAUNCHER" >/dev/null 2>&1 &' "$SESSION" || fail "direct frontend launch can write to the console"
+grep -Fq '/bin/sh "$LAUNCHER" >/dev/null 2>&1 &' "$SESSION" || fail "script frontend launch can write to the console"
+INITTAB="$HERE/platforms/rg353ps/rootfs/etc/inittab"
+grep -Fq '::sysinit:/etc/init.d/rcS >/dev/null 2>&1' "$INITTAB" || fail "rcS can write setup output to the framebuffer console"
+grep -Fq 'tty1::respawn:/usr/sbin/baseos-frontend-session >/dev/null 2>&1' "$INITTAB" || fail "frontend supervisor can write helper output to the framebuffer console"
+grep -Fq 'BASEOS_DIAGNOSTIC_SUPERVISED=1 /usr/sbin/rg353ps-control-center >/dev/tty1 2>&1 &' "$SESSION" || fail "diagnostic UI stdout is not restored to tty1"
+grep -Fq '/usr/sbin/rg353ps-frontend-selector >/dev/tty1 2>&1' "$SESSION" || fail "frontend selector stdout is not restored to tty1"
+
 echo "PASS: generic frontend adapter discovery"

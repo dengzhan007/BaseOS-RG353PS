@@ -1,0 +1,8 @@
+WenQuanYi Zen Hei CJK console-font subset
+Copyright (C) 2007-2009 Qianqian Fang and the WenQuanYi Project Board of Trustees.
+Source: https://github.com/anthonyfok/fonts-wqy-zenhei
+License: GNU General Public License, version 2 (GPL-2.0).
+
+This is a compact 16x16 PSF2 bitmap subset generated for the BaseOS console
+menus. The full outline font is a build-time dependency only. The generated
+font is installed at /usr/share/consolefonts/baseos-cjk-16.psf.

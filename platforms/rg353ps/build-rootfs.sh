@@ -58,6 +58,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
   -v "$HERE/rootfs":/rootfs-src:ro \
   -v "$HERE/src":/src:ro \
   -v "$REPO_ROOT/src":/baseos-src:ro \
+  -v "$REPO_ROOT/tools":/baseos-tools:ro \
   -v "$REPO_ROOT/assets":/assets:ro \
   -e KREL="$KREL" \
   -e BASEOS_VERSION="$BASEOS_VERSION" \
@@ -70,7 +71,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       printf "%s\n%s\n" "$ALPINE_MIRROR/main" "$ALPINE_MIRROR/community" > /etc/apk/repositories
       echo "apk repositories now:"; cat /etc/apk/repositories
     fi
-    apk add --no-cache busybox-static tar zstd build-base linux-headers sdl2-dev freetype-dev freetype-static zlib-static libpng-static bzip2-static brotli-static pkgconf git ca-certificates
+    apk add --no-cache busybox-static tar zstd build-base linux-headers sdl2-dev freetype-dev freetype-static zlib-static libpng-static bzip2-static brotli-static pkgconf git ca-certificates python3 py3-pillow font-wqy-zenhei kbd
 
     R=/work/rootfs
     rm -rf "$R"
@@ -148,16 +149,104 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       wpa_supplicant dropbear dropbear-convert dnsmasq openssh-sftp-server "$OPENSSH_SERVER_PACKAGE" \
       mesa-egl mesa-gles mesa-gbm mesa-dri-gallium \
       libdrm-tests mesa-utils kmscube sdl2 sdl2_image sdl2_ttf \
-      sgdisk partx blkid wipefs exfatprogs
+      sgdisk partx blkid wipefs exfatprogs kbd
     # Alpine Dropbear enables SFTP and points at this standalone OpenSSH subsystem.
     # Install only sftp-server; do not add or start a second SSH daemon.
     test -x "$R/usr/lib/ssh/sftp-server" || {
       echo "SFTP subsystem is missing from target rootfs" >&2
       exit 1
     }
-    gcc -std=c11 -O2 -Wall -Wextra -Werror -static \
+    test -x "$R/usr/sbin/setfont" || {
+      echo "kbd setfont utility is missing from target rootfs" >&2
+      exit 1
+    }
+    # Generate a readable 18x20 PSF2 font. kbd creates and re-reads the
+    # Unicode table so the kernel console receives a verified character map.
+    FONT_DIR="$R/usr/share/consolefonts"
+    RAW_FONT=/tmp/baseos-cjk-18x20.raw.psf
+    FONT_TABLE=/tmp/baseos-cjk-18x20.table
+    FONT_TABLE_CHECK=/tmp/baseos-cjk-18x20.check.table
+    FINAL_FONT="$FONT_DIR/baseos-cjk-18x20.psf"
+    mkdir -p "$FONT_DIR"
+    command -v psfaddtable >/dev/null 2>&1 || {
+      echo "kbd psfaddtable is missing from the build container" >&2
+      exit 1
+    }
+    command -v psfgettable >/dev/null 2>&1 || {
+      echo "kbd psfgettable is missing from the build container" >&2
+      exit 1
+    }
+    python3 /baseos-tools/mkconsolefont.py \
+      --font /usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc \
+      --output "$RAW_FONT" \
+      --table-output "$FONT_TABLE" \
+      --source /src/rg353ps-control-center.c \
+      --source /src/rg353ps-frontend-selector.c \
+      --source /baseos-src/rg353ps-ui.h
+    psfaddtable "$RAW_FONT" "$FONT_TABLE" "$FINAL_FONT"
+    psfgettable "$FINAL_FONT" "$FONT_TABLE_CHECK"
+    python3 - "$FINAL_FONT" "$FONT_TABLE_CHECK" <<PY_FONT_VALIDATE
+import struct
+import sys
+from pathlib import Path
+
+font_path, table_path = map(Path, sys.argv[1:])
+data = font_path.read_bytes()
+assert len(data) >= 32, "PSF2 header is truncated"
+magic, version, header_size, flags, glyphs, char_size, height, width = struct.unpack("<8I", data[:32])
+assert magic == 0x864AB572 and version == 0, "invalid PSF2 signature/version"
+assert header_size >= 32 and flags & 1, "PSF2 Unicode table is missing"
+assert (width, height, glyphs) == (18, 20, 256), "unexpected console font geometry"
+assert char_size == height * ((width + 7) // 8), "invalid PSF2 glyph stride"
+assert len(data) > header_size + glyphs * char_size, "PSF2 Unicode table is empty"
+
+mapping = {}
+for line in table_path.read_text(encoding="ascii").splitlines():
+    fields = line.split()
+    if len(fields) < 2 or fields[0].startswith("#"):
+        continue
+    slot = int(fields[0], 0)
+    for token in fields[1:]:
+        if not token.startswith("U+") or len(token) != 6:
+            raise AssertionError(f"unexpected kbd Unicode table token: {token!r}")
+        codepoint = int(token[2:], 16)
+        previous = mapping.setdefault(codepoint, slot)
+        assert previous == slot, f"Unicode U+{codepoint:04X} mapped to multiple glyphs"
+
+# The same glyph slot must be used whether the console resolves Unicode
+# through its unimap or falls back to direct ASCII byte-to-glyph indexing.
+assert mapping.get(0x0020) == 32, "ASCII space must map to native glyph slot 32"
+assert mapping.get(0x0040) == 64, "ASCII @ must map to native glyph slot 64"
+assert mapping.get(0x0041) == 65, "ASCII A must map to native glyph slot 65"
+assert mapping.get(0x4E2D) is not None and mapping[0x4E2D] not in range(32, 127), "Chinese glyph overlaps native ASCII slots"
+assert mapping.get(0x6587) is not None and mapping[0x6587] not in range(32, 127), "Chinese glyph overlaps native ASCII slots"
+
+glyph_start = header_size
+def glyph(slot):
+    start = glyph_start + slot * char_size
+    return data[start:start + char_size]
+
+assert not any(glyph(32)), "ASCII space bitmap must be blank"
+assert any(glyph(64)), "ASCII @ bitmap is empty"
+assert any(glyph(65)), "ASCII A bitmap is empty"
+assert glyph(64) != glyph(65), "ASCII @ and A bitmaps collapsed to the same glyph"
+assert mapping[0x0020] != mapping[0x0040] != mapping[0x0041]
+assert any(glyph(mapping[0x4E2D])), "Chinese glyph U+4E2D bitmap is empty"
+assert any(glyph(mapping[0x6587])), "Chinese glyph U+6587 bitmap is empty"
+print(f"Verified PSF2 {width}x{height}, {glyphs} glyphs, {len(mapping)} Unicode mappings")
+PY_FONT_VALIDATE
+    rm -f "$RAW_FONT" "$FONT_TABLE" "$FONT_TABLE_CHECK"
+    mkdir -p "$R/usr/share/licenses/baseos-cjk-console-font"
+    cat > "$R/usr/share/licenses/baseos-cjk-console-font/NOTICE" <<EOF_FONT_NOTICE
+WenQuanYi Zen Hei CJK console-font subset
+Copyright (C) 2007-2009 Qianqian Fang and the WenQuanYi Project Board of Trustees.
+Source: https://github.com/anthonyfok/fonts-wqy-zenhei
+License: GNU General Public License, version 2 (GPL-2.0).
+Only the 18x20 PSF2 glyph subset required by BaseOS console menus is included.
+EOF_FONT_NOTICE
+    gcc -std=c11 -O2 -Wall -Wextra -Werror -static -I/baseos-src \
       -o "$R/usr/sbin/rg353ps-control-center" /src/rg353ps-control-center.c
-    gcc -std=c11 -O2 -Wall -Wextra -Werror -static \
+    gcc -std=c11 -O2 -Wall -Wextra -Werror -static -I/baseos-src \
       -o "$R/usr/sbin/rg353ps-frontend-selector" /src/rg353ps-frontend-selector.c
     gcc -std=c11 -O2 -Wall -Wextra -Werror -static \
       -o "$R/usr/sbin/rg353ps-hotkeyd" /src/rg353ps-hotkeyd.c
@@ -206,7 +295,12 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       echo "frontend package manager is missing" >&2
       exit 1
     }
+    test -f "$R/usr/sbin/baseos-frontend-compat" || {
+      echo "legacy frontend compatibility helper is missing" >&2
+      exit 1
+    }
     sh -n "$R/usr/sbin/baseos-frontend-manager"
+    sh -n "$R/usr/sbin/baseos-frontend-compat"
     test -x "$R/usr/bin/v4l2-ctl" || {
       echo "v4l2-ctl was not installed into target rootfs" >&2
       exit 1
@@ -290,7 +384,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     }
     # Update machinery. gptslot is the only writer of the slot flip, and
     # baseos-release is what a payload is validated against.
-    for upd_tool in usr/sbin/gptslot usr/sbin/baseos-update usr/share/baseos/log.sh; do
+    for upd_tool in usr/sbin/gptslot usr/sbin/baseos-update usr/sbin/baseos-frontend-paths usr/share/baseos/log.sh; do
       test -e "$R/$upd_tool" || {
         echo "update component is missing from target rootfs: $upd_tool" >&2
         exit 1
@@ -303,7 +397,9 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     chmod 0755 "$R/usr/sbin/baseos-init-userdata"
     chmod 0755 "$R/usr/sbin/baseos-usb-storage"
     chmod 0755 "$R/usr/sbin/baseos-frontend-session"
+    chmod 0755 "$R/usr/sbin/baseos-frontend-paths"
     chmod 0755 "$R/usr/sbin/baseos-frontend-manager"
+    chmod 0755 "$R/usr/sbin/baseos-frontend-compat"
     chmod 0755 "$R/usr/sbin/rg353ps-frontend-selector"
     chmod 0755 "$R/usr/sbin/baseos-boot-mark"
     chmod 0755 "$R/usr/sbin/baseos-boot-report"

@@ -164,40 +164,57 @@ it as shell code.
 ### Boot selector and uninstall
 
 Hold **L1 or R1 while powering on** to open the BaseOS frontend selector.
-Function-triggered USB storage keeps priority over the selector. In the
-selector:
+Function-triggered USB storage keeps priority over the selector. The built-in
+diagnostic page also has a **Frontend selector** menu item, so the two screens
+can be opened from each other without rebooting.
+
+The selector always includes **Built-in BaseOS diagnostics**, even when no
+frontend package is installed. Choosing it opens the diagnostic page and does
+not change the saved frontend default.
+
+The selector lists:
+
+- Managed packages under \`Frontends/<package-id>/\`, with one row per profile.
+- A **NextUI / MinUI (legacy updater)** entry when the card contains a supported
+  legacy updater layout: \`.tmp_update/updater\`, \`miyoo355/app/.tmp_update\`, or
+  \`MinUI.zip\`, at the card root or one wrapper-directory level below it.
+  Selecting this entry uses the existing TF2-first legacy updater discovery
+  path; \`frontend_id=legacy-updater\` can pin it as the default.
 
 The selector makes the persistent default explicit: its top line shows
-`DEFAULT STARTUP`, and the matching profile row is marked `[DEFAULT]`.
-When `frontend_id=auto`, the top line says `AUTO (priority-based discovery)`.
+\`DEFAULT STARTUP\`, and the matching frontend row is marked \`[DEFAULT]\`.
+When \`frontend_id=auto\`, the top line says \`AUTO (priority-based discovery)\`.
 A temporary selection never changes this marker.
 
-- **A** launches the highlighted profile once; the saved default is unchanged.
-- **Start** saves the highlighted profile as `frontend_id`, refreshes the
-  default marker, and launches it.
-- **Y** opens a confirmation to remove only the selected profile/configuration.
-- **X** opens a confirmation to uninstall the entire frontend package.
-- **B** cancels and continues with the configured default frontend.
+- **A** launches the highlighted frontend once; the saved default is unchanged.
+- **Start** saves the highlighted frontend as \`frontend_id\`, refreshes the
+  default marker, and launches it. On the built-in diagnostics row, Start
+  simply opens diagnostics and leaves the frontend default unchanged.
+- **Y** opens a confirmation to remove only the selected managed profile.
+- **X** opens a confirmation to uninstall the entire managed frontend package.
+- **B** cancels and continues with the configured/default frontend.
 
-Profile removal deletes only the selected `profiles/<profile-id>.conf`. If
+Profile removal deletes only the selected \`profiles/<profile-id>.conf\`. If
 other profiles remain, the common program payload stays installed and those
 profiles remain selectable. If the removed profile was the last one, BaseOS
 also removes the now-unused package directory.
 
 Full frontend uninstall removes the complete
-`Frontends/<package-id>/` directory, including every profile and the shared
+\`Frontends/<package-id>/\` directory, including every profile and the shared
 program payload. Both removal operations preserve
-`.baseos/instances/<package-id>--<profile-id>/`, `Games/`, shared saves,
+\`.baseos/instances/<package-id>--<profile-id>/\`, \`Games/\`, shared saves,
 cores and all other shared data. Reinstalling the same package/profile IDs can
 therefore reuse their previous settings. If a removed profile/package supplied
 the configured default, BaseOS selects another discovered managed profile as
-the new default; if none remain, it changes `frontend_id` back to `auto`.
+the new default; if none remain, it changes \`frontend_id\` back to \`auto\`.
 
-The selector manages the new `Frontends/<package-id>/` package format,
-including multiple profiles within one package. A profile is an independent
-user configuration, not a second copy of the executable. Legacy
-`.baseos/frontends/<adapter-id>/` adapters remain supported for automatic and
-pinned startup, but are not removable through this managed-package selector.
+The selector manages profiles and uninstallation for the new
+\`Frontends/<package-id>/\` package format. The legacy NextUI/MinUI updater entry
+is selectable but is not deleted by BaseOS; remove or update that installation
+using its own card-side files. Generic legacy
+\`.baseos/frontends/<adapter-id>/\` adapters remain supported for automatic and
+pinned startup, but are not currently listed for selection or removed through
+the managed-package UI.
 
 ### Shared Games directory
 

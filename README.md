@@ -34,7 +34,7 @@ BaseOS 与游戏前端分层工作：
 
 **游戏识别属于前端的工作，不是 BaseOS 的 ROM 扫描功能。** BaseOS 负责挂载存储设备并向前端提供路径；不同前端可以有不同的游戏目录规则和跨卡能力。
 
-BaseOS 不规定统一的游戏目录或前端与游戏是否必须位于同一张卡。前端适配器负责配置自己的游戏根目录；支持多卡或多个游戏根目录的前端可以采用各自的存储布局。
+1.2.10 的托管前端包以 Games/ 作为共享 ROM 根目录，前端适配器通过路径映射兼容各前端内部不同的系统目录名称。BaseOS 仍不要求前端程序和游戏库必须位于同一张卡；是否支持多卡由对应前端和适配器决定。
 
 ### 安装与升级
 
@@ -126,7 +126,7 @@ BaseOS and game frontends have separate responsibilities:
 
 **Game discovery and ROM identification belong to the frontend, not to a BaseOS ROM-scanning service.** BaseOS mounts storage devices and exposes paths to the frontend. Directory layouts and multi-card support depend on each frontend.
 
-BaseOS does not prescribe a universal game directory or require the frontend and game library to share one card. Each adapter configures its own game roots and may support one or multiple cards.
+Version 1.2.10 managed frontend packages use Games/ as the shared ROM root, with adapter path maps translating frontend-specific system directory names. BaseOS still does not require the frontend program and game library to live on the same card; multi-card support depends on the frontend and its adapter.
 
 ### Installation and updates
 

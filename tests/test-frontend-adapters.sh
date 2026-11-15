@@ -106,5 +106,8 @@ baseos_frontend_tree_changed_since "$TMP/card" "$CACHE" || fail "new nested fron
 SESSION="$HERE/platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session"
 grep -Fq '"$LAUNCHER" >/dev/null 2>&1 &' "$SESSION" || fail "direct frontend launch can write to the console"
 grep -Fq '/bin/sh "$LAUNCHER" >/dev/null 2>&1 &' "$SESSION" || fail "script frontend launch can write to the console"
+INITTAB="$HERE/platforms/rg353ps/rootfs/etc/inittab"
+grep -Fq '::sysinit:/etc/init.d/rcS >/dev/null 2>&1' "$INITTAB" || fail "rcS can write setup output to the framebuffer console"
+grep -Fq 'tty1::respawn:/usr/sbin/baseos-frontend-session >/dev/null 2>&1' "$INITTAB" || fail "frontend supervisor can write helper output to the framebuffer console"
 
 echo "PASS: generic frontend adapter discovery"

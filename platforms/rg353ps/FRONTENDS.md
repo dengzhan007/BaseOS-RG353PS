@@ -481,14 +481,20 @@ BaseOS exports:
 
 ### Console output policy
 
-BaseOS redirects standard output and standard error of every launched frontend
-process to `/dev/null`, for both direct legacy updater executables and
-`/bin/sh` script adapters. Descendant processes inherit these redirected
-descriptors, so routine frontend output does not appear on the BaseOS boot
-console. Frontends must not depend on inherited terminal output for normal
-operation. Writes opened directly against `/dev/tty1`, `/dev/console` or
-`/dev/kmsg` are outside this redirection and remain the frontend's
-responsibility. BaseOS supervisor logs continue to use the system logging path.
+BusyBox init redirects standard output and standard error for the RG353PS
+early `rcS` setup and the tty1 `baseos-frontend-session` supervisor to
+`/dev/null`. This covers discovery, compatibility scanning and path setup as
+well as frontend startup. The supervisor also redirects both direct legacy
+updater executables and `/bin/sh` script adapters, so their descendants inherit
+the silent descriptors. Framebuffer UIs are unaffected: they draw directly to
+the display. BaseOS diagnostics continue to use `/dev/kmsg` and opt-in report
+files rather than terminal output.
+
+Frontends and BaseOS helpers must not rely on inherited terminal output for
+normal operation. A program that explicitly opens and writes to `/dev/tty1`
+or `/dev/console` bypasses this policy and remains responsible for its own
+display output. Kernel console routing is separate and remains on the serial
+console as configured by the boot image.
 
 Legacy adapters receive private directories under
 `<frontend-root>/.baseos/data` and `<frontend-root>/.baseos/userdata`.

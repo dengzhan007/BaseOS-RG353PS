@@ -1,4 +1,4 @@
-# RG353PS port — BaseOS 1.2.9
+# RG353PS port — BaseOS 1.2.10
 
 This directory contains the independent BaseOS target for the Anbernic RG353PS
 (Rockchip RK3566). It does not replace or alter the existing Miyoo Flip
@@ -6,12 +6,13 @@ This directory contains the independent BaseOS target for the Anbernic RG353PS
 
 ## Release status
 
-**Version: 1.2.9 — official release (published 2026-11-12).** The RG353PS target has a complete image and A/B update build path:
+**Version: 1.2.10 — official release (published 2026-11-15).** The RG353PS target has a complete image and A/B update build path:
 U-Boot, Linux kernel and device tree, kernel modules, wireless firmware,
 BusyBox-based root filesystem and GPT SD-card image. The release workflow
 supports A/B update payloads for compatible versions. **1.2.8 remains
 full-image-only** because it changed the persisted SSH setting name; 1.2.9
-restores `.bosupd` updates from an installed 1.2.8 system.
+restored `.bosupd` updates from an installed 1.2.8 system, and 1.2.10
+supports in-place updates from the official 1.2.9 release.
 
 The 1.2.6 full image and update package have both been tested on physical
 RG353PS hardware. That remains the latest complete-image / in-place-update
@@ -23,7 +24,7 @@ hardware acceptance baseline. The 1.2.6 checks established that:
   or user settings stored there.
 
 The 1.2.6 baseline above is the latest complete-image and in-place-update
-hardware acceptance recorded in this guide. Version 1.2.9 is a published
+hardware acceptance recorded in this guide. Version 1.2.10 is a published
 release, but its successful CI build must not be read as full hardware
 acceptance. Wi-Fi association/DHCP/routing, deep-suspend current and
 wake/resume, Wi-Fi SSH/SFTP transfer, and concurrent USB/Wi-Fi tests remain
@@ -31,22 +32,24 @@ open as **NOT TESTED** in
 [Issue #21](https://github.com/dengzhan007/BaseOS-RG353PS/issues/21). Update
 that issue only when each item has been exercised on the physical device.
 
-Version 1.2.9 is based on the 1.2.8 release branch. It preserves Wi-Fi
-SFTP, Wi-Fi interactive SSH, the generated default boot logo and the generic
-frontend adapter contract. Audio initialization and the kernel audio path are
-restored to the 1.2.8 implementation. The minor startup pop remains a known
-limitation; this release does not claim to fix it.
+Version 1.2.10 builds on the 1.2.9 release and adds managed frontend packages
+and configuration profiles, a boot-time frontend selector, legacy frontend
+auto-compatibility, conservative uninstall handling, profile-aware storage
+mapping, and the corrected bilingual diagnostics UI. The release keeps the
+established audio initialization path; the cold-start speaker pop remains a
+known limitation and is not claimed as fixed.
 
 ## Installation
 
 ### New installation
 
-**For a fresh installation, use the complete 1.2.9 image.** A system already
-running 1.2.8 can use the 1.2.9 `.bosupd` package. In-place upgrades from 1.2.7
-or earlier remain unsupported because the 1.2.8 release changed the persisted
-SSH setting name. Back up important files before any system update or reflash.
+**For a fresh installation, use the complete 1.2.10 image.** A system running
+the official 1.2.9 release can use the 1.2.10 `.bosupd` package. A system on
+1.2.8 should first apply the 1.2.9 update, then 1.2.10. In-place upgrades from
+1.2.7 or earlier remain unsupported because 1.2.8 changed the persisted SSH
+setting name. Back up important files before any system update or reflash.
 
-1. Download the complete `baseos-rg353ps-1.2.9.img.gz` image from the
+1. Download the complete `baseos-rg353ps-1.2.10.img.gz` image from the
    [GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases)
    page.
 2. Write the image to the TF1 card with an SD-card imaging tool.
@@ -65,8 +68,9 @@ For a version with an available update payload:
 
 1. Download the matching `.bosupd` package from that version's release.
 2. Copy the update package to the root of either card's accessible volume,
-   following the system's update procedure. This release's update payload is for
-   systems already running 1.2.8; do not use it on 1.2.7 or earlier.
+   following the system's update procedure. The 1.2.10 update payload is for systems already running the official 1.2.9
+   release; 1.2.8 users must first update to 1.2.9. Do not use it on 1.2.7
+   or earlier.
 3. Restart the device and allow the updater to complete.
 
 The `.bosupd` package updates the A/B system BOOT and ROOTFS regions. It does
@@ -128,6 +132,8 @@ for the independent `package_type` choices and release attachment behavior.
 - [USB architecture and reconnect validation](USB.md)
 - [Boot-logo persistence and frontend contract](BOOTLOGO.md)
 - [Frontend discovery and adapter contract](FRONTENDS.md)
+- [BaseOS 1.2.10 release notes](../../docs/RG353PS-RELEASE-1.2.10.md)
+- [BaseOS 1.2.9 release notes](../../docs/RG353PS-RELEASE-1.2.9.md)
 - [BaseOS 1.2.7 release notes](../../docs/RG353PS-RELEASE-1.2.7.md)
 - [Kernel sources, patches and configuration](kernel/UPSTREAM.md)
 - [Release baseline and historical validation notes](../../docs/RG353PS-RELEASE-BASELINE-1.2.4.md)

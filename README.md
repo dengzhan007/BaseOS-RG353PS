@@ -8,13 +8,13 @@
 
 面向 **Anbernic RG353PS（Rockchip RK3566）** 的轻量级 Linux 系统底座。BaseOS 提供设备启动、硬件与系统服务、存储管理、前端发现和系统更新；游戏界面由独立前端提供。
 
-当前平台版本：**1.2.9**
+当前平台版本：**1.2.10**
 
 ### 功能概览
 
 - **独立的 RG353PS 系统镜像**：提供完整 SD 卡镜像（`.img.gz`）和 A/B 系统升级包（`.bosupd`），两种产物可以独立构建和发布。
 - **首次启动自动扩容**：全新安装后，系统会自动将空白的 `BASEOS` 用户数据分区扩展到 TF 卡末尾，并格式化为 exFAT。
-- **前端自动发现**：优先查找 TF2；TF2 没有可用前端时，再查找 TF1。没有找到可用前端时进入内置诊断界面。
+- **前端发现与管理**：优先查找 TF2，再查找 TF1；1.2.10 起支持托管前端包、独立配置档案、启动选择器、启停与卸载，并为常见旧式前端目录自动生成兼容入口。
 - **持久化用户数据**：系统更新采用 A/B 机制，用户数据分区与系统槽分离，更新不会主动清除用户文件。
 - **USB 文件传输与调试**：Release 默认启用 MTP；开发配置可启用 USB 虚拟网卡、SSH 和 MTP；另提供独占 USB Mass Storage 模式。
 - **设备基础功能**：集成显示、按键输入、RK817 音频、Wi-Fi、蓝牙及电源管理相关适配。
@@ -34,7 +34,7 @@ BaseOS 与游戏前端分层工作：
 
 **游戏识别属于前端的工作，不是 BaseOS 的 ROM 扫描功能。** BaseOS 负责挂载存储设备并向前端提供路径；不同前端可以有不同的游戏目录规则和跨卡能力。
 
-BaseOS 不规定统一的游戏目录或前端与游戏是否必须位于同一张卡。前端适配器负责配置自己的游戏根目录；支持多卡或多个游戏根目录的前端可以采用各自的存储布局。
+1.2.10 的托管前端包以 Games/ 作为共享 ROM 根目录，前端适配器通过路径映射兼容各前端内部不同的系统目录名称。BaseOS 仍不要求前端程序和游戏库必须位于同一张卡；是否支持多卡由对应前端和适配器决定。
 
 ### 安装与升级
 
@@ -45,7 +45,7 @@ BaseOS 不规定统一的游戏目录或前端与游戏是否必须位于同一�
 
 BaseOS 支持完整镜像全新安装和 `.bosupd` 原地升级。A/B 更新切换系统槽，不需要重新安装前端或清空用户数据；升级前仍建议备份重要文件。
 
-**升级路径：** 1.2.9 提供 `.bosupd`，可从已全新刷写的 1.2.8 原地升级；1.2.7 及更早版本仍须先使用完整镜像迁移到 1.2.8/1.2.9。完整镜像用于新装或需要重刷系统时。升级前仍建议备份重要文件。
+**升级路径：** 1.2.10 提供 `.bosupd`，支持从官方 1.2.9 原地升级。已安装 1.2.8 的设备先按 1.2.9 发布说明升级到 1.2.9，再升级到 1.2.10；1.2.7 及更早版本须使用完整镜像迁移。完整镜像用于新装或需要重刷系统时。升级前仍建议备份重要文件。
 
 详细步骤见 [RG353PS 平台说明](platforms/rg353ps/README.md) 和 [通用前端适配器规范](platforms/rg353ps/FRONTENDS.md)。
 
@@ -77,6 +77,7 @@ HDMI 相关代码和设备树支持仍在平台中，但 **RG353PS 实机 HDMI �
 - [USB 架构与硬件验证](platforms/rg353ps/USB.md)
 - [电源管理与深度休眠](platforms/rg353ps/POWER.md)
 - [启动画面持久化规范](platforms/rg353ps/BOOTLOGO.md)
+- [1.2.10 发布说明](docs/RG353PS-RELEASE-1.2.10.md)
 - [1.2.9 发布说明](docs/RG353PS-RELEASE-1.2.9.md)
 - [1.2.8 发布说明](docs/RG353PS-RELEASE-1.2.8.md)
 - [1.2.7 发布说明](docs/RG353PS-RELEASE-1.2.7.md)
@@ -99,13 +100,13 @@ HDMI 相关代码和设备树支持仍在平台中，但 **RG353PS 实机 HDMI �
 
 A lightweight Linux system foundation for the **Anbernic RG353PS (Rockchip RK3566)**. BaseOS provides device boot, hardware and system services, storage management, frontend discovery, and system updates. The user interface and game library are provided by independent frontends.
 
-Current platform version: **1.2.9**
+Current platform version: **1.2.10**
 
 ### Features
 
 - **Dedicated RG353PS system images:** a complete SD-card image (`.img.gz`) and an A/B system update package (`.bosupd`) are available as independently buildable and publishable artifacts.
 - **Automatic first-boot expansion:** on a fresh installation, the blank `BASEOS` user-data partition is automatically expanded to the end of the TF card and formatted as exFAT.
-- **Automatic frontend discovery:** BaseOS checks TF2 first, then TF1 if no usable frontend is found on TF2. The built-in diagnostic UI starts when neither card provides a usable frontend.
+- **Frontend discovery and management:** BaseOS checks TF2 first, then TF1. Starting with 1.2.10, managed frontend packages, independent configuration profiles, a boot selector, enable/disable and uninstall controls, and automatic compatibility wrappers for common legacy layouts are supported.
 - **Persistent user data:** A/B system slots are separate from the user-data partition. System updates do not intentionally erase user files.
 - **USB transfer and debugging:** Release builds default to MTP; development configuration can enable a USB virtual network interface, SSH, and MTP. An exclusive USB Mass Storage mode is also available.
 - **Device integration:** display, button input, RK817 audio, Wi-Fi, Bluetooth, and power-management adaptations are integrated.
@@ -125,7 +126,7 @@ BaseOS and game frontends have separate responsibilities:
 
 **Game discovery and ROM identification belong to the frontend, not to a BaseOS ROM-scanning service.** BaseOS mounts storage devices and exposes paths to the frontend. Directory layouts and multi-card support depend on each frontend.
 
-BaseOS does not prescribe a universal game directory or require the frontend and game library to share one card. Each adapter configures its own game roots and may support one or multiple cards.
+Version 1.2.10 managed frontend packages use Games/ as the shared ROM root, with adapter path maps translating frontend-specific system directory names. BaseOS still does not require the frontend program and game library to live on the same card; multi-card support depends on the frontend and its adapter.
 
 ### Installation and updates
 
@@ -136,7 +137,7 @@ BaseOS does not prescribe a universal game directory or require the frontend and
 
 BaseOS supports fresh installation from a complete image and in-place upgrades using `.bosupd`. A/B updates switch the system slot without requiring frontend reinstallation or user-data erasure. Back up important files before upgrading.
 
-**Upgrade path:** Version 1.2.9 provides a `.bosupd` package for in-place upgrades from a cleanly installed 1.2.8 system. Version 1.2.7 and earlier must first migrate using a complete 1.2.8 or 1.2.9 image. The complete image is intended for fresh installations or full reflashing. Back up important files before upgrading.
+**Upgrade path:** Version 1.2.10 provides a `.bosupd` package for in-place upgrades from the official 1.2.9 release. Devices on 1.2.8 should first follow the 1.2.9 upgrade path, then apply 1.2.10; 1.2.7 and earlier require a complete-image migration. Use the full image for fresh installations or full reflashing. Back up important files before upgrading.
 
 See the [RG353PS platform guide](platforms/rg353ps/README.md) and [frontend installation and discovery guide](platforms/rg353ps/FRONTENDS.md).
 
@@ -168,6 +169,7 @@ HDMI-related code and device-tree support are present, but **HDMI output has not
 - [USB architecture and hardware validation](platforms/rg353ps/USB.md)
 - [Power management and deep suspend](platforms/rg353ps/POWER.md)
 - [Boot-logo persistence contract](platforms/rg353ps/BOOTLOGO.md)
+- [1.2.10 release notes](docs/RG353PS-RELEASE-1.2.10.md)
 - [1.2.9 release notes](docs/RG353PS-RELEASE-1.2.9.md)
 - [1.2.8 release notes](docs/RG353PS-RELEASE-1.2.8.md)
 - [1.2.7 release notes](docs/RG353PS-RELEASE-1.2.7.md)

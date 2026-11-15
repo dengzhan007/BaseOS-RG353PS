@@ -28,7 +28,9 @@ RG353PS 直接从 TF1 上的 BaseOS 镜像启动。此流程不修改设备内�
 
 BaseOS 负责启动、硬件服务、存储挂载、前端发现和系统更新；游戏扫描、ROM 识别、列表展示及游戏启动由前端负责。
 
-将前端安装到 TF1 或 TF2 的用户数据分区根目录，不要放到小容量的 BASEOS_BOOT 启动分区。通用适配器目录如下：
+**推荐使用 1.2.10 托管前端包：** 将完整的前端包目录直接解压到 TF1 或 TF2 用户数据分区的 Frontends/ 目录下，保留压缩包中的顶层目录（例如 Frontends/LUCKLUCK-SLOT/）。不要把前端程序放到小容量的 BASEOS_BOOT 启动分区，也不要拆散包内文件。托管包、profile 和选择器行为见 [前端适配规范](platforms/rg353ps/FRONTENDS.md)。
+
+旧式兼容 adapter 仍受支持，其目录结构如下：
 
     <用户数据分区>/
     └── .baseos/
@@ -39,7 +41,7 @@ BaseOS 负责启动、硬件服务、存储挂载、前端发现和系统更新�
 
 旧版兼容前端可能只提供 launch.sh；新适配器应同时提供 manifest.conf 和 launch.sh。详细格式见 [前端适配规范](platforms/rg353ps/FRONTENDS.md)。
 
-BaseOS 启动时优先检查 TF2；TF2 没有可用适配器时再检查 TF1。BaseOS 不统一规定 ROM 目录，也不强制游戏和前端必须放在同一张卡上，具体布局由前端适配器决定。
+BaseOS 启动时优先检查 TF2；TF2 没有可用前端时再检查 TF1。1.2.10 托管前端包使用 Games/ 作为共享 ROM 根目录，并通过路径映射兼容前端内部目录名；旧式 adapter 仍可按各自的兼容规则工作。BaseOS 不要求前端程序和游戏库必须位于同一张卡上，多卡能力由前端适配器决定。
 
 ### USB 文件传输
 
@@ -71,25 +73,26 @@ Windows 因 USB RNDIS 网卡出现普通网络访问异常时，可将其 IPv4 �
 
 ### 系统升级
 
-1.2.9 的 A/B 原地升级包只适用于**已经全新安装官方 1.2.8** 的设备：
+1.2.10 的 A/B 原地升级包适用于**已经运行官方 1.2.9** 的设备：
 
-1. 从 [GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases) 下载 baseos-rg353ps-1.2.9.bosupd。
-2. 将 .bosupd 复制到设备可访问的用户数据分区根目录。
+1. 从 [GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases) 下载 `baseos-rg353ps-1.2.10.bosupd`。
+2. 将 `.bosupd` 复制到设备可访问的用户数据分区根目录。
 3. 重启并等待更新完成。期间保持供电稳定，不要拔卡或强制关机。
 
 升级路径限制：
 
-- 官方 1.2.8 → 1.2.9：可以使用 1.2.9 .bosupd。
-- 1.2.7 或更早版本 → 1.2.9：必须备份数据后使用完整镜像重新写入 TF1，不能直接使用 1.2.9 .bosupd；1.2.8 调整了持久化 SSH 设置名称。
-- .bosupd 更新 A/B 系统 BOOT 和 ROOTFS 区域，不包含 Rockchip U-Boot，也不覆盖独立的用户数据分区。需要更新 U-Boot 或恢复完整分区布局时，按对应版本说明使用完整镜像。
+- 官方 1.2.9 → 1.2.10：可以直接使用 1.2.10 `.bosupd`。
+- 官方 1.2.8：先按 1.2.9 发布说明应用 1.2.9 `.bosupd`，确认升级完成后再应用 1.2.10 `.bosupd`。
+- 1.2.7 或更早版本：必须备份数据后使用 1.2.10 完整镜像重新写入 TF1，不能直接使用 1.2.10 `.bosupd`；1.2.8 调整了持久化 SSH 设置名称。
+- `.bosupd` 只更新 A/B 系统 BOOT 和 ROOTFS 区域，不包含 Rockchip U-Boot，也不覆盖独立的用户数据分区。需要更新 U-Boot 或恢复完整分区布局时，使用完整镜像。
 
 升级前请核对 SHA-256，并以目标版本的 Release Notes 为准。
 
 ### 已知限制与验证范围
 
-- 1.2.9 是正式发布版本。CI 构建成功不代表所有硬件功能都已完成实机验收。
+- 1.2.10 是正式发布版本。CI 构建成功不代表所有硬件功能都已完成实机验收。
 - RG353PS 实机 HDMI 输出尚未完成验证。
-- 冷启动时可能仍听到轻微扬声器爆音；1.2.9 保留 1.2.8 音频初始化逻辑，没有声称解决此问题。
+- 冷启动时可能仍听到轻微扬声器爆音；1.2.10 沿用已发布的音频初始化路径，没有声称解决此问题。
 - Wi-Fi association、DHCP、路由可达性、深度休眠电流与唤醒恢复、Wi-Fi SSH/SFTP 传输及 USB/Wi-Fi 并发仍由 [Issue #21](https://github.com/dengzhan007/BaseOS-RG353PS/issues/21) 跟踪。真机测试完成前不得视为已验收。
 
 ### 更多文档
@@ -100,6 +103,7 @@ Windows 因 USB RNDIS 网卡出现普通网络访问异常时，可将其 IPv4 �
 - [电源管理](platforms/rg353ps/POWER.md)
 - [启动画面规范](platforms/rg353ps/BOOTLOGO.md)
 - [Wi-Fi SFTP / SSH](docs/rg353ps-network-access.md)
+- [1.2.10 正式版说明](docs/RG353PS-RELEASE-1.2.10.md)
 - [1.2.9 正式版说明](docs/RG353PS-RELEASE-1.2.9.md)
 
 ---
@@ -127,7 +131,9 @@ RG353PS boots directly from the BaseOS image on TF1. This process does not patch
 
 ### Install a frontend
 
-Install the frontend on the root of a card's user-data volume, not on the small BASEOS_BOOT partition. A generic adapter uses:
+**For BaseOS 1.2.10 managed packages,** extract the complete frontend package directory directly under Frontends/ on the TF1 or TF2 user-data volume, keeping the archive's top-level directory intact (for example, Frontends/LUCKLUCK-SLOT/). Do not split the package files or place them on the small BASEOS_BOOT partition. See the [frontend adapter contract](platforms/rg353ps/FRONTENDS.md) for package, profile and selector behavior.
+
+Legacy compatible adapters remain supported. Their directory layout is:
 
     <userdata-volume>/
     └── .baseos/
@@ -138,7 +144,7 @@ Install the frontend on the root of a card's user-data volume, not on the small 
 
 Older compatible adapters may provide only launch.sh; new adapters should provide both files. See the [frontend adapter contract](platforms/rg353ps/FRONTENDS.md).
 
-BaseOS checks TF2 first, then TF1 if TF2 has no usable adapter. BaseOS does not impose one universal ROM directory or require frontend and games to be on the same card; the selected adapter defines that layout.
+BaseOS checks TF2 first, then TF1 if TF2 has no usable frontend. Version 1.2.10 managed frontend packages use Games/ as the shared ROM root and path maps translate frontend-specific directory names. Legacy adapters retain their compatibility layouts. BaseOS does not require the frontend program and game library to live on the same card; multi-card support depends on the frontend adapter.
 
 ### USB file transfer
 
@@ -170,25 +176,26 @@ If a Windows RNDIS adapter disrupts ordinary network access, set its IPv4 interf
 
 ### System updates
 
-The 1.2.9 A/B update package is for devices **freshly installed with the official 1.2.8 release**:
+The 1.2.10 A/B update package is intended for devices **already running the official 1.2.9 release**:
 
-1. Download baseos-rg353ps-1.2.9.bosupd from [GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases).
+1. Download `baseos-rg353ps-1.2.10.bosupd` from [GitHub Releases](https://github.com/dengzhan007/BaseOS-RG353PS/releases).
 2. Copy it to the root of an accessible user-data volume.
 3. Reboot and allow the update to finish. Keep the device powered; do not remove the card or force shutdown during the update.
 
 Upgrade compatibility:
 
-- Official 1.2.8 to 1.2.9: use the 1.2.9 .bosupd.
-- 1.2.7 or earlier: back up data and install the 1.2.9 full image to TF1. Do not apply the 1.2.9 .bosupd directly; 1.2.8 changed the persisted SSH setting name.
-- .bosupd updates the A/B system BOOT and ROOTFS regions. It does not contain Rockchip U-Boot or overwrite the separate user-data partition. Use a full image when U-Boot or the complete partition layout must be updated.
+- Official 1.2.9 to 1.2.10: apply the 1.2.10 `.bosupd` directly.
+- Official 1.2.8: first apply the 1.2.9 `.bosupd` as documented in the 1.2.9 release notes, then apply 1.2.10.
+- 1.2.7 or earlier: back up data and install the 1.2.10 full image to TF1. Do not apply the 1.2.10 `.bosupd` directly; 1.2.8 changed the persisted SSH setting name.
+- `.bosupd` updates the A/B system BOOT and ROOTFS regions. It does not contain Rockchip U-Boot or overwrite the separate user-data partition. Use a full image when U-Boot or the complete partition layout must be updated.
 
 Verify the SHA-256 checksum and follow the compatibility statement in the target release notes.
 
 ### Known limitations and validation
 
-- Version 1.2.9 is an official release. A successful CI build does not mean every hardware feature has passed physical-device acceptance.
+- Version 1.2.10 is an official release. A successful CI build does not mean every hardware feature has passed physical-device acceptance.
 - HDMI output has not yet been verified on RG353PS hardware.
-- A faint speaker pop may still occur during cold boot. Version 1.2.9 retains the 1.2.8 audio initialization path and does not claim to fix it.
+- A faint speaker pop may still occur during cold boot. Version 1.2.10 retains the established audio initialization path and does not claim to fix it.
 - Wi-Fi association, DHCP, route reachability, deep-suspend current and wake/resume, Wi-Fi SSH/SFTP transfers, and concurrent USB/Wi-Fi sessions remain tracked in [Issue #21](https://github.com/dengzhan007/BaseOS-RG353PS/issues/21). They are not accepted until tested on hardware.
 
 ### More documentation
@@ -199,4 +206,5 @@ Verify the SHA-256 checksum and follow the compatibility statement in the target
 - [Power management](platforms/rg353ps/POWER.md)
 - [Boot-logo contract](platforms/rg353ps/BOOTLOGO.md)
 - [Wi-Fi SFTP / SSH access](docs/rg353ps-network-access.md)
+- [Version 1.2.10 release notes](docs/RG353PS-RELEASE-1.2.10.md)
 - [Version 1.2.9 release notes](docs/RG353PS-RELEASE-1.2.9.md)

@@ -122,4 +122,58 @@ fi
 [ -f "$TMP/external-profile.conf" ] || fail "symlink uninstall deleted its external target"
 [ -L "$TF1/Frontends/unsafe-package/profiles/external.conf" ] || fail "symlink guard unexpectedly removed the link"
 
-echo "PASS: frontend manager catalog, profile/full uninstall, data retention and symlink guard"
+# A renamed package can carry one previous package ID. The catalog keeps the
+# visible package name concise when package/profile display names match, and
+# migrates the old pinned frontend_id to the new package/profile identity.
+RENAMED_PACKAGE=$TF1/Frontends/LUCKLUCK-SLOT
+mkdir -p "$RENAMED_PACKAGE/profiles"
+: > "$RENAMED_PACKAGE/launch.sh"
+cat > "$RENAMED_PACKAGE/baseos-frontend.conf" <<'EOF'
+package_api=1
+display_name=LUCKLUCK-SLOT
+previous_package_id=slot-rg353ps
+priority=100
+EOF
+cat > "$RENAMED_PACKAGE/profiles/640-native.conf" <<'EOF'
+profile_api=1
+display_name=LUCKLUCK-SLOT
+priority=100
+EOF
+cat > "$CONFIG" <<'EOF'
+debug=no
+frontend_id=slot-rg353ps--640-native
+usb_diagnostics=no
+EOF
+run_manager catalog
+grep -F -q 'LUCKLUCK-SLOT--640-native|LUCKLUCK-SLOT|' "$CATALOG" || fail "selector label was not reduced to the package name"
+grep -F -q 'frontend_id=LUCKLUCK-SLOT--640-native' "$CONFIG" || fail "legacy package default was not migrated"
+. "$DISCOVERY"
+baseos_frontend_scan_root "$TF1" "slot-rg353ps--640-native" || fail "legacy pinned package ID did not resolve through previous_package_id"
+[ "$BASEOS_SCAN_ID" = "LUCKLUCK-SLOT--640-native" ] || fail "legacy selection resolved to an unexpected package ID"
+
+# If an old default profile is not shipped in the new single-profile package,
+# BaseOS should fall back to the available default profile rather than failing
+# frontend discovery. The old profile instance is still retained for opt-in
+# recreation under the same profile ID.
+cat > "$CONFIG" <<'EOF'
+frontend_id=slot-rg353ps--640-native-alt
+EOF
+. "$DISCOVERY"
+baseos_frontend_scan_root "$TF1" "slot-rg353ps--640-native-alt" || fail "normal boot could not fall back from a removed legacy default profile"
+[ "$BASEOS_SCAN_ID" = "LUCKLUCK-SLOT--640-native" ] || fail "normal-boot fallback selected the wrong profile"
+run_manager catalog
+grep -F -q 'frontend_id=LUCKLUCK-SLOT--640-native' "$CONFIG" || fail "missing legacy profile did not fall back to the default profile"
+[ -d "$TF1/.baseos/instances/slot-rg353ps--640-native" ] || fail "old matching profile instance was not preserved"
+
+# Creating the omitted old profile under the same ID lets the pinned legacy ID
+# resolve again, and preserves the old per-profile data for the launcher migration.
+cat > "$RENAMED_PACKAGE/profiles/640-native-alt.conf" <<'EOF'
+profile_api=1
+display_name=Extra Config
+priority=90
+EOF
+. "$DISCOVERY"
+baseos_frontend_scan_root "$TF1" "slot-rg353ps--640-native-alt" || fail "recreated legacy profile did not resolve through the package alias"
+[ "$BASEOS_SCAN_ID" = "LUCKLUCK-SLOT--640-native-alt" ] || fail "recreated profile resolved to an unexpected identity"
+
+echo "PASS: frontend manager catalog, profile/full uninstall, data retention, package rename/default migration and symlink guard"

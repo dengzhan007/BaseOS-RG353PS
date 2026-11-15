@@ -202,7 +202,7 @@ static void print_file(const char *path, int max_lines, int *row)
 
 static void render_header(const char *title)
 {
-    printf("\033%G\033[2J\033[H\033[?25l");
+    printf("\033%%G\033[2J\033[H\033[?25l");
     printf("\033[1;36m==================================\033[0m\n");
     printf("\033[1;36m");
     baseos_ui_print_line(title, 34);

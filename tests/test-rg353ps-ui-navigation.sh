@@ -101,9 +101,9 @@ grep -Fq 'case BTN_TR: return "R1 / TR";' "$CONTROL" ||
 grep -Fq 'L1/R1：肩键输入' "$CONTROL" ||
   fail "controller test page does not explain L1/R1 input feedback"
 
-grep -Fq '\033%G\033[2J' "$CONTROL" ||
+grep -Fq '\033%%G\033[2J' "$CONTROL" ||
   fail "diagnostics does not force UTF-8 mode on Linux console redraw"
-grep -Fq '\033%G\033[2J' "$SELECTOR" ||
+grep -Fq '\033%%G\033[2J' "$SELECTOR" ||
   fail "frontend selector does not force UTF-8 mode on Linux console redraw"
 
 echo "PASS: RG353PS UI navigation and native ASCII/CJK console font contract"

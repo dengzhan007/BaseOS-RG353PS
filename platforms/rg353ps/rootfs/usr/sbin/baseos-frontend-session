@@ -116,7 +116,7 @@ diagnostic() {
     # storage mode requested from this menu died instantly with a "PARTITION
     # BUSY" until the export helper learned to chdir out on its own.
     cd / 2>/dev/null || :
-    BASEOS_DIAGNOSTIC_SUPERVISED=1 /usr/sbin/rg353ps-control-center &
+    BASEOS_DIAGNOSTIC_SUPERVISED=1 /usr/sbin/rg353ps-control-center >/dev/tty1 2>&1 &
     DIAGNOSTIC_PID=$!
     while kill -0 "$DIAGNOSTIC_PID" 2>/dev/null; do
       if [ -e /run/baseos-usb-storage.request ]; then
@@ -263,7 +263,7 @@ if [ -e /run/baseos-frontend-select.boot-request ]; then
   if [ -x /usr/sbin/baseos-frontend-manager ] && [ -x /usr/sbin/rg353ps-frontend-selector ]; then
     if /usr/sbin/baseos-frontend-manager catalog && [ -s /run/baseos-frontend-catalog ]; then
       log "opening frontend selector from boot L1/R1 request"
-      /usr/sbin/rg353ps-frontend-selector || log "frontend selector returned an error"
+      /usr/sbin/rg353ps-frontend-selector >/dev/tty1 2>&1 || log "frontend selector returned an error"
     else
       log "frontend selector requested but no managed frontend profiles were found"
     fi

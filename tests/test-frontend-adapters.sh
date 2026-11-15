@@ -109,5 +109,7 @@ grep -Fq '/bin/sh "$LAUNCHER" >/dev/null 2>&1 &' "$SESSION" || fail "script fron
 INITTAB="$HERE/platforms/rg353ps/rootfs/etc/inittab"
 grep -Fq '::sysinit:/etc/init.d/rcS >/dev/null 2>&1' "$INITTAB" || fail "rcS can write setup output to the framebuffer console"
 grep -Fq 'tty1::respawn:/usr/sbin/baseos-frontend-session >/dev/null 2>&1' "$INITTAB" || fail "frontend supervisor can write helper output to the framebuffer console"
+grep -Fq 'BASEOS_DIAGNOSTIC_SUPERVISED=1 /usr/sbin/rg353ps-control-center >/dev/tty1 2>&1 &' "$SESSION" || fail "diagnostic UI stdout is not restored to tty1"
+grep -Fq '/usr/sbin/rg353ps-frontend-selector >/dev/tty1 2>&1' "$SESSION" || fail "frontend selector stdout is not restored to tty1"
 
 echo "PASS: generic frontend adapter discovery"

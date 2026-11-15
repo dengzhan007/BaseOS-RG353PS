@@ -486,15 +486,20 @@ early `rcS` setup and the tty1 `baseos-frontend-session` supervisor to
 `/dev/null`. This covers discovery, compatibility scanning and path setup as
 well as frontend startup. The supervisor also redirects both direct legacy
 updater executables and `/bin/sh` script adapters, so their descendants inherit
-the silent descriptors. Framebuffer UIs are unaffected: they draw directly to
-the display. BaseOS diagnostics continue to use `/dev/kmsg` and opt-in report
-files rather than terminal output.
+the silent descriptors.
 
-Frontends and BaseOS helpers must not rely on inherited terminal output for
-normal operation. A program that explicitly opens and writes to `/dev/tty1`
-or `/dev/console` bypasses this policy and remains responsible for its own
-display output. Kernel console routing is separate and remains on the serial
-console as configured by the boot image.
+The built-in diagnostic menu and frontend selector are terminal UIs: they use
+standard output for their screen rendering. The supervisor explicitly attaches
+those two UI processes to `/dev/tty1`, including the selector opened by the
+boot-time L1/R1 shortcut. Child screens inherit that terminal connection.
+BaseOS diagnostics continue to use `/dev/kmsg` and opt-in report files rather
+than ordinary startup output.
+
+Frontends and non-UI BaseOS helpers must not rely on inherited terminal output
+for normal operation. A program that explicitly opens and writes to
+`/dev/tty1` or `/dev/console` bypasses this policy and remains responsible
+for its own display output. Kernel console routing is separate and remains on
+the serial console as configured by the boot image.
 
 Legacy adapters receive private directories under
 `<frontend-root>/.baseos/data` and `<frontend-root>/.baseos/userdata`.

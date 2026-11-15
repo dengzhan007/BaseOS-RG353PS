@@ -53,6 +53,16 @@ run_manager catalog
 grep -F -q 'slot-rg353ps--640-native|' "$CATALOG" || fail "native profile missing from catalog"
 grep -F -q 'slot-rg353ps--640x480|' "$CATALOG" || fail "640x480 profile missing from catalog"
 
+# A legacy NextUI/MinUI updater at one wrapper level remains selectable.
+mkdir -p "$TF1/NextUI/.tmp_update"
+: > "$TF1/NextUI/.tmp_update/updater"
+run_manager catalog
+grep -F -q 'legacy-updater|NextUI / MinUI (legacy updater)|legacy-updater|' "$CATALOG" || fail "legacy NextUI updater missing from selector catalog"
+run_manager set-default legacy-updater
+grep -F -q 'frontend_id=legacy-updater' "$CONFIG" || fail "legacy updater default was not saved"
+rm -rf "$TF1/NextUI"
+run_manager catalog
+
 run_manager set-default slot-rg353ps--640x480
 grep -F -q 'frontend_id=slot-rg353ps--640x480' "$CONFIG" || fail "default profile was not saved"
 grep -F -q 'debug=no' "$CONFIG" || fail "unrelated debug setting was lost"
@@ -122,4 +132,15 @@ fi
 [ -f "$TMP/external-profile.conf" ] || fail "symlink uninstall deleted its external target"
 [ -L "$TF1/Frontends/unsafe-package/profiles/external.conf" ] || fail "symlink guard unexpectedly removed the link"
 
-echo "PASS: frontend manager catalog, profile/full uninstall, data retention and symlink guard"
+# Both selector directions remain present: the diagnostic UI can request the
+# selector, and the selector can return to built-in diagnostics.
+CONTROL="$HERE/platforms/rg353ps/src/rg353ps-control-center.c"
+SELECTOR="$HERE/platforms/rg353ps/src/rg353ps-frontend-selector.c"
+SESSION="$HERE/platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session"
+grep -Fq '"Frontend selector"' "$CONTROL" || fail "diagnostic UI has no frontend selector entry"
+grep -Fq '/run/baseos-frontend-select.request' "$CONTROL" || fail "diagnostic UI does not request the selector"
+grep -Fq 'Built-in BaseOS diagnostics' "$SELECTOR" || fail "selector has no diagnostics destination"
+grep -Fq '__baseos_diagnostics__' "$SELECTOR" || fail "selector cannot request diagnostics"
+grep -Fq 'baseos-frontend-select.request' "$SESSION" || fail "supervisor does not handle selector requests from diagnostics"
+
+echo "PASS: frontend manager catalog, navigation, profile/full uninstall, data retention and symlink guard"

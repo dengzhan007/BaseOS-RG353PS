@@ -11,7 +11,7 @@
 
 | 文档 | 内容 |
 |---|---|
-| [安装与升级](../INSTALL.md) | TF1 全新安装、前端安装、USB 文件传输和 1.2.9 升级 |
+| [安装与升级](../INSTALL.md) | TF1 全新安装、前端安装、USB 文件传输和 1.2.10 升级 |
 | [平台说明](../platforms/rg353ps/README.md) | 架构、构建、镜像布局和限制 |
 | [USB 架构与验证](../platforms/rg353ps/USB.md) | MTP、Mass Storage、USB SSH、Wi-Fi SFTP、重连和验证 |
 | [前端适配规范](../platforms/rg353ps/FRONTENDS.md) | manifest、启动接口、存储和休眠职责 |
@@ -21,7 +21,7 @@
 
 ### 发布、配置与验证
 
-- [1.2.9 正式版说明](RG353PS-RELEASE-1.2.9.md)、[1.2.8](RG353PS-RELEASE-1.2.8.md)、[1.2.7](RG353PS-RELEASE-1.2.7.md)
+- [1.2.10 正式版说明](RG353PS-RELEASE-1.2.10.md)、[1.2.9](RG353PS-RELEASE-1.2.9.md)、[1.2.8](RG353PS-RELEASE-1.2.8.md)、[1.2.7](RG353PS-RELEASE-1.2.7.md)
 - [历史发布基线](RG353PS-RELEASE-BASELINE-1.2.4.md)
 - [贡献指南](../CONTRIBUTING.md)
 - [待实机验收 Issue #21](https://github.com/dengzhan007/BaseOS-RG353PS/issues/21)
@@ -48,7 +48,7 @@ This repository contains historical upstream BaseOS material for the Miyoo Flip 
 
 | Document | Contents |
 |---|---|
-| [Installation and updates](../INSTALL.md) | TF1 installation, frontend setup, USB transfer and the 1.2.9 upgrade path |
+| [Installation and updates](../INSTALL.md) | TF1 installation, frontend setup, USB transfer and the 1.2.10 upgrade path |
 | [Platform guide](../platforms/rg353ps/README.md) | Architecture, build, image layout and known limitations |
 | [USB architecture](../platforms/rg353ps/USB.md) | MTP, Mass Storage, USB SSH, Wi-Fi SFTP and validation |
 | [Frontend adapter contract](../platforms/rg353ps/FRONTENDS.md) | Manifest, launch interface, storage and suspend ownership |
@@ -58,7 +58,7 @@ This repository contains historical upstream BaseOS material for the Miyoo Flip 
 
 ### Releases and validation
 
-- [1.2.9 official release](RG353PS-RELEASE-1.2.9.md), [1.2.8](RG353PS-RELEASE-1.2.8.md), [1.2.7](RG353PS-RELEASE-1.2.7.md)
+- [1.2.10 official release](RG353PS-RELEASE-1.2.10.md), [1.2.9](RG353PS-RELEASE-1.2.9.md), [1.2.8](RG353PS-RELEASE-1.2.8.md), [1.2.7](RG353PS-RELEASE-1.2.7.md)
 - [Historical release baseline](RG353PS-RELEASE-BASELINE-1.2.4.md)
 - [Contributing guide](../CONTRIBUTING.md)
 - [Hardware acceptance follow-up, Issue #21](https://github.com/dengzhan007/BaseOS-RG353PS/issues/21)

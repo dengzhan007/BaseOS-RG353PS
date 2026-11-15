@@ -34,6 +34,7 @@ check_handoff(selector, "static void open_diagnostics(void)",
               "static void choose_launch", "selector -> diagnostics")
 
 assert "return entry_count + 2;" in selector, "selector must always show diagnostics/return and language rows"
+assert "static int count_package_profiles(const char *package_id)" in selector, "uninstall confirmation lost its profile-count helper"
 assert "static int return_to_diagnostics;" in selector
 assert "if (return_to_diagnostics)" in selector, "nested selector must return to its diagnostics parent"
 assert "show_diagnostics_entry" not in selector, "diagnostics row must not disappear in nested selector"

@@ -306,6 +306,15 @@ static void render_header(const char *title)
     (void)printf("\033[0m----------------------------------------\n");
 }
 
+static int count_package_profiles(const char *package_id)
+{
+    int count = 0;
+    for (int i = 0; i < entry_count; ++i) {
+        if (strcmp(entries[i].package_id, package_id) == 0) ++count;
+    }
+    return count;
+}
+
 static void render(void)
 {
     adjust_scroll();

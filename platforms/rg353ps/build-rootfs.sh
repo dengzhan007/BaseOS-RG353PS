@@ -174,7 +174,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       exit 1
     }
     mkdir -p "$R/usr/share/licenses/baseos-cjk-console-font"
-    cat > "$R/usr/share/licenses/baseos-cjk-console-font/NOTICE" <<'EOF_FONT_NOTICE'
+    cat > "$R/usr/share/licenses/baseos-cjk-console-font/NOTICE" <<EOF_FONT_NOTICE
 WenQuanYi Zen Hei CJK console-font subset
 Copyright (C) 2007-2009 Qianqian Fang and the WenQuanYi Project Board of Trustees.
 Source: https://github.com/anthonyfok/fonts-wqy-zenhei

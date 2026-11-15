@@ -64,7 +64,10 @@ permissions:
 
 concurrency:
   group: rg353ps-release-${{ github.ref }}
-  cancel-in-progress: false
+  # Development branches keep only the newest image build, avoiding a long
+  # stale kernel build holding the branch's concurrency slot after new commits.
+  # Main and release tags remain non-cancellable once their builds start.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   build-release:

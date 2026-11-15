@@ -28,7 +28,9 @@ RG353PS 直接从 TF1 上的 BaseOS 镜像启动。此流程不修改设备内�
 
 BaseOS 负责启动、硬件服务、存储挂载、前端发现和系统更新；游戏扫描、ROM 识别、列表展示及游戏启动由前端负责。
 
-将前端安装到 TF1 或 TF2 的用户数据分区根目录，不要放到小容量的 BASEOS_BOOT 启动分区。通用适配器目录如下：
+**推荐使用 1.2.10 托管前端包：** 将完整的前端包目录直接解压到 TF1 或 TF2 用户数据分区的 Frontends/ 目录下，保留压缩包中的顶层目录（例如 Frontends/LUCKLUCK-SLOT/）。不要把前端程序放到小容量的 BASEOS_BOOT 启动分区，也不要拆散包内文件。托管包、profile 和选择器行为见 [前端适配规范](platforms/rg353ps/FRONTENDS.md)。
+
+旧式兼容 adapter 仍受支持，其目录结构如下：
 
     <用户数据分区>/
     └── .baseos/
@@ -39,7 +41,7 @@ BaseOS 负责启动、硬件服务、存储挂载、前端发现和系统更新�
 
 旧版兼容前端可能只提供 launch.sh；新适配器应同时提供 manifest.conf 和 launch.sh。详细格式见 [前端适配规范](platforms/rg353ps/FRONTENDS.md)。
 
-BaseOS 启动时优先检查 TF2；TF2 没有可用适配器时再检查 TF1。BaseOS 不统一规定 ROM 目录，也不强制游戏和前端必须放在同一张卡上，具体布局由前端适配器决定。
+BaseOS 启动时优先检查 TF2；TF2 没有可用前端时再检查 TF1。1.2.10 托管前端包使用 Games/ 作为共享 ROM 根目录，并通过路径映射兼容前端内部目录名；旧式 adapter 仍可按各自的兼容规则工作。BaseOS 不要求前端程序和游戏库必须位于同一张卡上，多卡能力由前端适配器决定。
 
 ### USB 文件传输
 
@@ -129,7 +131,9 @@ RG353PS boots directly from the BaseOS image on TF1. This process does not patch
 
 ### Install a frontend
 
-Install the frontend on the root of a card's user-data volume, not on the small BASEOS_BOOT partition. A generic adapter uses:
+**For BaseOS 1.2.10 managed packages,** extract the complete frontend package directory directly under Frontends/ on the TF1 or TF2 user-data volume, keeping the archive's top-level directory intact (for example, Frontends/LUCKLUCK-SLOT/). Do not split the package files or place them on the small BASEOS_BOOT partition. See the [frontend adapter contract](platforms/rg353ps/FRONTENDS.md) for package, profile and selector behavior.
+
+Legacy compatible adapters remain supported. Their directory layout is:
 
     <userdata-volume>/
     └── .baseos/
@@ -140,7 +144,7 @@ Install the frontend on the root of a card's user-data volume, not on the small 
 
 Older compatible adapters may provide only launch.sh; new adapters should provide both files. See the [frontend adapter contract](platforms/rg353ps/FRONTENDS.md).
 
-BaseOS checks TF2 first, then TF1 if TF2 has no usable adapter. BaseOS does not impose one universal ROM directory or require frontend and games to be on the same card; the selected adapter defines that layout.
+BaseOS checks TF2 first, then TF1 if TF2 has no usable frontend. Version 1.2.10 managed frontend packages use Games/ as the shared ROM root and path maps translate frontend-specific directory names. Legacy adapters retain their compatibility layouts. BaseOS does not require the frontend program and game library to live on the same card; multi-card support depends on the frontend adapter.
 
 ### USB file transfer
 

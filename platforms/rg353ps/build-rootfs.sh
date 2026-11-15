@@ -159,7 +159,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       echo "kbd setfont utility is missing from target rootfs" >&2
       exit 1
     }
-    # Generate a compact 16x16 PSF2 font from the UI's actual CJK strings.
+    # Generate a compact 16x16 PSF2 font from the UI CJK strings.
     # The full WQY outline font and Pillow stay in this build container only;
     # only the 512-glyph bitmap subset is installed in the target rootfs.
     mkdir -p "$R/usr/share/consolefonts"

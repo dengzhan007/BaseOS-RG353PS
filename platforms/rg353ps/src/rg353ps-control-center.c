@@ -407,6 +407,7 @@ static void open_frontend_selector(void)
         return;
     }
     discover_inputs();
+    baseos_ui_load_language();
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
         (void)snprintf(last_event, sizeof(last_event), "Frontend selector failed; returned to diagnostics");
     else
@@ -498,7 +499,7 @@ static void select_menu_item(void)
     case 7:
         if (baseos_ui_toggle_language() == 0)
             (void)snprintf(last_event, sizeof(last_event), "%s",
-                T("Language changed to Simplified Chinese.", "已切换为简体中文。"));
+                baseos_ui_language_zh ? "已切换为简体中文。" : "Language changed to English.");
         else
             (void)snprintf(last_event, sizeof(last_event), "%s",
                 T("Could not save ui_language in baseos.conf.", "无法保存语言设置。"));

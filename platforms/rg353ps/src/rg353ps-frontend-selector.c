@@ -451,6 +451,7 @@ static void open_diagnostics(void)
         return;
     }
     discover_inputs();
+    baseos_ui_load_language();
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
         (void)snprintf(status_line, sizeof(status_line), "Diagnostics returned with an error.");
     else

@@ -41,6 +41,9 @@ assert "show_diagnostics_entry" not in selector, "diagnostics row must not disap
 assert "case 7:" in control and "baseos_ui_toggle_language()" in control
 assert "case 8:" in control, "nested diagnostics must retain the explicit return action"
 assert "baseos_ui_toggle_language()" in selector, "selector language row must be interactive"
+assert "baseos_ui_load_language();" in control, "diagnostic parent does not reload language changed by nested selector"
+assert "baseos_ui_load_language();" in selector, "selector parent does not reload language changed by diagnostics"
+assert "baseos_language_zh" not in control, "unknown language-state symbol"
 assert "baseos_ui_init();" in control and "baseos_ui_init();" in selector
 assert '#include <rg353ps-ui.h>' in control and '#include <rg353ps-ui.h>' in selector
 print("PASS: console UI input ownership, return path and bilingual controls")

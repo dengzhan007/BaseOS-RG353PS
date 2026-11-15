@@ -101,4 +101,10 @@ sleep 1
 mkdir -p "$TMP/card/Frontends/ExtraFrontend/.baseos/frontends/extra"
 : > "$TMP/card/Frontends/ExtraFrontend/.baseos/frontends/extra/launch.sh"
 baseos_frontend_tree_changed_since "$TMP/card" "$CACHE" || fail "new nested frontend bundle did not invalidate cache"
+# The supervisor must suppress stdout/stderr for both direct updater launches
+# and script adapters; child processes inherit these redirected descriptors.
+SESSION="$HERE/platforms/rg353ps/rootfs/usr/sbin/baseos-frontend-session"
+grep -Fq '"$LAUNCHER" >/dev/null 2>&1 &' "$SESSION" || fail "direct frontend launch can write to the console"
+grep -Fq '/bin/sh "$LAUNCHER" >/dev/null 2>&1 &' "$SESSION" || fail "script frontend launch can write to the console"
+
 echo "PASS: generic frontend adapter discovery"

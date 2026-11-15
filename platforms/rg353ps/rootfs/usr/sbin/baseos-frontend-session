@@ -872,11 +872,11 @@ kill_tree() {
 if [ "$LAUNCH_MODE" = "exec" ]; then
   [ -f "$LAUNCHER" ] || { log "legacy updater vanished: $LAUNCHER"; diagnostic; }
   [ -x "$LAUNCHER" ] || chmod 0755 "$LAUNCHER" 2>/dev/null || :
-  "$LAUNCHER" &
+  "$LAUNCHER" >/dev/null 2>&1 &
 else
   # Power-key ownership comes from the adapter manifest or legacy marker.
   [ "$ADAPTER_POWER_OWNER" = frontend ] && POWER_OWNED=1
-  /bin/sh "$LAUNCHER" &
+  /bin/sh "$LAUNCHER" >/dev/null 2>&1 &
 fi
 FRONTEND_PID=$!
 if [ "$VOLUME_CLAIMED" = yes ]; then

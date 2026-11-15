@@ -479,6 +479,17 @@ BaseOS exports:
 | `BASEOS_LAUNCHER` | Adapter launch-script path |
 | `BASEOS_SLEEP` | RG353PS suspend helper (`/usr/sbin/rg353ps-sleep`) |
 
+### Console output policy
+
+BaseOS redirects standard output and standard error of every launched frontend
+process to `/dev/null`, for both direct legacy updater executables and
+`/bin/sh` script adapters. Descendant processes inherit these redirected
+descriptors, so routine frontend output does not appear on the BaseOS boot
+console. Frontends must not depend on inherited terminal output for normal
+operation. Writes opened directly against `/dev/tty1`, `/dev/console` or
+`/dev/kmsg` are outside this redirection and remain the frontend's
+responsibility. BaseOS supervisor logs continue to use the system logging path.
+
 Legacy adapters receive private directories under
 `<frontend-root>/.baseos/data` and `<frontend-root>/.baseos/userdata`.
 Managed package profiles receive independent directories under

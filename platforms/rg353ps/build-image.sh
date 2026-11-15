@@ -188,7 +188,7 @@ LABEL BaseOS-RG353PS
   MENU LABEL BaseOS RG353PS
   LINUX /Image
   FDT /device_trees/rk3566-anbernic-rg353ps.dtb
-  APPEND root=PARTUUID=$ROOT_PARTUUID rootfstype=ext4 rootwait ro console=ttyS2,1500000n8 quiet loglevel=3 vt.global_cursor_default=0 init=/sbin/init
+  APPEND root=PARTUUID=$ROOT_PARTUUID rootfstype=ext4 rootwait ro console=ttyS2,1500000n8 quiet loglevel=3 vt.global_cursor_default=0 vt.default_utf8=1 init=/sbin/init
 EOF
     mcopy -i "$BOOTFS" /tmp/extlinux.conf ::/extlinux/extlinux.conf
 

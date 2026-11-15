@@ -57,6 +57,8 @@ grep -Fq 'test -x "$R/usr/sbin/setfont"' "$BUILDER" ||
   fail "rootfs build does not verify the setfont executable"
 grep -Fq -- '-I/baseos-src' "$BUILDER" ||
   fail "BaseOS shared UI header is not included when compiling terminal UIs"
+grep -Fq 'vt.default_utf8=1' "$ROOT/platforms/rg353ps/build-image.sh" ||
+  fail "Linux text console is not explicitly configured for UTF-8"
 grep -Fq 'ui_language=' "$UI" ||
   fail "language preference is not persisted"
 

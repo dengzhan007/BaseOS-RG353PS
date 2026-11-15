@@ -65,6 +65,24 @@ static struct termios saved_termios;
 static int termios_saved;
 static int stdin_active;
 
+#define DIAGNOSTICS_SELECTION "__baseos_diagnostics__"
+
+static int diagnostics_selected(void)
+{
+    return selected_item == entry_count;
+}
+
+static int legacy_updater_selected(void)
+{
+    return selected_item >= 0 && selected_item < entry_count &&
+           strcmp(entries[selected_item].id, "legacy-updater") == 0;
+}
+
+static int selector_item_count(void)
+{
+    return entry_count + 1; /* Built-in diagnostics is always available. */
+}
+
 static void stop_running(int sig)
 {
     (void)sig;
@@ -159,7 +177,7 @@ static int load_catalog(void)
         ++entry_count;
     }
     (void)fclose(fp);
-    if (selected_item >= entry_count) selected_item = entry_count > 0 ? entry_count - 1 : 0;
+    if (selected_item >= selector_item_count()) selected_item = selector_item_count() - 1;
     if (selected_item < 0) selected_item = 0;
     return entry_count;
 }
@@ -268,10 +286,11 @@ static void render(void)
 {
     adjust_scroll();
     if (confirming_uninstall) {
-        struct frontend_entry *entry = entry_count > 0 ? &entries[selected_item] : NULL;
+        struct frontend_entry *entry =
+            selected_item >= 0 && selected_item < entry_count ? &entries[selected_item] : NULL;
         render_header("BaseOS  |  Confirm removal");
-        if (entry == NULL) {
-            (void)printf("\n  No frontend package is selected.\n");
+        if (entry == NULL || legacy_updater_selected() || diagnostics_selected()) {
+            (void)printf("\n  This entry cannot be uninstalled from BaseOS.\n");
         } else {
             (void)printf("\n  Package: %-62.62s\n", entry->package_id);
             (void)printf("  Selected profile: %-53.53s\n", entry->profile_id);
@@ -291,40 +310,63 @@ static void render(void)
     }
 
     render_header("BaseOS  |  Frontend selector");
-    (void)printf("\n  Select a frontend profile. Profiles from one package use separate settings.\n");
+    (void)printf("\n  Select an installed frontend, or open the built-in diagnostic page.\n");
     (void)printf("  \033[1;33mDEFAULT STARTUP: %-60.60s\033[0m\n\n", current_default_label());
-    if (entry_count == 0) {
-        (void)printf("  No managed Frontends packages were found.\n");
-        (void)printf("  Extract a package into /mnt/SDCARD/Frontends/<package-id>/.\n");
-        (void)printf("\n  B: continue with the configured/default frontend\n");
-    } else {
-        (void)printf("  INSTALLED PROFILES\n");
-        for (int i = scroll_offset; i < entry_count && i < scroll_offset + 10; ++i) {
-            if (entry_is_default(&entries[i])) {
-                if (i == selected_item)
-                    (void)printf("  \033[1;32m>\033[0m \033[1;33m[DEFAULT]\033[0m %-62.62s\n",
-                                 entries[i].label);
-                else
-                    (void)printf("    \033[1;33m[DEFAULT]\033[0m %-62.62s\n",
-                                 entries[i].label);
-            } else if (i == selected_item) {
-                (void)printf("  \033[1;32m> %-72.72s\033[0m\n", entries[i].label);
-            } else {
-                (void)printf("    %-72.72s\n", entries[i].label);
-            }
+    if (entry_count == 0)
+        (void)printf("  No managed frontend packages were found.\n");
+    (void)printf("  INSTALLED FRONTENDS / SYSTEM OPTIONS\n");
+    for (int i = scroll_offset; i < selector_item_count() && i < scroll_offset + 10; ++i) {
+        if (i == entry_count) {
+            if (diagnostics_selected())
+                (void)printf("  \033[1;32m> %-72.72s\033[0m\n", "Built-in BaseOS diagnostics");
+            else
+                (void)printf("    %-72.72s\n", "Built-in BaseOS diagnostics");
+            (void)printf("      Hardware tests, system status and USB storage tools\n");
+            continue;
+        }
+
+        if (entry_is_default(&entries[i])) {
+            if (i == selected_item)
+                (void)printf("  \033[1;32m>\033[0m \033[1;33m[DEFAULT]\033[0m %-62.62s\n",
+                             entries[i].label);
+            else
+                (void)printf("    \033[1;33m[DEFAULT]\033[0m %-62.62s\n",
+                             entries[i].label);
+        } else if (i == selected_item) {
+            (void)printf("  \033[1;32m> %-72.72s\033[0m\n", entries[i].label);
+        } else {
+            (void)printf("    %-72.72s\n", entries[i].label);
+        }
+
+        if (strcmp(entries[i].id, "legacy-updater") == 0) {
+            (void)printf("      legacy updater package detected on %s (TF2-first)\n",
+                         entries[i].root);
+        } else {
             (void)printf("      package=%-24.24s profile=%-18.18s source=%s\n",
                          entries[i].package_id, entries[i].profile_id,
                          strcmp(entries[i].root, "/mnt/TF2") == 0 ? "TF2" : "TF1");
         }
+    }
+
+    if (diagnostics_selected()) {
+        (void)printf("\n  Selected: Built-in BaseOS diagnostics\n");
+        (void)printf("  A: open diagnostics    START: open diagnostics (default unchanged)\n");
+        (void)printf("  B: cancel and use the configured/default frontend\n");
+    } else if (legacy_updater_selected()) {
+        (void)printf("\n  Selected ID: %s\n", entries[selected_item].id);
+        (void)printf("  A: launch once    START: set legacy updater as default + launch\n");
+        (void)printf("  This entry supports existing NextUI / MinUI updater installations.\n");
+        (void)printf("  B: cancel and use the configured/default frontend\n");
+    } else if (entry_count > 0) {
         (void)printf("\n  Selected ID: %s\n", entries[selected_item].id);
         (void)printf("  A: launch once    START: set default + launch\n");
         (void)printf("  Y: remove selected profile    X: uninstall entire frontend\n");
         (void)printf("  B: cancel and use the configured/default frontend\n");
-        if (entry_count > 10)
-            (void)printf("  Showing %d-%d of %d profiles\n", scroll_offset + 1,
-                         scroll_offset + 10 < entry_count ? scroll_offset + 10 : entry_count,
-                         entry_count);
     }
+    if (selector_item_count() > 10)
+        (void)printf("  Showing %d-%d of %d options\n", scroll_offset + 1,
+                     scroll_offset + 10 < selector_item_count() ? scroll_offset + 10 : selector_item_count(),
+                     selector_item_count());
     (void)printf("\n  %s\n", status_line);
     (void)printf("  D-pad UP/DOWN to move.\n");
     fflush(stdout);
@@ -332,7 +374,16 @@ static void render(void)
 
 static void choose_launch(int set_default)
 {
-    if (entry_count <= 0) return;
+    if (diagnostics_selected()) {
+        if (!write_selection(DIAGNOSTICS_SELECTION)) {
+            (void)snprintf(status_line, sizeof(status_line), "Could not request diagnostics.");
+            render();
+            return;
+        }
+        running = 0;
+        return;
+    }
+    if (selected_item < 0 || selected_item >= entry_count) return;
     if (set_default) {
         int rc = run_manager("set-default", entries[selected_item].id);
         if (rc != 0) {
@@ -396,11 +447,11 @@ static void handle_key(unsigned int code, int value)
 
     switch (code) {
     case BTN_DPAD_UP:
-        if (entry_count > 0 && selected_item > 0) --selected_item;
+        if (selected_item > 0) --selected_item;
         render();
         break;
     case BTN_DPAD_DOWN:
-        if (entry_count > 0 && selected_item + 1 < entry_count) ++selected_item;
+        if (selected_item + 1 < selector_item_count()) ++selected_item;
         render();
         break;
     case BTN_EAST:
@@ -410,14 +461,14 @@ static void handle_key(unsigned int code, int value)
         choose_launch(1);
         break;
     case BTN_WEST: /* Y: remove this profile only. */
-        if (entry_count > 0) {
+        if (selected_item < entry_count && !legacy_updater_selected()) {
             uninstall_package_action = 0;
             confirming_uninstall = 1;
             render();
         }
         break;
     case BTN_NORTH: /* X: remove the entire frontend package. */
-        if (entry_count > 0) {
+        if (selected_item < entry_count && !legacy_updater_selected()) {
             uninstall_package_action = 1;
             confirming_uninstall = 1;
             render();

@@ -58,6 +58,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
   -v "$HERE/rootfs":/rootfs-src:ro \
   -v "$HERE/src":/src:ro \
   -v "$REPO_ROOT/src":/baseos-src:ro \
+  -v "$REPO_ROOT/tools":/baseos-tools:ro \
   -v "$REPO_ROOT/assets":/assets:ro \
   -e KREL="$KREL" \
   -e BASEOS_VERSION="$BASEOS_VERSION" \
@@ -163,7 +164,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
     # The full WQY outline font and Pillow stay in this build container only;
     # only the 512-glyph bitmap subset is installed in the target rootfs.
     mkdir -p "$R/usr/share/consolefonts"
-    python3 /baseos-src/tools/mkconsolefont.py \
+    python3 /baseos-tools/mkconsolefont.py \
       --font /usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc \
       --output "$R/usr/share/consolefonts/baseos-cjk-16.psf" \
       --source /src/rg353ps-control-center.c \

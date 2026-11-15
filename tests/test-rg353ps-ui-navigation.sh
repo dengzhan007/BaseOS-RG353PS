@@ -52,6 +52,10 @@ grep -Fq 'exfatprogs kbd' "$BUILDER" ||
   fail "target rootfs does not include setfont"
 grep -Fq 'baseos-cjk-16.psf' "$BUILDER" ||
   fail "compact CJK console font is not generated"
+grep -Fq '"$REPO_ROOT/tools":/baseos-tools:ro' "$BUILDER" ||
+  fail "font generator tools directory is not mounted into the build container"
+grep -Fq 'python3 /baseos-tools/mkconsolefont.py' "$BUILDER" ||
+  fail "rootfs builder does not run the font generator from the mounted tools directory"
 grep -Fq -- '--source /baseos-src/rg353ps-ui.h' "$BUILDER" ||
   fail "shared language labels are missing from the generated font"
 grep -Fq 'test -x "$R/usr/sbin/setfont"' "$BUILDER" ||

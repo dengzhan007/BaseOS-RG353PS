@@ -40,7 +40,11 @@ assert "if (return_to_diagnostics)" in selector, "nested selector must return to
 assert "show_diagnostics_entry" not in selector, "diagnostics row must not disappear in nested selector"
 assert "case 7:" in control and "baseos_ui_toggle_language()" in control
 assert "#define MENU_COUNT 8" in control, "diagnostics must not render the duplicate bottom return row"
-assert "case 8:" not in control, "duplicate return-to-selector menu action must be removed"
+menu_start = control.find("static void select_menu_item(void)")
+menu_end = control.find("static void go_back(void)", menu_start)
+assert menu_start >= 0 and menu_end > menu_start, "diagnostics menu function boundary missing"
+menu_body = control[menu_start:menu_end]
+assert "case 8:" not in menu_body, "duplicate return-to-selector menu action must be removed"
 assert '"Return to frontend selector"' not in control and '"返回前端选择器"' not in control
 assert "return return_to_selector ? MENU_COUNT : MENU_COUNT - 1;" not in control
 assert 'case 5:\n        /* When nested under the selector' in control

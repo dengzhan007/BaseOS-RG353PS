@@ -510,9 +510,6 @@ static void select_menu_item(void)
                 T("Could not save ui_language in baseos.conf.", "无法保存语言设置。"));
         render();
         return;
-    case 8:
-        running = 0;
-        return;
     default: current_screen = SCREEN_HOME; break;
     }
     render();

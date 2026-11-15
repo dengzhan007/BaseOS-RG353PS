@@ -282,7 +282,7 @@ static int write_selection(const char *id)
 
 static void adjust_scroll(void)
 {
-    const int visible = 6;
+    const int visible = 5;
     if (entry_count <= visible) {
         scroll_offset = 0;
         return;
@@ -300,10 +300,10 @@ static void adjust_scroll(void)
 static void render_header(const char *title)
 {
     (void)printf("\033[2J\033[H\033[?25l");
-    (void)printf("\033[1;36m========================================\033[0m\n");
+    (void)printf("\033[1;36m==================================\033[0m\n");
     (void)printf("\033[1;36m");
-    baseos_ui_print_line(title, 38);
-    (void)printf("\033[0m----------------------------------------\n");
+    baseos_ui_print_line(title, 34);
+    (void)printf("\033[0m----------------------------------\n");
 }
 
 static int count_package_profiles(const char *package_id)
@@ -323,40 +323,40 @@ static void render(void)
             selected_item >= 0 && selected_item < entry_count ? &entries[selected_item] : NULL;
         render_header(T("Confirm removal", "确认卸载"));
         if (entry == NULL) {
-            baseos_ui_print_line(T("No frontend selected.", "没有选择前端。"), 38);
+            baseos_ui_print_line(T("No frontend selected.", "没有选择前端。"), 34);
         } else {
             printf("%s: ", T("Package", "前端"));
             baseos_ui_print_line(entry->package_id, 29);
             printf("%s: ", T("Profile", "配置"));
             baseos_ui_print_line(entry->profile_id, 29);
             if (entry->disabled)
-                baseos_ui_print_line(T("Status: DISABLED", "状态：已禁用"), 38);
+                baseos_ui_print_line(T("Status: DISABLED", "状态：已禁用"), 34);
             if (uninstall_package_action) {
-                baseos_ui_print_line(T("DELETE complete frontend program.", "删除整个前端程序目录。"), 38);
+                baseos_ui_print_line(T("DELETE complete frontend program.", "删除整个前端程序目录。"), 34);
                 printf("  ");
                 baseos_ui_print_line(entry->package_dir, 34);
             } else {
-                baseos_ui_print_line(T("Remove this profile only.", "仅删除当前配置。"), 38);
-                baseos_ui_print_line(T("Shared program/data are kept.", "保留共享程序和数据。"), 38);
+                baseos_ui_print_line(T("Remove this profile only.", "仅删除当前配置。"), 34);
+                baseos_ui_print_line(T("Shared program/data are kept.", "保留共享程序和数据。"), 34);
             }
             printf("%s: %d\n", T("Profiles", "配置数"), count_package_profiles(entry->package_id));
-            baseos_ui_print_line(T("Games, Saves and shared cores stay.", "Games、存档和共享核心保留。"), 38);
+            baseos_ui_print_line(T("Games, Saves and shared cores stay.", "Games、存档和共享核心保留。"), 34);
         }
-        baseos_ui_print_line(T("A: confirm    B: cancel", "A：确认    B：取消"), 38);
+        baseos_ui_print_line(T("A: confirm    B: cancel", "A：确认    B：取消"), 34);
         fflush(stdout);
         return;
     }
 
     render_header(T("BaseOS / Frontend selector", "BaseOS / 前端选择器"));
     printf("%s: ", T("Default", "默认启动"));
-    baseos_ui_print_line(current_default_label(), 30);
+    baseos_ui_print_line(current_default_label(), 26);
     printf("%s: %d\n", T("Profiles", "已安装配置"), entry_count);
 
     if (entry_count == 0) {
-        baseos_ui_print_line(T("No compatible frontend found.", "没有找到可用前端。"), 38);
-        baseos_ui_print_line(T("Install under Frontends/.", "请安装到 Frontends/ 目录。"), 38);
+        baseos_ui_print_line(T("No compatible frontend found.", "没有找到可用前端。"), 34);
+        baseos_ui_print_line(T("Install under Frontends/.", "请安装到 Frontends/ 目录。"), 34);
     } else {
-        int end = scroll_offset + 6;
+        int end = scroll_offset + 5;
         if (end > entry_count) end = entry_count;
         for (int i = scroll_offset; i < end; ++i) {
             printf("%s ", i == selected_item ? "\033[1;32m>" : " ");
@@ -371,20 +371,20 @@ static void render(void)
             baseos_ui_print_line(entries[i].profile_id, 13);
             if (i == selected_item) printf("\033[0m");
         }
-        if (entry_count > 6) {
+        if (entry_count > 5) {
             printf("  %s %d-%d/%d\n", T("Showing", "显示"),
                    scroll_offset + 1, end, entry_count);
         }
     }
 
-    printf("----------------------------------------\n");
+    printf("----------------------------------\n");
     printf("%s ", selected_item == entry_count ? "\033[1;32m>" : " ");
     baseos_ui_print_line(
         return_to_diagnostics ? T("Return to diagnostics", "返回诊断页面")
                               : T("BaseOS Diagnostics", "BaseOS 诊断页面"), 34);
     if (selected_item == entry_count) printf("\033[0m");
     printf("%s ", selected_item == entry_count + 1 ? "\033[1;32m>" : " ");
-    baseos_ui_print_line(baseos_ui_language_label(), 34);
+    baseos_ui_print_line(baseos_ui_language_label(), 32);
     if (selected_item == entry_count + 1) printf("\033[0m");
 
     if (selected_item >= 0 && selected_item < entry_count) {
@@ -393,18 +393,18 @@ static void render(void)
         printf("%s ", T("SELECT: enable/disable", "SELECT：启用/禁用"));
         printf(" %s\n", T("X: uninstall", "X：卸载"));
         if (strcmp(entries[selected_item].kind, "managed") == 0)
-            baseos_ui_print_line(T("Y: remove profile", "Y：删除配置"), 38);
+            baseos_ui_print_line(T("Y: remove profile", "Y：删除配置"), 34);
     } else if (selected_item == entry_count) {
         baseos_ui_print_line(
             return_to_diagnostics ? T("A: return to diagnostics", "A：返回诊断页面")
-                                  : T("A: open diagnostics", "A：打开诊断页面"), 38);
+                                  : T("A: open diagnostics", "A：打开诊断页面"), 34);
     } else if (selected_item == entry_count + 1) {
-        baseos_ui_print_line(T("A: switch interface language", "A：切换界面语言"), 38);
+        baseos_ui_print_line(T("A: switch interface language", "A：切换界面语言"), 34);
     }
 
     printf("%s: ", T("Status", "状态"));
-    baseos_ui_print_line(status_line, 31);
-    baseos_ui_print_line(T("UP/DOWN: move    B: back", "上下：移动    B：返回"), 38);
+    baseos_ui_print_line(status_line, 25);
+    baseos_ui_print_line(T("UP/DOWN: move    B: back", "上下：移动    B：返回"), 34);
     fflush(stdout);
 }
 

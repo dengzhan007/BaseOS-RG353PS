@@ -12,7 +12,7 @@
 
 #define BASEOS_UI_CONFIG "/mnt/SDCARD/baseos.conf"
 #define BASEOS_UI_CONFIG_TMP "/mnt/SDCARD/.baseos-ui.conf.tmp"
-#define BASEOS_UI_FONT "/usr/share/consolefonts/baseos-cjk-16.psf"
+#define BASEOS_UI_FONT "/usr/share/consolefonts/baseos-cjk-18x20.psf"
 
 static int baseos_ui_language_zh = 1;
 
@@ -137,10 +137,16 @@ static void baseos_ui_load_console_font(void)
     if (child < 0) return;
     if (child == 0) {
         int null_fd = open("/dev/null", O_WRONLY);
+        int log_fd = open("/dev/kmsg", O_WRONLY | O_CLOEXEC);
         if (null_fd >= 0) {
             (void)dup2(null_fd, STDOUT_FILENO);
-            (void)dup2(null_fd, STDERR_FILENO);
             (void)close(null_fd);
+        }
+        if (log_fd >= 0) {
+            (void)dup2(log_fd, STDERR_FILENO);
+            (void)close(log_fd);
+        } else if (null_fd >= 0) {
+            (void)dup2(null_fd, STDERR_FILENO);
         }
         execl("/usr/sbin/setfont", "setfont", "-C", "/dev/tty1",
               BASEOS_UI_FONT, (char *)NULL);
@@ -149,6 +155,14 @@ static void baseos_ui_load_console_font(void)
 
     while (waitpid(child, &status, 0) < 0) {
         if (errno != EINTR) return;
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        static const char message[] = "<3>BaseOS: setfont failed loading the RG353PS console font\\n";
+        int log_fd = open("/dev/kmsg", O_WRONLY | O_CLOEXEC);
+        if (log_fd >= 0) {
+            (void)write(log_fd, message, sizeof(message) - 1);
+            (void)close(log_fd);
+        }
     }
 }
 

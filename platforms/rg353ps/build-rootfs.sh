@@ -71,7 +71,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       printf "%s\n%s\n" "$ALPINE_MIRROR/main" "$ALPINE_MIRROR/community" > /etc/apk/repositories
       echo "apk repositories now:"; cat /etc/apk/repositories
     fi
-    apk add --no-cache busybox-static tar zstd build-base linux-headers sdl2-dev freetype-dev freetype-static zlib-static libpng-static bzip2-static brotli-static pkgconf git ca-certificates python3 py3-pillow font-wqy-zenhei
+    apk add --no-cache busybox-static tar zstd build-base linux-headers sdl2-dev freetype-dev freetype-static zlib-static libpng-static bzip2-static brotli-static pkgconf git ca-certificates python3 py3-pillow font-wqy-zenhei kbd
 
     R=/work/rootfs
     rm -rf "$R"
@@ -160,20 +160,74 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       echo "kbd setfont utility is missing from target rootfs" >&2
       exit 1
     }
-    # Generate a compact 16x16 PSF2 font from the UI CJK strings.
-    # The full WQY outline font and Pillow stay in this build container only;
-    # only the 512-glyph bitmap subset is installed in the target rootfs.
-    mkdir -p "$R/usr/share/consolefonts"
+    # Generate a readable 18x20 PSF2 font. kbd creates and re-reads the
+    # Unicode table so the kernel console receives a verified character map.
+    FONT_DIR="$R/usr/share/consolefonts"
+    RAW_FONT=/tmp/baseos-cjk-18x20.raw.psf
+    FONT_TABLE=/tmp/baseos-cjk-18x20.table
+    FONT_TABLE_CHECK=/tmp/baseos-cjk-18x20.check.table
+    FINAL_FONT="$FONT_DIR/baseos-cjk-18x20.psf"
+    mkdir -p "$FONT_DIR"
+    command -v psfaddtable >/dev/null 2>&1 || {
+      echo "kbd psfaddtable is missing from the build container" >&2
+      exit 1
+    }
+    command -v psfgettable >/dev/null 2>&1 || {
+      echo "kbd psfgettable is missing from the build container" >&2
+      exit 1
+    }
     python3 /baseos-tools/mkconsolefont.py \
       --font /usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc \
-      --output "$R/usr/share/consolefonts/baseos-cjk-16.psf" \
+      --output "$RAW_FONT" \
+      --table-output "$FONT_TABLE" \
       --source /src/rg353ps-control-center.c \
       --source /src/rg353ps-frontend-selector.c \
       --source /baseos-src/rg353ps-ui.h
-    test -s "$R/usr/share/consolefonts/baseos-cjk-16.psf" || {
-      echo "BaseOS CJK console font was not generated" >&2
-      exit 1
-    }
+    psfaddtable "$RAW_FONT" "$FONT_TABLE" "$FINAL_FONT"
+    psfgettable -i "$FINAL_FONT" -ot "$FONT_TABLE_CHECK"
+    python3 - "$FINAL_FONT" "$FONT_TABLE_CHECK" <<'PY_FONT_VALIDATE'
+import struct
+import sys
+from pathlib import Path
+
+font_path, table_path = map(Path, sys.argv[1:])
+data = font_path.read_bytes()
+assert len(data) >= 32, "PSF2 header is truncated"
+magic, version, header_size, flags, glyphs, char_size, height, width = struct.unpack("<8I", data[:32])
+assert magic == 0x864AB572 and version == 0, "invalid PSF2 signature/version"
+assert header_size >= 32 and flags & 1, "PSF2 Unicode table is missing"
+assert (width, height, glyphs) == (18, 20, 512), "unexpected console font geometry"
+assert char_size == height * ((width + 7) // 8), "invalid PSF2 glyph stride"
+assert len(data) > header_size + glyphs * char_size, "PSF2 Unicode table is empty"
+
+mapping = {}
+for line in table_path.read_text(encoding="utf-8").splitlines():
+    fields = line.split()
+    if len(fields) < 2:
+        continue
+    try:
+        slot = int(fields[0], 0)
+    except ValueError:
+        continue
+    for raw in fields[1:]:
+        for item in raw.split(","):
+            try:
+                codepoint = int(item, 0)
+            except ValueError:
+                try:
+                    codepoint = int(item, 10)
+                except ValueError:
+                    continue
+            mapping[codepoint] = slot
+
+assert mapping.get(ord("@")) == 32, "ASCII @ does not map to its own glyph slot"
+assert mapping.get(ord("A")) == 33, "ASCII A does not map to its own glyph slot"
+assert 0x4E2D in mapping, "Chinese glyph U+4E2D is missing"
+assert 0x6587 in mapping, "Chinese glyph U+6587 is missing"
+assert mapping[ord("@")] != mapping[ord("A")], "ASCII map collapsed multiple characters"
+print(f"Verified PSF2 {width}x{height}, {glyphs} glyphs, {len(mapping)} Unicode mappings")
+PY_FONT_VALIDATE
+    rm -f "$RAW_FONT" "$FONT_TABLE" "$FONT_TABLE_CHECK"
     mkdir -p "$R/usr/share/licenses/baseos-cjk-console-font"
     cat > "$R/usr/share/licenses/baseos-cjk-console-font/NOTICE" <<EOF_FONT_NOTICE
 WenQuanYi Zen Hei CJK console-font subset

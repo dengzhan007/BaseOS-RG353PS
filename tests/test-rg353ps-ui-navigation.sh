@@ -49,11 +49,11 @@ assert '#include <rg353ps-ui.h>' in control and '#include <rg353ps-ui.h>' in sel
 print("PASS: console UI input ownership, return path and bilingual controls")
 PY
 
-grep -Fq 'python3 py3-pillow font-wqy-zenhei' "$BUILDER" ||
+grep -Fq 'python3 py3-pillow font-wqy-zenhei kbd' "$BUILDER" ||
   fail "build container does not include Pillow and WenQuanYi font sources"
 grep -Fq 'exfatprogs kbd' "$BUILDER" ||
   fail "target rootfs does not include setfont"
-grep -Fq 'baseos-cjk-16.psf' "$BUILDER" ||
+grep -Fq 'baseos-cjk-18x20.psf' "$BUILDER" ||
   fail "compact CJK console font is not generated"
 grep -Fq '"$REPO_ROOT/tools":/baseos-tools:ro' "$BUILDER" ||
   fail "font generator tools directory is not mounted into the build container"
@@ -69,5 +69,22 @@ grep -Fq 'vt.default_utf8=1' "$ROOT/platforms/rg353ps/build-image.sh" ||
   fail "Linux text console is not explicitly configured for UTF-8"
 grep -Fq 'ui_language=' "$UI" ||
   fail "language preference is not persisted"
+
+grep -Fq "psfaddtable" "$BUILDER" ||
+  fail "font Unicode map is not produced with kbd psfaddtable"
+grep -Fq "psfgettable" "$BUILDER" ||
+  fail "generated font Unicode map is not round-trip verified"
+grep -Fq "ASCII @ does not map to its own glyph slot" "$BUILDER" ||
+  fail "font validation does not verify ASCII glyph indices"
+grep -Fq 'L1/R1: shoulder buttons' "$CONTROL" ||
+  fail "button help page does not explain L1/R1 shoulder buttons"
+grep -Fq 'L1/R1：左/右肩键' "$CONTROL" ||
+  fail "Chinese button help page is missing L1/R1 shoulder buttons"
+grep -Fq 'case BTN_TL: return "L1 / TL";' "$CONTROL" ||
+  fail "L1 input event is not named"
+grep -Fq 'case BTN_TR: return "R1 / TR";' "$CONTROL" ||
+  fail "R1 input event is not named"
+grep -Fq 'L1/R1：肩键输入' "$CONTROL" ||
+  fail "controller test page does not explain L1/R1 input feedback"
 
 echo "PASS: RG353PS UI navigation and CJK font build contract"

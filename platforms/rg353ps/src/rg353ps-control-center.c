@@ -193,7 +193,7 @@ static void print_file(const char *path, int max_lines, int *row)
         while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
             line[--len] = '\0';
         printf("  ");
-        baseos_ui_print_line(line, 36);
+        baseos_ui_print_line(line, 34);
         ++(*row);
         ++count;
     }
@@ -203,16 +203,16 @@ static void print_file(const char *path, int max_lines, int *row)
 static void render_header(const char *title)
 {
     printf("\033[2J\033[H\033[?25l");
-    printf("\033[1;36m========================================\033[0m\n");
+    printf("\033[1;36m==================================\033[0m\n");
     printf("\033[1;36m");
-    baseos_ui_print_line(title, 38);
-    printf("\033[0m----------------------------------------\n");
+    baseos_ui_print_line(title, 34);
+    printf("\033[0m----------------------------------\n");
 }
 
 static void print_last_input(void)
 {
     printf("  %s", T("Last:", "最近按键："));
-    baseos_ui_print_line(last_event, 31);
+    baseos_ui_print_line(last_event, 27);
 }
 
 static void render_home(void)
@@ -223,16 +223,16 @@ static void render_home(void)
     (void)read_value("/sys/class/power_supply/battery/capacity", battery, sizeof(battery));
 
     baseos_ui_print_line(T("D-pad to move, A to open, B to back.",
-                          "方向键移动，A 确认，B 返回。"), 38);
+                          "方向键移动，A 确认，B 返回。"), 34);
     baseos_ui_print_line(T("FUNCTION toggles live input monitor.",
-                          "功能键切换实时输入监视。"), 38);
+                          "功能键切换实时输入监视。"), 34);
     printf("\n");
     for (int i = 0; i < visible_menu_count(); ++i) {
         printf("%s ", i == selected_item ? "\033[1;32m>" : " ");
-        baseos_ui_print_line(menu_item_label(i), 35);
+        baseos_ui_print_line(menu_item_label(i), 32);
         if (i == selected_item) printf("\033[0m");
     }
-    printf("----------------------------------------\n");
+    printf("----------------------------------\n");
     printf("Wi-Fi: ");
     baseos_ui_print_cells(operstate, 10);
     printf("  %s: ", T("Battery", "电量"));
@@ -245,8 +245,9 @@ static void render_home(void)
 static void render_controls(void)
 {
     render_header(T("Controller input test", "手柄输入测试"));
-    baseos_ui_print_line(T("D-pad: move    A: confirm", "方向键：移动    A：确认"), 38);
-    baseos_ui_print_line(T("B: back        FUNCTION: monitor", "B：返回        功能键：监视"), 38);
+    baseos_ui_print_line(T("D-pad: move    A: confirm", "方向键：移动    A：确认"), 34);
+    baseos_ui_print_line(T("B: back        FUNCTION: monitor", "B：返回        功能键：监视"), 34);
+    baseos_ui_print_line(T("L1/R1: shoulder buttons", "L1/R1：肩键输入"), 34);
     printf("\n");
     printf("L X:%d Y:%d  R X:%d Y:%d\n", axis_x, axis_y, axis_rx, axis_ry);
     printf("%s:%d  %s:%d\n", T("Key downs", "按键次数"), key_count,
@@ -259,13 +260,13 @@ static void render_audio(void)
 {
     int row = 0;
     render_header(T("Audio devices", "音频设备信息"));
-    baseos_ui_print_line(T("ALSA sound cards:", "ALSA 声卡："), 38);
+    baseos_ui_print_line(T("ALSA sound cards:", "ALSA 声卡："), 34);
     print_file("/proc/asound/cards", 4, &row);
-    baseos_ui_print_line(T("PCM devices:", "PCM 设备："), 38);
+    baseos_ui_print_line(T("PCM devices:", "PCM 设备："), 34);
     print_file("/proc/asound/pcm", 5, &row);
-    baseos_ui_print_line(T("Volume +/- adjusts BaseOS Master.", "音量 +/- 调节 BaseOS Master。"), 38);
-    baseos_ui_print_line(T("This screen does not play sound.", "此页面不会自动播放声音。"), 38);
-    baseos_ui_print_line(T("B: back", "B：返回"), 38);
+    baseos_ui_print_line(T("Volume +/- adjusts BaseOS Master.", "音量 +/- 调节 BaseOS Master。"), 34);
+    baseos_ui_print_line(T("This screen does not play sound.", "此页面不会自动播放声音。"), 34);
+    baseos_ui_print_line(T("B: back", "B：返回"), 34);
 }
 
 static void render_wifi(void)
@@ -282,10 +283,10 @@ static void render_wifi(void)
     (void)read_value("/sys/class/rfkill/rfkill0/state", value, sizeof(value));
     printf("rfkill: ");
     baseos_ui_print_line(value, 26);
-    baseos_ui_print_line(T("Kernel wireless:", "内核无线信息："), 38);
+    baseos_ui_print_line(T("Kernel wireless:", "内核无线信息："), 34);
     print_file("/proc/net/wireless", 4, &row);
-    baseos_ui_print_line(T("BaseOS does not join an AP here.", "此页面不会连接 Wi-Fi。"), 38);
-    baseos_ui_print_line(T("B: back", "B：返回"), 38);
+    baseos_ui_print_line(T("BaseOS does not join an AP here.", "此页面不会连接 Wi-Fi。"), 34);
+    baseos_ui_print_line(T("B: back", "B：返回"), 34);
 }
 
 static void render_system(void)
@@ -308,23 +309,24 @@ static void render_system(void)
     (void)read_value("/sys/class/thermal/thermal_zone0/temp", value, sizeof(value));
     printf("%s: ", T("CPU temp", "CPU 温度"));
     baseos_ui_print_line(value, 28);
-    baseos_ui_print_line(T("Memory:", "内存："), 38);
+    baseos_ui_print_line(T("Memory:", "内存："), 34);
     print_file("/proc/meminfo", 3, &row);
-    baseos_ui_print_line(T("B: back", "B：返回"), 38);
+    baseos_ui_print_line(T("B: back", "B：返回"), 34);
 }
 
 static void render_help(void)
 {
     render_header(T("Button mapping", "按键说明"));
-    baseos_ui_print_line(T("D-pad / left stick: move", "方向键 / 左摇杆：移动"), 38);
-    baseos_ui_print_line(T("A (right): select / open", "A（右侧）：确认 / 打开"), 38);
-    baseos_ui_print_line(T("B (bottom): back", "B（下方）：返回"), 38);
-    baseos_ui_print_line(T("FUNCTION: live input monitor", "功能键：实时输入监视"), 38);
-    baseos_ui_print_line(T("Volume +/-: adjust volume", "音量 +/-：调节音量"), 38);
-    baseos_ui_print_line(T("Short Power: system information", "短按电源键：系统信息"), 38);
-    baseos_ui_print_line(T("Hold Power 2s: clean shutdown", "长按电源键 2 秒：关机"), 38);
-    baseos_ui_print_line(T("FUNCTION + Power at boot: USB", "开机时按住功能键：USB 存储"), 38);
-    baseos_ui_print_line(T("B: back", "B：返回"), 38);
+    baseos_ui_print_line(T("D-pad / left stick: move", "方向键 / 左摇杆：移动"), 34);
+    baseos_ui_print_line(T("A (right): select / open", "A（右侧）：确认 / 打开"), 34);
+    baseos_ui_print_line(T("B (bottom): back", "B（下方）：返回"), 34);
+    baseos_ui_print_line(T("L1/R1: shoulder buttons", "L1/R1：左/右肩键"), 34);
+    baseos_ui_print_line(T("FUNCTION: live input monitor", "功能键：实时输入监视"), 34);
+    baseos_ui_print_line(T("Volume +/-: adjust volume", "音量 +/-：调节音量"), 34);
+    baseos_ui_print_line(T("Short Power: system information", "短按电源键：系统信息"), 34);
+    baseos_ui_print_line(T("Hold Power 2s: clean shutdown", "长按电源键 2 秒：关机"), 34);
+    baseos_ui_print_line(T("FUNCTION + Power at boot: USB", "开机时按住功能键：USB 存储"), 34);
+    baseos_ui_print_line(T("B: back", "B：返回"), 34);
 }
 
 static void render(void)

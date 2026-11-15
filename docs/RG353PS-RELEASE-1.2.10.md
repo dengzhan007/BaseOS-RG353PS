@@ -47,7 +47,7 @@
 
 .bosupd 只更新 A/B 系统 BOOT 和 ROOTFS 区域，不包含 Rockchip U-Boot，也不会覆盖独立的用户数据分区。需要更新 U-Boot 或恢复完整分区布局时，应使用完整镜像。完整镜像写入会覆盖目标 TF1 卡，请先备份重要数据。
 
-前端程序仍由用户单独安装；BaseOS 1.2.10 不内置 LUCKLUCK-SLOT 游戏前端或模拟器核心。托管包格式和 profile 创建方法见前端适配规范。
+前端程序仍由用户单独安装。安装托管包时，将完整的 Frontends/<package-id>/ 顶层目录放在 TF1 或 TF2 用户数据分区的 Frontends/ 下，不要拆散包内文件；旧式 adapter 仍可使用历史目录结构。BaseOS 1.2.10 不内置 LUCKLUCK-SLOT 游戏前端或模拟器核心。托管包格式和 profile 创建方法见前端适配规范。
 
 ### 验证范围与已知限制
 
@@ -107,7 +107,7 @@ Upgrade compatibility:
 
 The .bosupd package updates only the A/B system BOOT and ROOTFS regions. It does not include Rockchip U-Boot or overwrite the separate user-data partition. Use the complete image when U-Boot or the full partition layout must be updated. Writing a complete image erases the target TF1 card; back up important data first.
 
-The game frontend remains a separate user-installed package. BaseOS 1.2.10 does not bundle the LUCKLUCK-SLOT frontend or emulator cores. See the frontend adapter contract for the package layout and profile creation procedure.
+The game frontend remains a separate user-installed package. For a managed package, place the intact top-level Frontends/<package-id>/ directory under Frontends/ on the TF1 or TF2 user-data volume; do not split the package files. Legacy adapters can continue using their historical directory layouts. BaseOS 1.2.10 does not bundle the LUCKLUCK-SLOT frontend or emulator cores. See the frontend adapter contract for the package layout and profile creation procedure.
 
 ### Validation scope and known limitations
 

@@ -205,23 +205,32 @@ for line in table_path.read_text(encoding="ascii").splitlines():
     fields = line.split()
     if len(fields) < 2 or fields[0].startswith("#"):
         continue
-    try:
-        slot = int(fields[0], 0)
-    except ValueError:
-        continue
+    slot = int(fields[0], 0)
     for token in fields[1:]:
-        if token.startswith("U+") and len(token) >= 6:
-            codepoint = int(token[2:], 16)
-        else:
+        if not token.startswith("U+") or len(token) != 6:
             raise AssertionError(f"unexpected kbd Unicode table token: {token!r}")
+        codepoint = int(token[2:], 16)
         previous = mapping.setdefault(codepoint, slot)
         assert previous == slot, f"Unicode U+{codepoint:04X} mapped to multiple glyphs"
 
-assert mapping.get(ord("@")) == 32, "ASCII @ does not map to its own glyph slot"
-assert mapping.get(ord("A")) == 33, "ASCII A does not map to its own glyph slot"
-assert mapping.get(0x4E2D) is not None, "Chinese glyph U+4E2D is missing"
-assert mapping.get(0x6587) is not None, "Chinese glyph U+6587 is missing"
-assert mapping[ord("@")] != mapping[ord("A")], "ASCII map collapsed multiple characters"
+# The same glyph slot must be used whether the console resolves Unicode
+# through its unimap or falls back to direct ASCII byte-to-glyph indexing.
+assert mapping.get(0x0020) == 32, "ASCII space must map to native glyph slot 32"
+assert mapping.get(0x0040) == 64, "ASCII @ must map to native glyph slot 64"
+assert mapping.get(0x0041) == 65, "ASCII A must map to native glyph slot 65"
+assert mapping.get(0x4E2D) is not None and mapping[0x4E2D] not in range(32, 127), "Chinese glyph overlaps native ASCII slots"
+assert mapping.get(0x6587) is not None and mapping[0x6587] not in range(32, 127), "Chinese glyph overlaps native ASCII slots"
+
+glyph_start = header_size
+def glyph(slot):
+    start = glyph_start + slot * char_size
+    return data[start:start + char_size]
+
+assert not any(glyph(32)), "ASCII space bitmap must be blank"
+assert any(glyph(64)), "ASCII @ bitmap is empty"
+assert any(glyph(65)), "ASCII A bitmap is empty"
+assert glyph(64) != glyph(65), "ASCII @ and A bitmaps collapsed to the same glyph"
+assert mapping[0x0020] != mapping[0x0040] != mapping[0x0041]
 print(f"Verified PSF2 {width}x{height}, {glyphs} glyphs, {len(mapping)} Unicode mappings")
 PY_FONT_VALIDATE
     rm -f "$RAW_FONT" "$FONT_TABLE" "$FONT_TABLE_CHECK"

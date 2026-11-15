@@ -76,9 +76,9 @@ grep -Fq 'psfgettable "$FINAL_FONT" "$FONT_TABLE_CHECK"' "$BUILDER" ||
   fail "generated font Unicode map is not round-trip verified"
 grep -Fq "U+{ord(ch):04X}" "$ROOT/tools/mkconsolefont.py" ||
   fail "font mapping table does not use kbd U+ Unicode syntax"
-grep -Fq "ASCII @ does not map to its own glyph slot" "$BUILDER" ||
+grep -Fq "ASCII space must map to native glyph slot 32" "$BUILDER" ||\n  fail "ASCII space does not retain its native glyph position"\ngrep -Fq "ASCII A must map to native glyph slot 65" "$BUILDER" ||\n  fail "ASCII letters do not retain their native glyph positions"\ngrep -Fq "ASCII @ bitmap must be blank" "$BUILDER" ||\n  fail "font validator does not verify blank-space glyph bitmap"\ngrep -Fq "ASCII @ does not map to its own glyph slot" "$BUILDER" ||
   fail "font validation does not verify ASCII glyph indices"
-grep -Fq "GLYPH_COUNT = 256" "$ROOT/tools/mkconsolefont.py" ||
+grep -Fq "CJK_SLOTS = tuple(range(0, 32)) + tuple(range(127, GLYPH_COUNT))" "$ROOT/tools/mkconsolefont.py" ||\n  fail "font generator does not reserve native ASCII code positions"\ngrep -Fq "GLYPH_COUNT = 256" "$ROOT/tools/mkconsolefont.py" ||
   fail "console font must remain in 256-glyph mode"
 grep -Fq 'L1/R1: shoulder buttons' "$CONTROL" ||
   fail "button help page does not explain L1/R1 shoulder buttons"
@@ -91,4 +91,4 @@ grep -Fq 'case BTN_TR: return "R1 / TR";' "$CONTROL" ||
 grep -Fq 'L1/R1：肩键输入' "$CONTROL" ||
   fail "controller test page does not explain L1/R1 input feedback"
 
-echo "PASS: RG353PS UI navigation and CJK font build contract"
+grep -Fq '\\033%G\\033[2J' "$CONTROL" ||\n  fail "diagnostics does not force UTF-8 mode on Linux console redraw"\ngrep -Fq '\\033%G\\033[2J' "$SELECTOR" ||\n  fail "frontend selector does not force UTF-8 mode on Linux console redraw"\n\necho "PASS: RG353PS UI navigation and native ASCII/CJK console font contract"

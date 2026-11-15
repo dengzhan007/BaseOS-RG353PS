@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Build a readable PSF2 bitmap font and a kbd Unicode table.
+"""Build a readable PSF2 console font with ASCII at its native code positions.
 
-WenQuanYi Zen Hei is a build-only source dependency. ASCII and the UI's CJK
-characters are rasterized into a 256-glyph font. kbd's psfaddtable attaches
-the Unicode map and psfgettable verifies it; the TTF/TTC is not shipped.
+Linux consoles can fall back to direct 8-bit glyph indexing when a Unicode
+mapping is unavailable or reset. Therefore ASCII U+0020..U+007E is stored at
+the identically numbered glyph slots, while CJK characters use otherwise
+unused control/DEL/high-byte slots. psfaddtable adds the UTF-8 Unicode map for
+the CJK glyphs. The WQY source font remains build-only.
 """
 from __future__ import annotations
 
@@ -18,6 +20,9 @@ FONT_WIDTH = 18
 FONT_HEIGHT = 20
 FONT_SIZE = 17
 GLYPH_COUNT = 256
+ASCII_FIRST = 32
+ASCII_LAST = 126
+CJK_SLOTS = tuple(range(0, 32)) + tuple(range(127, GLYPH_COUNT))
 
 
 def is_ui_unicode(ch: str) -> bool:
@@ -31,10 +36,10 @@ def is_ui_unicode(ch: str) -> bool:
     )
 
 
-def render_glyph(ch: str, font: ImageFont.FreeTypeFont) -> bytes:
+def render_glyph(ch: str | None, font: ImageFont.FreeTypeFont) -> bytes:
     image = Image.new("L", (FONT_WIDTH, FONT_HEIGHT), 0)
     draw = ImageDraw.Draw(image)
-    if ch != " ":
+    if ch is not None and ch != " ":
         draw.text(
             (FONT_WIDTH // 2, FONT_HEIGHT // 2), ch, font=font,
             fill=255, anchor="mm", stroke_width=0
@@ -67,24 +72,24 @@ def main() -> int:
             ch for ch in Path(source).read_text(encoding="utf-8")
             if is_ui_unicode(ch)
         )
-
-    ascii_chars = [chr(cp) for cp in range(32, 127)]
-    selected = set(source_chars)
-    if len(ascii_chars) + len(selected) > GLYPH_COUNT:
+    source_chars.difference_update(chr(cp) for cp in range(ASCII_FIRST, ASCII_LAST + 1))
+    if len(source_chars) > len(CJK_SLOTS):
         raise SystemExit(
-            f"UI requires {len(ascii_chars) + len(source_chars)} glyphs; "
-            f"256-glyph console font limit is {GLYPH_COUNT}"
+            f"UI requires {len(source_chars)} CJK glyphs; only "
+            f"{len(CJK_SLOTS)} safe slots remain after preserving ASCII positions"
         )
 
-    chars = ascii_chars + sorted(selected)
-    if len(chars) > GLYPH_COUNT:
-        raise SystemExit(f"selected {len(chars)} glyphs; limit is {GLYPH_COUNT}")
+    slot_chars: list[str | None] = [None] * GLYPH_COUNT
+    for cp in range(ASCII_FIRST, ASCII_LAST + 1):
+        slot_chars[cp] = chr(cp)
+    cjk_slots = CJK_SLOTS[:len(source_chars)]
+    for slot, ch in zip(cjk_slots, sorted(source_chars)):
+        slot_chars[slot] = ch
 
     font = ImageFont.truetype(args.font, FONT_SIZE, index=0)
     glyph_data = bytearray()
-    for index in range(GLYPH_COUNT):
-        ch = chars[index] if index < len(chars) else None
-        glyph_data.extend(render_glyph(ch or " ", font))
+    for ch in slot_chars:
+        glyph_data.extend(render_glyph(ch, font))
 
     row_bytes = (FONT_WIDTH + 7) // 8
     char_size = FONT_HEIGHT * row_bytes
@@ -98,12 +103,14 @@ def main() -> int:
     table_output.parent.mkdir(parents=True, exist_ok=True)
     output.write_bytes(header + glyph_data)
     with table_output.open("w", encoding="ascii", newline="\n") as table:
-        for index, ch in enumerate(chars):
-            table.write(f"{index} U+{ord(ch):04X}\n")
+        for slot, ch in enumerate(slot_chars):
+            if ch is not None:
+                table.write(f"{slot} U+{ord(ch):04X}\n")
 
     print(
         f"Created {output}: {FONT_WIDTH}x{FONT_HEIGHT}, {GLYPH_COUNT} glyph slots, "
-        f"{len(source_chars)} UI CJK characters; kbd Unicode table: {table_output}"
+        f"{ASCII_LAST - ASCII_FIRST + 1} native-position ASCII glyphs, "
+        f"{len(source_chars)} CJK glyphs"
     )
     return 0
 

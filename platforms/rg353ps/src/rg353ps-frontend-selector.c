@@ -299,7 +299,7 @@ static void adjust_scroll(void)
 
 static void render_header(const char *title)
 {
-    (void)printf("\033[2J\033[H\033[?25l");
+    (void)printf("\033%G\033[2J\033[H\033[?25l");
     (void)printf("\033[1;36m==================================\033[0m\n");
     (void)printf("\033[1;36m");
     baseos_ui_print_line(title, 34);

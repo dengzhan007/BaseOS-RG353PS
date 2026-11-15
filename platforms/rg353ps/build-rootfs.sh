@@ -70,7 +70,7 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       printf "%s\n%s\n" "$ALPINE_MIRROR/main" "$ALPINE_MIRROR/community" > /etc/apk/repositories
       echo "apk repositories now:"; cat /etc/apk/repositories
     fi
-    apk add --no-cache busybox-static tar zstd build-base linux-headers sdl2-dev freetype-dev freetype-static zlib-static libpng-static bzip2-static brotli-static pkgconf git ca-certificates
+    apk add --no-cache busybox-static tar zstd build-base linux-headers sdl2-dev freetype-dev freetype-static zlib-static libpng-static bzip2-static brotli-static pkgconf git ca-certificates python3 py3-pillow font-wqy-zenhei
 
     R=/work/rootfs
     rm -rf "$R"
@@ -148,16 +148,36 @@ docker run --rm --platform "$BASEOS_DOCKER_PLATFORM_AARCH64" \
       wpa_supplicant dropbear dropbear-convert dnsmasq openssh-sftp-server "$OPENSSH_SERVER_PACKAGE" \
       mesa-egl mesa-gles mesa-gbm mesa-dri-gallium \
       libdrm-tests mesa-utils kmscube sdl2 sdl2_image sdl2_ttf \
-      sgdisk partx blkid wipefs exfatprogs
+      sgdisk partx blkid wipefs exfatprogs kbd
     # Alpine Dropbear enables SFTP and points at this standalone OpenSSH subsystem.
     # Install only sftp-server; do not add or start a second SSH daemon.
     test -x "$R/usr/lib/ssh/sftp-server" || {
       echo "SFTP subsystem is missing from target rootfs" >&2
       exit 1
     }
-    gcc -std=c11 -O2 -Wall -Wextra -Werror -static \
+    # Generate a compact 16x16 PSF2 font from the UI's actual CJK strings.
+    # The full WQY outline font and Pillow stay in this build container only;
+    # only the 512-glyph bitmap subset is installed in the target rootfs.
+    mkdir -p "$R/usr/share/consolefonts"
+    python3 /baseos-src/tools/mkconsolefont.py \
+      --font /usr/share/fonts/wqy-zenhei/wqy-zenhei.ttc \
+      --output "$R/usr/share/consolefonts/baseos-cjk-16.psf" \
+      --source /src/rg353ps-control-center.c \
+      --source /src/rg353ps-frontend-selector.c
+    test -s "$R/usr/share/consolefonts/baseos-cjk-16.psf" || {
+      echo "BaseOS CJK console font was not generated" >&2
+      exit 1
+    }
+    mkdir -p "$R/usr/share/licenses/baseos-cjk-console-font"
+    cat > "$R/usr/share/licenses/baseos-cjk-console-font/NOTICE" <<'EOF_FONT_NOTICE'
+This 16x16 PSF2 console-font subset is rasterized from WenQuanYi Zen Hei.
+Upstream font: https://github.com/anthonyfok/fonts-wqy-zenhei
+License: GNU General Public License, version 2 (GPL-2.0).
+Only the glyph subset required by the BaseOS console menus is included.
+EOF_FONT_NOTICE
+    gcc -std=c11 -O2 -Wall -Wextra -Werror -static -I/baseos-src \
       -o "$R/usr/sbin/rg353ps-control-center" /src/rg353ps-control-center.c
-    gcc -std=c11 -O2 -Wall -Wextra -Werror -static \
+    gcc -std=c11 -O2 -Wall -Wextra -Werror -static -I/baseos-src \
       -o "$R/usr/sbin/rg353ps-frontend-selector" /src/rg353ps-frontend-selector.c
     gcc -std=c11 -O2 -Wall -Wextra -Werror -static \
       -o "$R/usr/sbin/rg353ps-hotkeyd" /src/rg353ps-hotkeyd.c

@@ -129,6 +129,8 @@ jobs:
           sh tests/test-rg353ps-diagnostic-usb.sh
           sh tests/test-rg353ps-usb-mtp.sh
           sh tests/test-rg353ps-update-splash.sh
+          sh tests/test-rg353ps-ui-navigation.sh
+          python3 -m py_compile tools/mkconsolefont.py
 
       - name: Build RG353PS U-Boot
         run: ./platforms/rg353ps/build-uboot.sh
